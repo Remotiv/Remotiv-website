@@ -535,8 +535,9 @@ export async function deleteInterview(
   let sweep: Awaited<ReturnType<typeof removeSessionObjects>>;
   try {
     sweep = await removeSessionObjects(service, session.id);
-  } catch (err) {
-    console.error("[interview] delete: storage list failed:", err);
+  } catch {
+    // Never the thrown error: its message and stack carry the storage's own text.
+    console.error(`[interview] delete ${session.id}: storage list failed`);
     return {
       ok: false,
       error: "Couldn't reach the recording storage. Nothing was deleted - please try again.",
@@ -545,9 +546,7 @@ export async function deleteInterview(
 
   if (!sweep.complete) {
     const left = sweep.present.length - sweep.removed.size;
-    console.error(
-      `[interview] delete ${session.id}: ${left} object(s) survived: ${sweep.error ?? "no error reported"}`,
-    );
+    console.error(`[interview] delete ${session.id}: ${left} object(s) survived`);
     return {
       ok: false,
       error: `${left} recording${left === 1 ? "" : "s"} couldn't be deleted, so nothing was removed. Please try again.`,
@@ -564,7 +563,7 @@ export async function deleteInterview(
   if (error) {
     // The media is already gone. Say so plainly rather than implying the
     // interview is intact — a retry will find an empty folder and succeed.
-    console.error("[interview] delete: row delete failed:", error.message);
+    console.error(`[interview] delete ${session.id}: row delete failed (${dbCode(error)})`);
     return {
       ok: false,
       error: "The recordings were deleted but the interview record wasn't. Please try again.",
@@ -577,6 +576,12 @@ export async function deleteInterview(
 
 const CANNOT_DELETE =
   "Only an owner, admin, or someone on this job's hiring team can delete an interview.";
+
+/** A database error's SQLSTATE or PostgREST code, for a log line: never its message, details or hint. */
+function dbCode(error: { code?: string } | null): string {
+  const code = error?.code ?? "";
+  return /^([0-9A-Z]{5}|PGRST\d{3})$/.test(code) ? code : "unknown";
+}
 
 type ChainSession = InterviewSessionRef & {
   job_id: string | null;

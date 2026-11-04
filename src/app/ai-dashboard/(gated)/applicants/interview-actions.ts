@@ -184,10 +184,9 @@ export async function sendInterviewInvite(
       .single();
 
     if (sessionErr || !created) {
-      return {
-        success: false,
-        error: sessionErr?.message ?? "Couldn't create the interview.",
-      };
+      // Never the database's text. The finally below gives the credit back.
+      console.error(`[interview] async send: session insert failed (${dbCode(sessionErr)})`);
+      return { success: false, error: SEND_FAILED };
     }
 
     const delivered = await deliverInvite(service, {
@@ -400,10 +399,14 @@ export async function sendLiveInterviewInvite(
     .single();
 
   if (sessionErr || !created) {
-    return {
-      success: false,
-      error: sessionErr?.message ?? "Couldn't create the interview.",
-    };
+    // Never the database's text: it names the application and the trigger.
+    if (isRestartGuard(sessionErr)) {
+      console.warn(`[interview] live send: refused by the restart guard (${dbCode(sessionErr)})`);
+      // The guard covers a restart and a decision alike; its message cannot tell which.
+      return { ...LIVE_RESTARTED, error: DECIDED_TEXT };
+    }
+    console.error(`[interview] live send: session insert failed (${dbCode(sessionErr)})`);
+    return { success: false, error: SEND_FAILED };
   }
   const sessionId = (created as { id: string }).id;
 
@@ -660,6 +663,25 @@ const RESTARTED_TEXT = "This interview was restarted - manage it from the interv
 const DECIDED_TEXT =
   "A restart decision was made for this interview - manage it from the interview page.";
 const LIVE_RESTARTED = { success: false, code: "live_restarted" } as const;
+
+/**
+ * Migration 055's guard on a new live first attempt
+ * (interview_sessions_no_first_attempt_after_restart): check_violation with
+ * exactly this message, its only argument the application id. Matched in full,
+ * never by the SQLSTATE alone: any other check violation is a plain failure.
+ */
+const RESTART_GUARD_MESSAGE =
+  /^interview_sessions: application [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12} has a restarted or decided AI Video Interview; it is managed from its interview page, not sent again$/;
+
+function isRestartGuard(error: { code?: string; message?: string } | null): boolean {
+  return error?.code === "23514" && RESTART_GUARD_MESSAGE.test(error.message ?? "");
+}
+
+/** A database error's SQLSTATE or PostgREST code, for a log line: never its message, details or hint. */
+function dbCode(error: { code?: string } | null): string {
+  const code = error?.code ?? "";
+  return /^([0-9A-Z]{5}|PGRST\d{3})$/.test(code) ? code : "unknown";
+}
 
 /**
  * Whether this application's AI Video Interview was restarted, or its restart
