@@ -108,7 +108,7 @@
 // specifier vs this repo's tsconfig. Nothing ships from this file.
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { join, posix, relative, sep } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
@@ -480,81 +480,109 @@ const ALLOWLIST = [
 ];
 
 /**
- * `.from(x)` where x is a table name this scan cannot follow to a literal.
+ * `.from(x)` where x is a table name the single-file scan cannot follow.
  *
  * Kept separate from the query allowlist because the risk is different: these
- * are not unfiltered reads, they are reads the scanner cannot SEE. An entry has
- * to say what the name resolves to and where, so that "it isn't
- * job_applications" is a checked claim rather than an assumption.
+ * are not unfiltered reads, they are reads the scanner cannot SEE. An entry is
+ * keyed by file, function and the `.from()` argument's exact source text, and
+ * pins the table that argument resolves to. resolveExpr follows the import
+ * and reads the constant from its own source, so renaming the table there
+ * fails this test although the call site is unchanged. A resolved table of
+ * job_applications fails outright: that is a read the scan cannot check.
  */
-/**
- * `.select(x)` where x is a projection this scan cannot read to a string.
- *
- * The same inversion as INDIRECT_TABLE_REFS, one level in: the risk is not an
- * unfiltered read, it is a read whose SHAPE is unknown, so whether it embeds
- * job_applications cannot be decided. Before resolveSelectArg existed, 32
- * sites on this surface landed here silently; same-file constant resolution
- * reads 28 of them, and these four are what is left. An entry has to say what
- * the projection resolves to and where, so that "it does not embed
- * job_applications" is a checked claim and not an assumption.
- */
-const UNREADABLE_SELECTS = [
+const INDIRECT_TABLE_REFS = [
   {
-    ref:
-      `${DASH}/applicants/final-interview-actions.ts:174 latestBooking(): ` +
-      ".select(BOOKING_ROW_COLUMNS) — BOOKING_ROW_COLUMNS is not a same-file string const",
+    file: `${DASH}/tip-actions.ts`,
+    fn: "dismissTip",
+    from: "TIP_TABLE",
+    table: "company_member_tips",
+    occurrences: 1,
     why:
-      "Imported from lib/calendar/bookings.ts, where `export const BOOKING_ROW_COLUMNS = ROW_COLUMNS` " +
-      "at 136 aliases the const declared at 133 — a flat list of 24 interview_bookings columns, " +
-      "`id, company_id, application_id, job_id, host_member_id, duration_minutes, status, ...`, with " +
-      "no parenthesis in it and so no embedded resource of any kind. Unfollowable here for the same " +
-      "reason TIP_TABLE is: this scan is single-file by design.",
-  },
-  {
-    ref:
-      `${DASH}/applicants/final-interview-actions.ts:324 listFinalInterviews(): ` +
-      ".select(BOOKING_ROW_COLUMNS) — BOOKING_ROW_COLUMNS is not a same-file string const",
-    why:
-      "The same imported constant as the entry above, read at a second call site in the same file: " +
-      "lib/calendar/bookings.ts:136, aliasing the 24-column interview_bookings projection at 133. No " +
-      "parenthesis, so no embed. Listed separately rather than counted twice because an occurrence " +
-      "count would stop naming which call sites were actually checked.",
-  },
-  {
-    ref:
-      `${DASH}/jobs/actions.ts:860 assertOwned(): ` +
-      `.select(\`id, company_id, criteria_version, \${SCORING_RELEVANT_COLUMNS.join(", ")}, ` +
-      `\${CV_WEIGHT_DIMENSIONS.map((d) => d.key).join(", ")}\`) — interpolates a CallExpression, ` +
-      "which no static reading covers",
-    why:
-      "Two array joins, both over module constants of plain jobs column names: " +
-      "SCORING_RELEVANT_COLUMNS (app/ai-dashboard/lib/job-patch.ts:232) is nine strings, title " +
-      "through interview_criteria, and CV_WEIGHT_DIMENSIONS (app/ai-dashboard/lib/job-types.ts:662) " +
-      "contributes four cv_weight_* keys. Evaluating .join() statically would mean an interpreter; " +
-      "the projection is a flat column list either way, with no parenthesis and no embed.",
-  },
-  {
-    ref:
-      "app/jobs/company-filter.ts:88 fetchCompanyJobs(): .select(LIST_SELECT) — " +
-      "LIST_SELECT is not a same-file string const",
-    why:
-      "Imported from lib/jobs.ts, where `export const LIST_SELECT` at 23 is the lean card-grid " +
-      "projection: 24 comma-separated jobs columns, id through listed_on_remotiv. The comment above " +
-      "it and at lib/jobs.ts:181 both record that it DELIBERATELY avoids joins because /jobs is the " +
-      "hottest page on the site — so the one thing this projection is guaranteed not to contain is " +
-      "an embedded resource.",
+      "TIP_TABLE is imported from app/ai-dashboard/lib/tip-state.ts, where it is an exported " +
+      "string const naming the per-member tip dismissals table. That is a different table from " +
+      "job_applications; the single-file scan does not follow imports, so the resolver reads " +
+      "the constant from its own source and the pinned table is the claim under test.",
   },
 ];
 
-const INDIRECT_TABLE_REFS = [
+/**
+ * `.select(x)` where x is a projection the single-file scan cannot read.
+ *
+ * The same inversion as INDIRECT_TABLE_REFS, one level in: whether such a read
+ * embeds job_applications cannot be decided from its own file. An entry
+ * records a human having reviewed one exact query, so it is keyed by
+ * everything that query is: file, function, table, the select argument's exact
+ * source text, and how many times that select appears in the function.
+ * `projection` pins what the argument resolves to, read statically from the
+ * modules it imports. It is the reviewed statement, so a justification never
+ * restates it: change the select text, the function, the table, the count, or
+ * the contents of anything the projection is built from, and the entry stops
+ * matching.
+ *
+ * Line numbers are deliberately not part of the key (#27). They changed on
+ * edits that changed nothing reviewed, and they missed the one change that did:
+ * b80ab19 rewrote LIST_SELECT and its entry kept passing.
+ *
+ * A projection that cannot be resolved FAILS, and so does one containing a
+ * parenthesis, which is how PostgREST spells an embedded resource.
+ */
+const UNREADABLE_SELECTS = [
   {
-    ref: `${DASH}/tip-actions.ts:32: .from(TIP_TABLE)`,
+    file: `${DASH}/applicants/final-interview-actions.ts`,
+    fn: "latestBooking",
+    table: "interview_bookings",
+    select: "BOOKING_ROW_COLUMNS",
+    occurrences: 1,
+    projection:
+      "id, company_id, application_id, job_id, host_member_id, duration_minutes, status, scheduled_start, scheduled_end, candidate_timezone, host_timezone, meeting_mode, meeting_url, provider_event_id, provider, expires_at, cancelled_at, booked_at, cancelled_by, cancel_reason, purpose, final_interview_id, recording_notice_acknowledged_at, recording_notice_version",
     why:
-      "TIP_TABLE is imported from app/ai-dashboard/lib/tip-state.ts, where it is " +
-      '`export const TIP_TABLE = "company_member_tips"` at 23 — a different table, and the only ' +
-      "cross-module table constant on this surface. Unfollowable here because the scan is " +
-      "single-file by design; resolving imports would mean building a module graph to answer a " +
-      "question one grep settles.",
+      "BOOKING_ROW_COLUMNS is imported from lib/calendar/bookings.ts, where it aliases that " +
+      "module's own ROW_COLUMNS string: the flat interview_bookings projection a BookingRow is " +
+      "read with. A flat column list cannot embed job_applications.",
+  },
+  {
+    file: `${DASH}/applicants/final-interview-actions.ts`,
+    fn: "listFinalInterviews",
+    table: "interview_bookings",
+    select: "BOOKING_ROW_COLUMNS",
+    occurrences: 1,
+    projection:
+      "id, company_id, application_id, job_id, host_member_id, duration_minutes, status, scheduled_start, scheduled_end, candidate_timezone, host_timezone, meeting_mode, meeting_url, provider_event_id, provider, expires_at, cancelled_at, booked_at, cancelled_by, cancel_reason, purpose, final_interview_id, recording_notice_acknowledged_at, recording_notice_version",
+    why:
+      "The same imported constant as latestBooking, read at a second call site in this file. " +
+      "A separate entry rather than an occurrence count because the two reads sit in different " +
+      "functions, and each function is its own reviewed call site.",
+  },
+  {
+    file: `${DASH}/jobs/actions.ts`,
+    fn: "assertOwned",
+    table: "jobs",
+    select:
+      `\`id, company_id, criteria_version, \${SCORING_RELEVANT_COLUMNS.join(", ")}, ` +
+      `\${CV_WEIGHT_DIMENSIONS.map((d) => d.key).join(", ")}\``,
+    occurrences: 1,
+    projection:
+      "id, company_id, criteria_version, title, description, responsibilities, requirements, experience_level, category, screening_questions, scoring_must_haves, interview_criteria, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities",
+    why:
+      "A template over two imported module constants of plain jobs column names: " +
+      "SCORING_RELEVANT_COLUMNS from app/ai-dashboard/lib/job-patch.ts, joined, and the key of " +
+      "each CV_WEIGHT_DIMENSIONS entry from app/ai-dashboard/lib/job-types.ts, mapped and " +
+      "joined. The resolver reads both array literals, so a column added to either one " +
+      "changes the projection and fails here.",
+  },
+  {
+    file: "app/jobs/company-filter.ts",
+    fn: "fetchCompanyJobs",
+    table: "jobs",
+    select: "LIST_SELECT",
+    occurrences: 1,
+    projection:
+      "id,title,company,company_rating,location,salary_min,salary_max,salary_currency,contract_type,work_type,category,experience_level,positions,created_at,slug,company_id",
+    why:
+      "LIST_SELECT is imported from lib/jobs.ts, where it is PUBLIC_JOB_SUMMARY_FIELDS joined " +
+      "with commas: the public card-grid keep-list. lib/jobs.ts records that this projection " +
+      "deliberately avoids joins because /jobs is the hottest page on the site, which is the " +
+      "property the parenthesis check enforces.",
   },
 ];
 
@@ -1437,7 +1465,13 @@ export function scanSource(fileName, text) {
         const arg = n.arguments[0];
         const resolved = resolveTableArg(n, consts);
         if (resolved.opaque) {
-          opaque.push(`${fileName}:${line(n)}: .from(${arg.getText()})`);
+          opaque.push({
+            file: fileName,
+            fn: functionName(n),
+            from: arg.getText().replace(/\s+/g, " "),
+            arg,
+            sf,
+          });
         } else if (resolved.table) {
           const { methods, outer } = chainFrom(n);
           const direct = resolved.table === TABLE;
@@ -1459,9 +1493,18 @@ export function scanSource(fileName, text) {
             projections.forEach((p, i) => {
               if (p.text !== undefined) return;
               const shown = selects[i].args[0]?.getText().replace(/\s+/g, " ") ?? "";
-              unreadable.push(
-                `${fileName}:${line(n)} ${functionName(n)}(): .select(${shown}) — ${p.why}`,
-              );
+              // Keyed as UNREADABLE_SELECTS is: no line number (#27). `arg`
+              // and `sf` let the pin check resolve the projection across
+              // modules.
+              unreadable.push({
+                file: fileName,
+                fn: functionName(n),
+                table: resolved.table,
+                select: shown,
+                why: p.why,
+                arg: selects[i].args[0],
+                sf,
+              });
             });
             return ts.forEachChild(n, visit);
           }
@@ -1503,6 +1546,338 @@ export function scanSource(fileName, text) {
   };
   visit(sf);
   return { sites, opaque, unreadable };
+}
+
+/* ── cross-module pins ────────────────────────────────────────── */
+
+/** Source text by path relative to src/, or null when there is no such file. */
+const diskModule = (rel) => {
+  try {
+    return readFileSync(join(SRC, rel), "utf8");
+  } catch {
+    return null;
+  }
+};
+
+const parseModule = (rel, text) =>
+  ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+
+/**
+ * The src/-relative file an import specifier names, or null.
+ *
+ * Only `@/` and relative specifiers. A package is not this tree's source, and a
+ * value pinned from node_modules would pin something nobody here reviews.
+ */
+function specBase(fromRel, spec) {
+  if (spec.startsWith("@/")) return spec.slice(2);
+  if (spec.startsWith("./") || spec.startsWith("../")) {
+    return posix.join(posix.dirname(fromRel), spec);
+  }
+  return null;
+}
+
+function moduleRel(fromRel, spec, readModule) {
+  const base = specBase(fromRel, spec);
+  if (base === null) return null;
+  for (const candidate of [`${base}.ts`, `${base}.tsx`, `${base}/index.ts`]) {
+    if (readModule(candidate) !== null) return candidate;
+  }
+  return null;
+}
+
+/** Every name a binding introduces: `a`, `{ a, b: c }`, `[a, ...d]`. */
+function bindingNames(name) {
+  if (ts.isIdentifier(name)) return [name.text];
+  return name.elements.flatMap((el) => (ts.isOmittedExpression(el) ? [] : bindingNames(el.name)));
+}
+
+/**
+ * Is `name` declared between `node` and module scope?
+ *
+ * The resolver reads MODULE bindings. A local of the same name is what the
+ * query would actually use, so finding one is a refusal, not a guess.
+ */
+function shadowedAt(node, name) {
+  for (let n = node.parent; n && !ts.isSourceFile(n); n = n.parent) {
+    const declared = [];
+    if (ts.isFunctionLike(n)) {
+      for (const p of n.parameters ?? []) declared.push(...bindingNames(p.name));
+    }
+    if (ts.isBlock(n) || ts.isCaseClause(n) || ts.isDefaultClause(n)) {
+      for (const s of n.statements) {
+        if (ts.isVariableStatement(s)) {
+          for (const d of s.declarationList.declarations) declared.push(...bindingNames(d.name));
+        } else if ((ts.isFunctionDeclaration(s) || ts.isClassDeclaration(s)) && s.name) {
+          declared.push(s.name.text);
+        }
+      }
+    }
+    if (
+      (ts.isForStatement(n) || ts.isForOfStatement(n) || ts.isForInStatement(n)) &&
+      n.initializer &&
+      ts.isVariableDeclarationList(n.initializer)
+    ) {
+      for (const d of n.initializer.declarations) declared.push(...bindingNames(d.name));
+    }
+    if (ts.isCatchClause(n) && n.variableDeclaration) {
+      declared.push(...bindingNames(n.variableDeclaration.name));
+    }
+    if (declared.includes(name)) return true;
+  }
+  return false;
+}
+
+/** A module-level `const name = …` in `sf`, optionally only an exported one. */
+function moduleConst(sf, name, exportedOnly) {
+  for (const s of sf.statements) {
+    if (!ts.isVariableStatement(s)) continue;
+    const exported = s.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+    if (exportedOnly && !exported) continue;
+    for (const d of s.declarationList.declarations) {
+      if (!ts.isIdentifier(d.name) || d.name.text !== name) continue;
+      const isConst = (s.declarationList.flags & ts.NodeFlags.Const) !== 0;
+      return isConst && d.initializer
+        ? { init: d.initializer }
+        : { why: `${name} is not a const with an initializer` };
+    }
+  }
+  return null;
+}
+
+/** An identifier, to the value of the module const or named import it names. */
+function resolveBinding(id, mod, depth) {
+  const name = id.text;
+  if (depth > 8) return { why: `${name} is more than eight bindings deep` };
+  if (shadowedAt(id, name)) {
+    return {
+      why: `${name} is declared locally where it is used, so no module binding stands for it`,
+    };
+  }
+  const local = moduleConst(mod.sf, name, false);
+  if (local) return local.why ? local : resolveExpr(local.init, mod, depth + 1);
+  for (const s of mod.sf.statements) {
+    const named = ts.isImportDeclaration(s) ? s.importClause?.namedBindings : undefined;
+    if (!named || !ts.isNamedImports(named)) continue;
+    const el = named.elements.find((e) => e.name.text === name);
+    if (!el) continue;
+    if (s.importClause.isTypeOnly || el.isTypeOnly) return { why: `${name} is a type-only import` };
+    const spec = s.moduleSpecifier.text;
+    const rel = moduleRel(mod.rel, spec, mod.readModule);
+    if (!rel)
+      return { why: `${name} is imported from ${spec}, which is not a source file under src/` };
+    const target = { rel, sf: parseModule(rel, mod.readModule(rel)), readModule: mod.readModule };
+    const exported = (el.propertyName ?? el.name).text;
+    const found = moduleConst(target.sf, exported, true);
+    if (!found) return { why: `${spec} has no \`export const ${exported}\` to read` };
+    return found.why ? found : resolveExpr(found.init, target, depth + 1);
+  }
+  return { why: `${name} is neither a module-level const nor a named import in ${mod.rel}` };
+}
+
+/** `(d) => d.key` gives "key". Any other callback gives null. */
+function propertyPicker(fn) {
+  if (!ts.isArrowFunction(fn) || fn.parameters.length !== 1) return null;
+  const p = fn.parameters[0];
+  if (!ts.isIdentifier(p.name) || p.dotDotDotToken || p.initializer) return null;
+  let body = fn.body;
+  while (ts.isParenthesizedExpression(body)) body = body.expression;
+  return ts.isPropertyAccessExpression(body) &&
+    ts.isIdentifier(body.expression) &&
+    body.expression.text === p.name.text
+    ? body.name.text
+    : null;
+}
+
+/**
+ * The value of an expression, read from source and never executed.
+ *
+ * Deliberately narrow: strings, same-module consts, named imports of `export
+ * const` under src/, templates and `+` of strings, array literals without
+ * spreads, object literals of plain properties, `.join()` with a literal
+ * separator, and `.map((d) => d.key)`. That is every shape the pinned entries
+ * use. Anything else returns `{ why }`, and a pin that cannot be resolved
+ * fails: a security test that cannot read what it approves must go red.
+ *
+ * Nothing is cached. Every call parses the modules it follows from the text
+ * `readModule` returns at that moment, which is what lets a control edit a
+ * dependency and see the change.
+ *
+ * Object literals resolve lazily, as their property nodes, so an object is
+ * only as readable as the property actually picked from it.
+ */
+function resolveExpr(e, mod, depth = 0) {
+  if (!e) return { why: "there is no argument" };
+  if (ts.isStringLiteralLike(e)) return { value: e.text };
+  if (
+    ts.isParenthesizedExpression(e) ||
+    ts.isAsExpression(e) ||
+    ts.isSatisfiesExpression(e) ||
+    ts.isNonNullExpression(e)
+  ) {
+    return resolveExpr(e.expression, mod, depth);
+  }
+  if (ts.isIdentifier(e)) return resolveBinding(e, mod, depth);
+  if (ts.isTemplateExpression(e)) {
+    let text = e.head.text;
+    for (const span of e.templateSpans) {
+      const part = resolveExpr(span.expression, mod, depth);
+      if (part.why) return part;
+      if (typeof part.value !== "string") {
+        return { why: `${span.expression.getText()} does not resolve to a string` };
+      }
+      text += part.value + span.literal.text;
+    }
+    return { value: text };
+  }
+  if (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const sides = [resolveExpr(e.left, mod, depth), resolveExpr(e.right, mod, depth)];
+    const blocked = sides.find((s) => s.why);
+    if (blocked) return blocked;
+    if (sides.some((s) => typeof s.value !== "string")) {
+      return { why: `${e.getText()} concatenates something that is not a string` };
+    }
+    return { value: sides[0].value + sides[1].value };
+  }
+  if (ts.isArrayLiteralExpression(e)) {
+    const out = [];
+    for (const el of e.elements) {
+      if (ts.isSpreadElement(el) || ts.isOmittedExpression(el)) {
+        return { why: "an array literal with a spread or a hole" };
+      }
+      const r = resolveExpr(el, mod, depth);
+      if (r.why) return r;
+      out.push(r.value);
+    }
+    return { value: out };
+  }
+  if (ts.isObjectLiteralExpression(e)) {
+    const props = new Map();
+    for (const p of e.properties) {
+      if (!ts.isPropertyAssignment(p) || !(ts.isIdentifier(p.name) || ts.isStringLiteral(p.name))) {
+        return { why: "an object literal with a property that is not a plain assignment" };
+      }
+      props.set(p.name.text, p.initializer);
+    }
+    return { value: { props, mod } };
+  }
+  if (ts.isCallExpression(e) && ts.isPropertyAccessExpression(e.expression)) {
+    const method = e.expression.name.text;
+    const recv = resolveExpr(e.expression.expression, mod, depth);
+    if (recv.why) return recv;
+    const list = Array.isArray(recv.value) ? recv.value : null;
+    if (method === "join" && list && list.every((v) => typeof v === "string")) {
+      if (e.arguments.length === 0) return { value: list.join(",") };
+      if (e.arguments.length === 1 && ts.isStringLiteralLike(e.arguments[0])) {
+        return { value: list.join(e.arguments[0].text) };
+      }
+    }
+    const prop =
+      method === "map" && e.arguments.length === 1 ? propertyPicker(e.arguments[0]) : null;
+    if (prop && list) {
+      const out = [];
+      for (const item of list) {
+        const node = item?.props instanceof Map ? item.props.get(prop) : undefined;
+        if (!node)
+          return { why: `an element of ${e.expression.expression.getText()} has no ${prop}` };
+        const r = resolveExpr(node, item.mod, depth);
+        if (r.why) return r;
+        out.push(r.value);
+      }
+      return { value: out };
+    }
+    return { why: `${e.getText()} calls .${method}() in a form this resolver does not evaluate` };
+  }
+  return { why: `${e.getText()} is a ${ts.SyntaxKind[e.kind]}, which this resolver does not read` };
+}
+
+const selectPinKey = (e) => `${e.file} ${e.fn}(): .from("${e.table}").select(${e.select})`;
+const tablePinKey = (e) => `${e.file} ${e.fn}(): .from(${e.from})`;
+
+/**
+ * Every way the unreadable selects in `records` fail their pins. Empty is a pass.
+ *
+ * Pure over its arguments, so a control can hand it a re-scanned file and a
+ * `readModule` that returns an edited dependency.
+ */
+function selectPinFailures(records, readModule) {
+  const failures = [];
+  const used = new Map();
+  for (const r of records) {
+    const where = selectPinKey(r);
+    const entry = UNREADABLE_SELECTS.find(
+      (e) => e.file === r.file && e.fn === r.fn && e.table === r.table && e.select === r.select,
+    );
+    if (!entry) {
+      failures.push(`unexamined: ${where}, which the single-file scan cannot read (${r.why})`);
+      continue;
+    }
+    used.set(entry, (used.get(entry) ?? 0) + 1);
+    const got = resolveExpr(r.arg, { rel: r.file, sf: r.sf, readModule });
+    if (got.why || typeof got.value !== "string") {
+      failures.push(`could not be resolved: ${where}: ${got.why ?? "it is not a string"}`);
+      continue;
+    }
+    if (got.value !== entry.projection) {
+      failures.push(
+        `projection changed since it was reviewed: ${where}\n      pinned:   ${entry.projection}\n      resolved: ${got.value}`,
+      );
+    }
+    if (got.value.includes("(")) {
+      failures.push(
+        `embeds a resource: ${where} resolves to a projection with a parenthesis: ${got.value}`,
+      );
+    }
+  }
+  for (const e of UNREADABLE_SELECTS) {
+    const n = used.get(e) ?? 0;
+    if (n === 0) failures.push(`stale: ${selectPinKey(e)} matches no select in the tree`);
+    else if (n !== e.occurrences) {
+      failures.push(
+        `occurrence count changed: ${selectPinKey(e)} was reviewed ${e.occurrences} time(s) and appears ${n}`,
+      );
+    }
+  }
+  return failures;
+}
+
+/** The same, for `.from()` arguments the single-file scan cannot follow. */
+function tablePinFailures(records, readModule) {
+  const failures = [];
+  const used = new Map();
+  for (const r of records) {
+    const where = tablePinKey(r);
+    const entry = INDIRECT_TABLE_REFS.find(
+      (e) => e.file === r.file && e.fn === r.fn && e.from === r.from,
+    );
+    if (!entry) {
+      failures.push(`unexamined: ${where}, a table name the single-file scan cannot follow`);
+      continue;
+    }
+    used.set(entry, (used.get(entry) ?? 0) + 1);
+    const got = resolveExpr(r.arg, { rel: r.file, sf: r.sf, readModule });
+    if (got.why || typeof got.value !== "string") {
+      failures.push(`could not be resolved: ${where}: ${got.why ?? "it is not a string"}`);
+      continue;
+    }
+    if (got.value !== entry.table) {
+      failures.push(
+        `table changed since it was reviewed: ${where} was pinned to ${entry.table} and resolves to ${got.value}`,
+      );
+    }
+    if (got.value === TABLE) {
+      failures.push(`reaches ${TABLE}: ${where} is a ${TABLE} access the scan cannot check`);
+    }
+  }
+  for (const e of INDIRECT_TABLE_REFS) {
+    const n = used.get(e) ?? 0;
+    if (n === 0) failures.push(`stale: ${tablePinKey(e)} matches no .from() in the tree`);
+    else if (n !== e.occurrences) {
+      failures.push(
+        `occurrence count changed: ${tablePinKey(e)} was reviewed ${e.occurrences} time(s) and appears ${n}`,
+      );
+    }
+  }
+  return failures;
 }
 
 function sourceFiles(dir) {
@@ -2080,38 +2455,212 @@ test("no company filter value is client-supplied", () => {
 });
 
 test("no select() on the tenant surface is unreadable to the scan", () => {
-  const justified = new Set(UNREADABLE_SELECTS.map((r) => r.ref));
-  const unexplained = scan.unreadableOnSurface.filter((r) => !justified.has(r));
+  const failures = selectPinFailures(scan.unreadableOnSurface, diskModule);
   assert.deepEqual(
-    unexplained,
+    failures,
     [],
-    "a select() this scan cannot read might embed job_applications; it is not " +
-      `cleared, it is unexamined:\n    ${unexplained.join("\n    ")}`,
+    "a select() this scan cannot read might embed job_applications; it is not cleared " +
+      `until it matches a reviewed pin:\n    ${failures.join("\n    ")}`,
   );
-
-  const stale = UNREADABLE_SELECTS.filter((r) => !scan.unreadableOnSurface.includes(r.ref)).map(
-    (r) => r.ref,
-  );
-  assert.deepEqual(stale, [], `stale unreadable-select entries:\n    ${stale.join("\n    ")}`);
-  for (const r of UNREADABLE_SELECTS) {
-    assert.ok(r.why && r.why.length > 80, `${r.ref}: justification too thin`);
+  for (const e of UNREADABLE_SELECTS) {
+    assert.ok(e.why && e.why.length > 80, `${selectPinKey(e)}: justification too thin`);
   }
 });
 
 test("no table name on the tenant surface is reached by a route the scan cannot follow", () => {
-  const justified = new Set(INDIRECT_TABLE_REFS.map((r) => r.ref));
-  const unexplained = scan.opaqueOnSurface.filter((r) => !justified.has(r));
+  const failures = tablePinFailures(scan.opaqueOnSurface, diskModule);
   assert.deepEqual(
-    unexplained,
+    failures,
     [],
-    `.from() with an unresolvable table argument on the tenant surface:\n    ${unexplained.join("\n    ")}`,
+    `.from() with a table argument that matches no reviewed pin:\n    ${failures.join("\n    ")}`,
   );
+  for (const e of INDIRECT_TABLE_REFS) {
+    assert.ok(e.why && e.why.length > 80, `${tablePinKey(e)}: justification too thin`);
+  }
+});
 
-  const stale = INDIRECT_TABLE_REFS.filter((r) => !scan.opaqueOnSurface.includes(r.ref)).map(
-    (r) => r.ref,
+/* ── #27: the pins track the query, not its position ─────────── */
+
+/**
+ * The scan's two pinned-record lists, with some files' text replaced.
+ *
+ * Each overlaid file is re-scanned from its new text, and the resolver reads
+ * every dependency through `readModule`, so an edited dependency is read as
+ * edited. No module is imported, so there is no module cache to hide a change:
+ * the dependencies are parsed from text on every call.
+ */
+function rescan(overlay) {
+  const readModule = (rel) => (Object.hasOwn(overlay, rel) ? overlay[rel] : diskModule(rel));
+  let unreadable = scan.unreadableOnSurface;
+  let opaque = scan.opaqueOnSurface;
+  for (const [rel, text] of Object.entries(overlay)) {
+    unreadable = unreadable.filter((r) => r.file !== rel);
+    opaque = opaque.filter((r) => r.file !== rel);
+    if (!onTenantSurface(rel, text)) continue;
+    const out = scanSource(rel, text);
+    unreadable = [...unreadable, ...out.unreadable];
+    opaque = [...opaque, ...out.opaque];
+  }
+  return [...selectPinFailures(unreadable, readModule), ...tablePinFailures(opaque, readModule)];
+}
+
+/** `text` with its one occurrence of `from` replaced. A missing anchor is a broken control. */
+function editOnce(text, from, to) {
+  const at = text.indexOf(from);
+  assert.ok(at !== -1 && text.indexOf(from, at + 1) === -1, `control anchor not unique: ${from}`);
+  return text.slice(0, at) + to + text.slice(at + from.length);
+}
+
+const FILTER = "app/jobs/company-filter.ts";
+const JOBS_LIB = "lib/jobs.ts";
+const FETCH_JOBS = `${FILTER} fetchCompanyJobs()`;
+const FETCH_JOBS_OPEN =
+  "export async function fetchCompanyJobs(companyId: string): Promise<Read<Job[]>> {\n" +
+  "  const supabase = createServiceClient();\n";
+const SUMMARY_OPEN = 'export const PUBLIC_JOB_SUMMARY_FIELDS = [\n  "id",\n';
+
+test("#27 an imported column array changing fails its pin, though the select text does not", () => {
+  // b80ab19, reproduced: the dependency moves and the call site does not.
+  const jobs = diskModule(JOBS_LIB);
+  const filter = diskModule(FILTER);
+  assert.ok(filter.includes(".select(LIST_SELECT)"), "the call site is the one pinned");
+  const cases = {
+    "a field added to PUBLIC_JOB_SUMMARY_FIELDS": {
+      [JOBS_LIB]: editOnce(jobs, SUMMARY_OPEN, `${SUMMARY_OPEN}  "description",\n`),
+    },
+    "a field removed from PUBLIC_JOB_SUMMARY_FIELDS": {
+      [JOBS_LIB]: editOnce(jobs, '  "company_rating",\n', ""),
+    },
+    "a column added to SCORING_RELEVANT_COLUMNS": {
+      "app/ai-dashboard/lib/job-patch.ts": editOnce(
+        diskModule("app/ai-dashboard/lib/job-patch.ts"),
+        '  "screening_questions",\n',
+        '  "screening_questions",\n  "salary_min",\n',
+      ),
+    },
+    "a CV_WEIGHT_DIMENSIONS key renamed": {
+      "app/ai-dashboard/lib/job-types.ts": editOnce(
+        diskModule("app/ai-dashboard/lib/job-types.ts"),
+        'key: "cv_weight_domain"',
+        'key: "cv_weight_sector"',
+      ),
+    },
+  };
+  for (const [name, overlay] of Object.entries(cases)) {
+    // Only the dependency is overlaid: every call site is read from disk unchanged.
+    assert.ok(
+      !Object.hasOwn(overlay, FILTER) && !Object.hasOwn(overlay, `${DASH}/jobs/actions.ts`),
+    );
+    const failures = rescan(overlay);
+    assert.ok(
+      failures.some((f) => f.startsWith("projection changed since it was reviewed: ")),
+      `${name}: not caught\n    ${failures.join("\n    ")}`,
+    );
+  }
+  assert.deepEqual(rescan({}), [], "and the unedited tree passes, so the edit is what failed");
+});
+
+test("#27 unrelated lines added above an approved select still pass", () => {
+  const filler = Array.from({ length: 11 }, (_, i) => `// unrelated line ${i + 1}\n`).join("");
+  const actions = `${DASH}/jobs/actions.ts`;
+  assert.deepEqual(
+    rescan({
+      [FILTER]: editOnce(diskModule(FILTER), FETCH_JOBS_OPEN, filler + FETCH_JOBS_OPEN),
+      [actions]: editOnce(
+        diskModule(actions),
+        "async function assertOwned(",
+        `${filler}async function assertOwned(`,
+      ),
+    }),
+    [],
   );
-  assert.deepEqual(stale, [], `stale indirect-reference entries:\n    ${stale.join("\n    ")}`);
-  for (const r of INDIRECT_TABLE_REFS) {
-    assert.ok(r.why && r.why.length > 80, `${r.ref}: justification too thin`);
+});
+
+test("#27 the select's source text changing fails, even when it resolves to the same value", () => {
+  const filter = diskModule(FILTER);
+  for (const replacement of [
+    `.select(\`\${LIST_SELECT},description\`)`,
+    // Byte-for-byte the same projection. Only the select text says it changed.
+    `.select(\`\${LIST_SELECT}\`)`,
+  ]) {
+    const failures = rescan({ [FILTER]: editOnce(filter, ".select(LIST_SELECT)", replacement) });
+    assert.ok(
+      failures.some((f) => f.startsWith(`unexamined: ${FILTER} fetchCompanyJobs()`)),
+      `${replacement}: not caught\n    ${failures.join("\n    ")}`,
+    );
+  }
+});
+
+test("#27 a second copy of an approved select in the same function fails its occurrence count", () => {
+  const failures = rescan({
+    [FILTER]: editOnce(
+      diskModule(FILTER),
+      FETCH_JOBS_OPEN,
+      `${FETCH_JOBS_OPEN}  void supabase.from("jobs").select(LIST_SELECT);\n`,
+    ),
+  });
+  assert.ok(
+    failures.some((f) => f.startsWith(`occurrence count changed: ${FETCH_JOBS}`)),
+    failures.join("\n"),
+  );
+});
+
+test("#27 an embedded relation in a resolved projection fails", () => {
+  const failures = rescan({
+    [JOBS_LIB]: editOnce(
+      diskModule(JOBS_LIB),
+      SUMMARY_OPEN,
+      `${SUMMARY_OPEN}  "job_applications(email)",\n`,
+    ),
+  });
+  assert.ok(
+    failures.some((f) => f.startsWith(`embeds a resource: ${FETCH_JOBS}`)),
+    failures.join("\n"),
+  );
+});
+
+test("#27 the indirect table name changing fails its pin", () => {
+  const tipState = "app/ai-dashboard/lib/tip-state.ts";
+  const source = diskModule(tipState);
+  const pinned = 'export const TIP_TABLE = "company_member_tips";';
+  const renamed = rescan({
+    [tipState]: editOnce(source, pinned, 'export const TIP_TABLE = "company_member_tips_v2";'),
+  });
+  assert.ok(
+    renamed.some((f) => f.startsWith("table changed since it was reviewed: ")),
+    renamed.join("\n"),
+  );
+  const toTenant = rescan({
+    [tipState]: editOnce(source, pinned, `export const TIP_TABLE = "${TABLE}";`),
+  });
+  assert.ok(
+    toTenant.some((f) => f.startsWith(`reaches ${TABLE}: `)),
+    toTenant.join("\n"),
+  );
+});
+
+test("#27 a projection the resolver cannot read fails closed and says so", () => {
+  const cases = {
+    "an unsupported call": {
+      [JOBS_LIB]: editOnce(
+        diskModule(JOBS_LIB),
+        'export const LIST_SELECT = PUBLIC_JOB_SUMMARY_FIELDS.join(",");',
+        'export const LIST_SELECT = PUBLIC_JOB_SUMMARY_FIELDS.filter(Boolean).join(",");',
+      ),
+    },
+    "a local binding shadowing the import": {
+      [FILTER]: editOnce(
+        diskModule(FILTER),
+        FETCH_JOBS_OPEN,
+        `${FETCH_JOBS_OPEN}  const LIST_SELECT = [companyId].join(",");\n`,
+      ),
+    },
+  };
+  for (const [name, overlay] of Object.entries(cases)) {
+    const failures = rescan(overlay);
+    assert.ok(
+      failures.some((f) => f.startsWith(`could not be resolved: ${FETCH_JOBS}`)),
+      `${name}: did not fail closed\n    ${failures.join("\n    ")}`,
+    );
   }
 });
