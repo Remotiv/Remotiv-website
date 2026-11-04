@@ -44,6 +44,7 @@ import {
   SPLIT_STATUSES,
   VISIBLE_STATUSES,
 } from "./message-status";
+import { plainSubjectPattern, subjectOrApplicants } from "./search-filter";
 import {
   APPLICATION_INBOUND_CAP,
   APPLICATION_MESSAGE_CAP,
@@ -323,19 +324,31 @@ async function hydrate(
  *
  *  Every branch names its statuses (message-status.ts). Written and Automatic
  *  are the two halves of SPLIT_STATUSES, which is what the hero's shares are
- *  shares of. Failed cuts across both, under the same scope as every tab. */
+ *  shares of. Failed cuts across both, under the same scope as every tab.
+ *
+ *  `anyOf` is a further disjunction the rows must also satisfy: the search.
+ *  On the Automatic tab it is nested beside the tab's own disjunction in ONE
+ *  `or=` parameter rather than sent as a second one. That is hardening, not a
+ *  fix: measured against staging (#73), two `or=` parameters already AND, and
+ *  the nested form counted the same 146 rows. It removes the reliance on how
+ *  PostgREST combines a repeated parameter, which it does not document. */
 function applyTab<
   T extends {
     eq: (c: string, v: unknown) => T;
     in: (c: string, v: readonly string[]) => T;
     or: (filters: string) => T;
   },
->(q: T, tab: MessageTab): T {
-  if (tab === "scheduled") return q.eq("status", SCHEDULED_STATUS);
-  if (tab === "written") return q.in("status", SPLIT_STATUSES).eq("event", "manual");
-  if (tab === "automatic") return q.in("status", SPLIT_STATUSES).or(AUTOMATIC_EVENT_FILTER);
-  if (tab === "failed") return q.eq("status", FAILED_STATUS);
-  return q.in("status", VISIBLE_STATUSES);
+>(q: T, tab: MessageTab, anyOf?: string): T {
+  const also = (r: T) => (anyOf ? r.or(anyOf) : r);
+  if (tab === "scheduled") return also(q.eq("status", SCHEDULED_STATUS));
+  if (tab === "written") return also(q.in("status", SPLIT_STATUSES).eq("event", "manual"));
+  if (tab === "automatic") {
+    return q
+      .in("status", SPLIT_STATUSES)
+      .or(anyOf ? `and(or(${AUTOMATIC_EVENT_FILTER}),or(${anyOf}))` : AUTOMATIC_EVENT_FILTER);
+  }
+  if (tab === "failed") return also(q.eq("status", FAILED_STATUS));
+  return also(q.in("status", VISIBLE_STATUSES));
 }
 
 /**
@@ -599,14 +612,11 @@ export async function fetchMessages(input: {
     // applicant count is what the id list could not give.
     if (input.jobId) q = q.eq("job_applications.job_id", input.jobId);
 
-    q = applyTab(q, tab);
-
-    if (appIds !== null) {
-      const idList = appIds.slice(0, 300);
-      q = idList.length
-        ? q.or(`subject.ilike.%${search}%,application_id.in.(${idList.join(",")})`)
-        : q.ilike("subject", `%${search}%`);
-    }
+    // Two paths, escaped differently (search-filter.ts): inside or=( … ) the
+    // subject is quoted, and on the plain parameter it never is.
+    const idList = appIds?.slice(0, 300) ?? [];
+    q = applyTab(q, tab, idList.length ? subjectOrApplicants(search, idList) : undefined);
+    if (appIds !== null && !idList.length) q = q.ilike("subject", plainSubjectPattern(search));
     return q;
   };
 

@@ -65,6 +65,9 @@ register(new URL("../../../../test-support/node-resolve.mjs", import.meta.url));
 register(new URL("../../../../test-support/messages-test-hook.mjs", import.meta.url));
 
 const { fakeService } = await import("../../../../test-support/fake-postgrest.mjs");
+const { evalLogic, ilikeMatches, parseLogic } = await import(
+  "../../../../test-support/postgrest-text.mjs"
+);
 const { fetchMessages } = await import("./actions.ts");
 
 const CO = "c0000000-0000-0000-0000-000000000001";
@@ -331,35 +334,23 @@ function splitTop(s) {
   return out;
 }
 
-/** `subject.ilike.%x%,application_id.in.(a,b)` -> two applicable filters. */
+/**
+ * One `or=( … )` parameter, parsed as PostgREST parses it (postgrest-text.mjs):
+ * quoted values, nested and()/or(), and a 400 for what it cannot read.
+ */
 function parseOr(expression) {
-  return splitTop(expression).map((raw) => {
-    const term = raw.trim();
-    if (term.startsWith(EMBED_PREFIX)) {
-      // Measured: PostgREST answers PGRST100 "failed to parse logic tree" for
-      // an or() mixing a parent column with an embedded one. Refusing to
-      // evaluate it is the honest model — the request would never run.
-      throw new Error(`test: PostgREST cannot parse an embedded column in or(): ${term}`);
+  const tree = parseLogic(`or(${expression})`);
+  const walk = (n) => {
+    if (n.kind !== "term") return n.children.forEach(walk);
+    // Measured: PostgREST answers PGRST100 "failed to parse logic tree" for
+    // an or() mixing a parent column with an embedded one. Refusing to
+    // evaluate it is the honest model — the request would never run.
+    if (n.col.startsWith(EMBED_PREFIX)) {
+      throw new Error(`test: PostgREST cannot parse an embedded column in or(): ${n.col}`);
     }
-    const dot = term.indexOf(".");
-    const col = term.slice(0, dot);
-    const rest = term.slice(dot + 1);
-    const dot2 = rest.indexOf(".");
-    const op = rest.slice(0, dot2);
-    const val = rest.slice(dot2 + 1);
-    if (op === "in") {
-      return {
-        op: "in",
-        col,
-        val: val
-          .replace(/^\(|\)$/g, "")
-          .split(",")
-          .filter(Boolean),
-      };
-    }
-    if (op === "ilike") return { op: "ilike", col, val };
-    throw new Error(`test: evaluator does not model or() term ${term}`);
-  });
+  };
+  walk(tree);
+  return tree;
 }
 
 function parseCalls(calls) {
@@ -407,16 +398,7 @@ function matches(row, f) {
   if (f.op === "neq") return v !== f.val;
   if (f.op === "in") return f.val.includes(v);
   if (f.op === "notnull") return v !== null && v !== undefined;
-  if (f.op === "ilike") {
-    if (v === null || v === undefined) return false;
-    const rx = new RegExp(
-      `^${String(f.val)
-        .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-        .replace(/%/g, ".*")}$`,
-      "i",
-    );
-    return rx.test(String(v));
-  }
+  if (f.op === "ilike") return ilikeMatches(f.val, v);
   // A null timestamp is not >= anything, as in SQL.
   if (f.op === "gte") return v !== null && v !== undefined && String(v) >= String(f.val);
   throw new Error(`test: unhandled op ${f.op}`);
@@ -478,7 +460,7 @@ function queryLogs(calls, logs = LOGS, apps = APPLICATIONS) {
   // leave every parent row standing. Deliberately NOT applied here — that is
   // the cv-purge.ts:309 leak, and negative control (c) depends on it.
 
-  for (const group of ors) rows = rows.filter((l) => group.some((f) => matches(l, f)));
+  for (const tree of ors) rows = rows.filter((l) => evalLogic(tree, l));
 
   if (order) {
     rows = [...rows].sort((x, y) => {
@@ -856,7 +838,7 @@ test("SEARCH: the name search keeps its own application-id list, beside the join
   for (const q of service.queries.filter((x) => x.table === "communication_logs")) {
     const or = q.calls.find((c) => c[0] === "or");
     assert.ok(or, "the search must still be an or()");
-    assert.match(or[1], /^subject\.ilike\.%grace%,application_id\.in\.\(app-b1\)$/);
+    assert.equal(or[1], 'subject.ilike."%grace%",application_id.in.(app-b1)');
 
     const scopeIn = scopeIns(q);
     assert.deepEqual(
@@ -1414,4 +1396,241 @@ test("STRUCTURE: a failed read is never rendered as an empty page", () => {
     !/matching:\s*\w+\.count \?\? 0/.test(body),
     "`count ?? 0` is what made the overflow silent in the first place",
   );
+});
+
+/* ── #73 SEARCH TEXT: literal, on both paths ─────────────────── */
+
+/**
+ * Each needle has one subject that contains it literally and decoys that only
+ * an unescaped pattern would match. `wild` is for `*` alone: the documented
+ * exception, a wildcard on purpose (search-filter.ts).
+ *
+ * The same needle runs twice. WITHOUT a matching applicant name the search is
+ * the plain `subject=ilike.` parameter; WITH one, it is quoted inside `or=( )`.
+ * The two are escaped differently, so each needle has to pass both.
+ */
+const NEEDLES = [
+  { key: "comma", text: "a,b", hit: "Offer a,b attached", decoys: ["Offer ab attached"] },
+  { key: "close", text: "x)y", hit: "Ref x)y", decoys: ["Ref xy"] },
+  { key: "open", text: "or(z", hit: "Ref or(z", decoys: ["Ref orz"] },
+  {
+    key: "star",
+    text: "p*q",
+    hit: "Code p*q",
+    wild: ["Code pXq", "Code pq-"],
+    decoys: ["Code qp"],
+  },
+  { key: "dquote", text: 'say "hi"', hit: 'They say "hi" back', decoys: ["They say hi back"] },
+  { key: "backslash", text: "a\\b", hit: "Path a\\b here", decoys: ["Path ab here"] },
+  { key: "percent", text: "50%", hit: "Raise of 50% agreed", decoys: ["Raise of 50abc agreed"] },
+  { key: "underscore", text: "a_b", hit: "Field a_b set", decoys: ["Field aXb set"] },
+];
+
+const app73 = (id, job_id, company_id_snapshot, first_name = "Neutral") => ({
+  id,
+  job_id,
+  company_id_snapshot,
+  first_name,
+  last_name: "Person",
+  email: `${id}@example.test`,
+  job_title_snapshot: null,
+  jobs: { title: "Engineer" },
+});
+
+const APPS_73 = [
+  app73("t-base", JOB_A, CO),
+  app73("t-jobb", JOB_B, CO),
+  app73("t-drift", JOB_A, OTHER_CO),
+  app73("t-foreign", JOB_F, OTHER_CO),
+];
+
+let seq73 = 0;
+const log73 = (id, application_id, subject, over = {}) => {
+  seq73 += 1;
+  const at = `2026-04-01T00:${String(Math.floor(seq73 / 60)).padStart(2, "0")}:${String(seq73 % 60).padStart(2, "0")}.000Z`;
+  return {
+    id,
+    company_id: CO,
+    application_id,
+    event: "interview",
+    status: "sent",
+    to_address: "stored@example.test",
+    subject,
+    body: "<p>hello</p>",
+    scheduled_for: null,
+    sent_at: at,
+    sent_by_name: null,
+    created_at: at,
+    ...over,
+  };
+};
+
+const LOGS_73 = [
+  // The name holder's only log. Its subject matches no needle, so it appears
+  // only through the application_id side of the or().
+  log73("name-log", "t-name", "Unrelated note"),
+  ...NEEDLES.flatMap((n) => [
+    log73(`${n.key}-hit`, "t-base", n.hit),
+    ...n.decoys.map((s, i) => log73(`${n.key}-decoy${i}`, "t-base", s)),
+    ...(n.wild ?? []).map((s, i) => log73(`${n.key}-wild${i}`, "t-base", s)),
+    log73(`${n.key}-jobb`, "t-jobb", n.hit),
+    log73(`${n.key}-drift`, "t-drift", n.hit),
+    log73(`${n.key}-xwire`, "t-base", n.hit, { company_id: OTHER_CO }),
+    log73(`${n.key}-foreign`, "t-foreign", n.hit, { company_id: OTHER_CO }),
+    log73(`${n.key}-manual`, "t-base", n.hit, { event: "manual" }),
+    log73(`${n.key}-null`, "t-base", n.hit, { event: null }),
+  ]),
+];
+
+/**
+ * fetchMessages over the #73 seed. `nameHolder` adds an applicant on JOB_A
+ * whose first name IS the needle, which is what moves the search onto the
+ * or() path.
+ */
+async function search73(
+  search,
+  { nameHolder = false, holderId = "t-name", role = "owner", assignments = [], ...input } = {},
+) {
+  const apps = nameHolder ? [...APPS_73, app73(holderId, JOB_A, CO, search)] : APPS_73;
+  const service = fakeService((table, calls) => {
+    if (table === "job_hiring_team") {
+      return { data: assignments.map((job_id) => ({ job_id })), error: null };
+    }
+    if (table === "communication_logs") return queryLogs(calls, LOGS_73, apps);
+    if (table === "job_applications") {
+      const { parent } = parseCalls(calls);
+      return { data: apps.filter((a) => parent.every((f) => matches(a, f))), error: null };
+    }
+    throw new Error(`test: unexpected table ${table}`);
+  });
+  globalThis.__messagesServiceForTests = () => service;
+  globalThis.__messagesCtxForTests = ctxFor(role);
+  try {
+    const read = await fetchMessages({ tab: "all", jobId: "", search, page: 0, ...input });
+    const logQueries = service.queries.filter((q) => q.table === "communication_logs");
+    const path = logQueries[0].calls.some((c) => c[0] === "ilike") ? "plain" : "or";
+    return { ...pageOf(read), path, logQueries };
+  } finally {
+    globalThis.__messagesServiceForTests = undefined;
+    globalThis.__messagesCtxForTests = undefined;
+  }
+}
+
+const sorted = (ids) => [...ids].sort();
+
+/** What an owner's All tab must return for needle `n`: our rows containing it, nothing else. */
+const expected73 = (n, { nameHolder, automatic = false, jobs = [JOB_A, JOB_B] }) =>
+  sorted([
+    `${n.key}-hit`,
+    ...(n.wild ?? []).map((_, i) => `${n.key}-wild${i}`),
+    ...(jobs.includes(JOB_B) ? [`${n.key}-jobb`] : []),
+    ...(automatic ? [] : [`${n.key}-manual`]),
+    `${n.key}-null`,
+    ...(nameHolder ? ["name-log"] : []),
+  ]);
+
+for (const nameHolder of [false, true]) {
+  const label = nameHolder
+    ? "WITH a matching applicant name (or path)"
+    : "with NO matching name (plain path)";
+  for (const n of NEEDLES) {
+    if (n.key === "star") continue;
+    test(`#73 SEARCH TEXT: ${JSON.stringify(n.text)} is matched literally, ${label}`, async () => {
+      const r = await search73(n.text, { nameHolder });
+      assert.equal(r.path, nameHolder ? "or" : "plain", "the needle took the path under test");
+      assert.deepEqual(sorted(r.ids), expected73(n, { nameHolder }));
+      assert.equal(r.matching, r.ids.length, "the count and the page agree");
+    });
+  }
+
+  test(`#73 SEARCH TEXT: * IS A WILDCARD, the documented exception: "p*q" also finds "pXq", ${label}`, async () => {
+    // Not an oversight. PostgREST rewrites * to % before Postgres sees it, and
+    // no escape reaches a literal *; Waleed accepted it as a wildcard because
+    // it can only over-match. search-filter.ts carries the same note.
+    const n = NEEDLES.find((x) => x.key === "star");
+    const r = await search73(n.text, { nameHolder });
+    assert.deepEqual(sorted(r.ids), expected73(n, { nameHolder }));
+    assert.ok(r.ids.includes("star-wild0"), "pXq is matched: * is a wildcard");
+    assert.ok(!r.ids.includes("star-decoy0"), "but q before p is not");
+  });
+
+  test(`#73 SEARCH TEXT: 50% finds "50%" and not "50abc"; a_b finds "a_b" and not "aXb", ${label}`, async () => {
+    const pct = await search73("50%", { nameHolder });
+    assert.ok(pct.ids.includes("percent-hit") && !pct.ids.includes("percent-decoy0"));
+    const und = await search73("a_b", { nameHolder });
+    assert.ok(und.ids.includes("underscore-hit") && !und.ids.includes("underscore-decoy0"));
+    // A lone wildcard character is a character too, not "everything".
+    const lone = await search73("%", { nameHolder });
+    assert.deepEqual(
+      sorted(lone.ids.filter((id) => id !== "name-log")),
+      sorted(["percent-hit", "percent-jobb", "percent-manual", "percent-null"]),
+    );
+  });
+
+  test(`#73 SEARCH TEXT: a search matching nothing returns zero rows, not everything, ${label}`, async () => {
+    // WITH a name, the holder's own log would match through the id list, so
+    // the zero case there is a holder with no log: a fresh id nothing hangs off.
+    const r = await search73("zzz-none", { nameHolder, holderId: "t-silent" });
+    assert.equal(r.path, nameHolder ? "or" : "plain");
+    assert.deepEqual(r.ids, []);
+    assert.equal(r.matching, 0);
+  });
+
+  test(`#73 SEARCH TEXT: company and job scoping are unchanged, ${label}`, async () => {
+    const n = NEEDLES.find((x) => x.key === "comma");
+    // A recruiter on JOB_A: the JOB_B row drops out; drift, cross-wired and
+    // foreign never appear for anyone.
+    const recruiter = await search73(n.text, {
+      nameHolder,
+      role: "recruiter",
+      assignments: [JOB_A],
+    });
+    assert.deepEqual(sorted(recruiter.ids), expected73(n, { nameHolder, jobs: [JOB_A] }));
+    const filtered = await search73(n.text, { nameHolder, jobId: JOB_A });
+    assert.deepEqual(sorted(filtered.ids), expected73(n, { nameHolder, jobs: [JOB_A] }));
+    const outOfScope = await search73(n.text, {
+      nameHolder,
+      role: "recruiter",
+      assignments: [JOB_A],
+      jobId: JOB_B,
+    });
+    assert.deepEqual(outOfScope.ids, []);
+    for (const q of recruiter.logQueries) {
+      const has = (m, col, v) =>
+        q.calls.some((c) => c[0] === m && c[1] === col && (v === undefined || c[2] === v));
+      assert.ok(
+        has("eq", "company_id", CO) && has("eq", "job_applications.company_id_snapshot", CO),
+      );
+      assert.ok(has("in", "job_applications.job_id"));
+    }
+  });
+
+  test(`#73 SEARCH TEXT: Automatic tab plus a search: matching automatic rows only, NULL event included, ${label}`, async () => {
+    for (const n of NEEDLES) {
+      const r = await search73(n.text, { nameHolder, tab: "automatic" });
+      assert.deepEqual(sorted(r.ids), expected73(n, { nameHolder, automatic: true }), n.text);
+      assert.ok(!r.ids.includes(`${n.key}-manual`), "no manual row");
+      assert.ok(r.ids.includes(`${n.key}-null`), "a NULL-event row is automatic");
+      assert.equal(r.matching, r.ids.length, "the count and the page agree");
+      const ors = r.logQueries[0].calls.filter((c) => c[0] === "or");
+      assert.equal(ors.length, 1, "one or= parameter, never two");
+    }
+  });
+}
+
+test("#73 SEARCH TEXT: the Automatic-tab-with-search request, as postgrest-js sends it", async () => {
+  const { PostgrestClient } = await import("@supabase/postgrest-js");
+  const r = await search73("50%", { nameHolder: true, tab: "automatic" });
+  for (const q of r.logQueries) {
+    let b = new PostgrestClient("http://postgrest.invalid").from(q.table);
+    for (const [method, ...args] of q.calls) b = b[method](...args);
+    const qs = decodeURIComponent(b.url.search);
+    console.log(`  ${qs}`);
+    assert.equal(qs.match(/(^|&)or=/g)?.length, 1, "exactly one or= parameter");
+    assert.ok(
+      qs.includes(
+        'or=(and(or(event.is.null,event.neq.manual),or(subject.ilike."%50\\\\%%",application_id.in.(t-name))))',
+      ),
+    );
+  }
 });
