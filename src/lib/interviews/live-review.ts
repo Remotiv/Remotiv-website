@@ -359,7 +359,6 @@ function headerFor(outcome: LiveOutcome | null, row: LiveScoreRow | null): LiveR
       overall,
       partial: true,
       partialNote: UNCONFIRMED_NOTE,
-      restartNote: RESTART_NOTE,
       scoreNote: scoreNoteFor(overall, row),
     };
   }
@@ -670,15 +669,73 @@ export async function loadLiveReview(
   if (!session) return null;
   const view = await reviewFor(deps.service, session, ctx.companyId);
   if (!view) return null;
+  const nowMs = Date.now();
+  const canDecide = canActOnLiveReview(ctx.role);
   const restart = await restartViewFor(deps.service, session, ctx.companyId, {
     isLatest: view.attempt.isLatest,
-    canSeeNote: canActOnLiveReview(ctx.role),
-    nowMs: Date.now(),
+    canSeeNote: canDecide,
+    nowMs,
   });
-  return { ...view, restart };
+  const restartNote = canDecide ? restartNoteFor(session, restart, nowMs) : null;
+  return { ...view, header: { ...view.header, restartNote }, restart };
 }
 
 const HOUR_MS = 60 * 60 * 1000;
+/** A restart's deadline is at least this far from the decision (live-restart.ts). */
+const RESTART_PROMISE_MS = 72 * HOUR_MS;
+
+/**
+ * "A restart is your decision" (F10 C6f), on the company's review only, for an
+ * owner or admin only (loadLiveReview: a recruiter or hiring manager keeps the
+ * panel's "waiting for an owner or admin" line), and only while a restart can
+ * still be decided for this interview. Read from the
+ * restart state (restartViewFor, restartEligibility's verdict), never a second
+ * copy of its rules:
+ *
+ *   the latest first attempt: an earlier one is earlier_restarted, a restart
+ *     is restart_attempt, and no state at all (a failed read) is unknown
+ *   undecided: no restart or no restart decision recorded
+ *   eligible now, or too soon (an hour after its end), or not final yet with
+ *     an outcome restartEligibility accepts once it is final
+ *   a restart would end before the recording's deletion date
+ *
+ * Anything else, including not ended and a never-restarted outcome, is no note.
+ */
+function restartNoteFor(
+  session: SessionRow,
+  restart: LiveRestartView | null,
+  nowMs: number,
+): string | null {
+  if (restart?.kind !== "first_attempt") return null;
+  if (restart.decision) return null;
+  if (pastRetention(session, nowMs)) return null;
+  if (restart.eligible || restart.reason === "too_soon") return RESTART_NOTE;
+  if (restart.reason !== "not_final" || !session.live_outcome) return null;
+  // Asked as if transcription had finished: the outcome is one 053 restarts.
+  const once = restartEligibility(
+    {
+      kind: session.kind,
+      attempt: session.attempt,
+      status: session.status ?? "",
+      live_ended_at: session.live_ended_at,
+      live_outcome: { ...session.live_outcome, final: true },
+      decided: false,
+    },
+    nowMs,
+  );
+  return once.eligible ? RESTART_NOTE : null;
+}
+
+/**
+ * A restart decided now would end after the recording's deletion date, so it
+ * is refused (decideLiveRestart's past_retention). Only ever more so later.
+ */
+function pastRetention(session: SessionRow, nowMs: number): boolean {
+  if (!session.delete_after) return false;
+  const floor = nowMs + RESTART_PROMISE_MS;
+  const deadline = session.expires_at ? Math.max(Date.parse(session.expires_at), floor) : floor;
+  return deadline >= Date.parse(session.delete_after);
+}
 
 /**
  * The restart state for the company's review (F10 C5): a first attempt's
@@ -686,6 +743,8 @@ const HOUR_MS = 60 * 60 * 1000;
  * restart's status, its deadline as the database holds it and, while invited,
  * its link's latest record (restartLinkFor). The decision's note only for an
  * owner or admin. That the candidate received the email is never claimed.
+ * Null for the latest first attempt when its decision cannot be read: whether
+ * it may be decided is then unknown, so nothing is offered.
  */
 async function restartViewFor(
   service: Service,
@@ -708,8 +767,11 @@ async function restartViewFor(
     };
   }
   if (session.attempt !== 1) return null;
-  const decision = await restartDecisionFor(service, session.id, companyId, viewer.canSeeNote);
-  if (!viewer.isLatest) return { kind: "earlier_restarted", decision };
+  const read = await restartDecisionFor(service, session.id, companyId, viewer.canSeeNote);
+  if (!viewer.isLatest) return { kind: "earlier_restarted", decision: read?.decision ?? null };
+  // Whether it was decided is unknown: no decision to offer, no state to claim.
+  if (!read) return null;
+  const { decision } = read;
   const verdict = restartEligibility(
     {
       kind: session.kind,
@@ -762,19 +824,21 @@ async function restartLinkFor(
   return UNCONFIRMED;
 }
 
+/** The recorded decision, or none; null when it could not be read. */
 async function restartDecisionFor(
   service: Service,
   sessionId: string,
   companyId: string,
   canSeeNote: boolean,
-): Promise<LiveRestartDecision | null> {
-  const { data } = await service
+): Promise<{ decision: LiveRestartDecision | null } | null> {
+  const { data, error } = await service
     .from("live_interview_actions")
     .select("decision, note, actor_name, actor_role, created_at")
     .eq("session_id", sessionId)
     .eq("company_id", companyId)
     .eq("action", "decide_restart")
     .limit(1);
+  if (error) return null;
   const row = (
     (data ?? []) as {
       decision: "restart" | "no_restart";
@@ -784,13 +848,15 @@ async function restartDecisionFor(
       created_at: string;
     }[]
   )[0];
-  if (!row) return null;
+  if (!row) return { decision: null };
   return {
-    decision: row.decision,
-    byName: row.actor_name,
-    byRole: row.actor_role,
-    at: row.created_at,
-    note: canSeeNote ? row.note : null,
+    decision: {
+      decision: row.decision,
+      byName: row.actor_name,
+      byRole: row.actor_role,
+      at: row.created_at,
+      note: canSeeNote ? row.note : null,
+    },
   };
 }
 

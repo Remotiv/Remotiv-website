@@ -142,6 +142,8 @@ export function LiveReviewClient({
   // A super admin never acts, whatever canAct says.
   const acting = mode === "company" && canAct && view.attempt.isLatest;
   const { header, attempt } = view;
+  // The restart is the company's decision: never on the super admin's read-only view.
+  const restartNote = mode === "company" ? header.restartNote : null;
 
   const play = async (turnId: string, start = 0) => {
     setAudioError(null);
@@ -248,7 +250,7 @@ export function LiveReviewClient({
         actions={restartActions}
       />
 
-      {(header.reviewReasons.length > 0 || header.restartNote) && (
+      {(header.reviewReasons.length > 0 || restartNote) && (
         <section className={CARD} aria-label="Needs review" data-needs-review>
           <h2 className="m-0 text-sm font-bold text-[var(--ai-t1)]">Needs review</h2>
           {header.reviewReasons.length > 0 && (
@@ -260,9 +262,9 @@ export function LiveReviewClient({
               ))}
             </ul>
           )}
-          {header.restartNote && (
+          {restartNote && (
             <p className={`m-0 mt-2 ${MUTED}`} data-restart-note>
-              {header.restartNote}
+              {restartNote}
             </p>
           )}
         </section>

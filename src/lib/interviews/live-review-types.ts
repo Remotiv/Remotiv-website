@@ -33,7 +33,12 @@ export type LiveReviewHeader = {
   partialNote: string | null;
   /** Everything a person should look at, in plain words: the ending, then each open question flag. */
   reviewReasons: string[];
-  /** For an unconfirmed ending: the restart is the reviewer's decision. Plain text, no action. */
+  /**
+   * "A restart is your decision", plain text, no action (F10 C6f): set only on
+   * the company's review, for an owner or admin, of the latest undecided first
+   * attempt while a restart can be decided now or soon. Null otherwise,
+   * including the super admin's view and whenever the restart state is unknown.
+   */
   restartNote: string | null;
   /** The score row's status, or 'not_scored' when there is none. */
   scoreStatus: "not_scored" | "pending" | "scored" | "incomplete" | "failed";

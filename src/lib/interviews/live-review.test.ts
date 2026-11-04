@@ -851,6 +851,8 @@ const escaped = (text) => text.replaceAll("'", "&#x27;");
 test("ending not confirmed: scored like partial, X of 8 answered, a Needs review list, the restart in plain words only", async () => {
   const db = await saved();
   await resolveAll(db, fakeModel());
+  // An ended call: the candidate joined (F10 C6f shows the note only when a restart can be decided).
+  db.tables.interview_sessions[0].status = "started";
   const row = db.tables.live_interview_scores[0];
   assert.deepEqual(
     [row.status, row.outcome, row.partial, row.overall_score],
