@@ -68,9 +68,9 @@
  *     their names and not a proof. A view or function added later that selects
  *     from this table is outside what any source scan can reach.
  *   - It says nothing about WRITES, nor about row-level correctness beyond the
- *     company column, nor about the other tables carrying the same risk
- *     (communication_logs, application_stage_history, interview_sessions,
- *     jobs).
+ *     company column, nor about any other table read on this surface. Those
+ *     are named in UNSCANNED_TABLES, which the inventory test derives from the
+ *     source, so this comment does not list them and cannot drift from them.
  *   - A company filter whose VALUE is wrong is only partly caught: the shape of
  *     every filter value is pinned (see FILTER_VALUES) but this test cannot
  *     prove that `ctx.companyId` was itself resolved correctly. That is
@@ -585,6 +585,175 @@ const UNREADABLE_SELECTS = [
       "property the parenthesis check enforces.",
   },
 ];
+
+/**
+ * Every table read on the tenant surface that this scan does NOT check (#65).
+ *
+ * Derived, not written: the inventory test below collects every table read on
+ * the surface with its own pass over the source, independent of the scan's
+ * table filter and file prefilter, subtracts the one table scanned, and
+ * requires the remainder to equal these keys. A read of a table missing here
+ * fails; an entry whose table is no longer read is stale and fails; a table
+ * name the inventory cannot resolve fails closed.
+ *
+ * What this guarantees is that the INVENTORY is complete. It is not security
+ * coverage: a new unfiltered read of a table already listed here passes. Being
+ * listed means "known and unchecked", never "safe".
+ * Complete only for the surface as onTenantSurface defines it: app/admin, app/api, app/talent, the public pages and lib/ workers off it (lib/interviews, lib/final-interviews, lib/ai, lib/cv-purge.ts and others) read tenant tables this inventory never sees.
+ *
+ * The reasons, and what each one does NOT claim:
+ *   pending-classification   carries applicant data. Unchecked. The #65 audit
+ *                            classified these reads, but provisionally: its B2
+ *                            reads were sorted by entry-point SHAPE, not by
+ *                            verifying each chain, and its D = 0 means zero
+ *                            FOUND (about 25 sites were read line by line), not
+ *                            zero existing.
+ *   company-data-only        company data, no applicant data. Unchecked.
+ *   different-trust-boundary not company tenancy at all. Nothing in this file
+ *                            or anywhere else checks these: UNVERIFIED, not safe.
+ *   no-tenant-data           holds no company or applicant data.
+ */
+export const UNSCANNED_TABLES = {
+  application_scores: {
+    reason: "pending-classification",
+    note: "AI and human scores per application",
+  },
+  application_stage_history: {
+    reason: "pending-classification",
+    note: "pipeline moves per application",
+  },
+  application_team_comments: {
+    reason: "pending-classification",
+    note: "recruiter comments on an applicant",
+  },
+  communication_logs: {
+    reason: "pending-classification",
+    note: "messages sent to applicants, with address and body",
+  },
+  communication_opt_outs: {
+    reason: "pending-classification",
+    note: "applicant email opt-outs per company",
+  },
+  final_interview_bots: {
+    reason: "pending-classification",
+    note: "recording bots per final interview, keyed by application",
+  },
+  final_interview_evaluations: {
+    reason: "pending-classification",
+    note: "interviewer evaluations of a final interview",
+  },
+  final_interview_recordings: {
+    reason: "pending-classification",
+    note: "final-interview recordings, keyed by application",
+  },
+  final_interviews: {
+    reason: "pending-classification",
+    note: "final human interviews, keyed by application",
+  },
+  interview_answer_scores: {
+    reason: "pending-classification",
+    note: "scores of one candidate answer, keyed by session",
+  },
+  interview_answers: {
+    reason: "pending-classification",
+    note: "candidate answer transcripts; NO company_id column, session-keyed only",
+  },
+  interview_bookings: {
+    reason: "pending-classification",
+    note: "candidate interview bookings, keyed by application",
+  },
+  interview_notes: {
+    reason: "pending-classification",
+    note: "recruiter notes on an interview session",
+  },
+  interview_session_scores: {
+    reason: "pending-classification",
+    note: "scorecard of one interview session",
+  },
+  interview_sessions: {
+    reason: "pending-classification",
+    note: "AI interview sessions, keyed by application",
+  },
+  interview_turns: {
+    reason: "pending-classification",
+    note: "live interview transcript turns; NO company_id column, session-keyed only",
+  },
+  live_interview_actions: {
+    reason: "pending-classification",
+    note: "recruiter actions on a live interview session",
+  },
+  live_interview_scores: {
+    reason: "pending-classification",
+    note: "live interview scorecards, keyed by session",
+  },
+  live_restart_link_events: {
+    reason: "pending-classification",
+    note: "restart link events for a candidate's session",
+  },
+  live_video_pieces: {
+    reason: "pending-classification",
+    note: "candidate interview video pieces, keyed by session",
+  },
+  notifications_company: {
+    reason: "pending-classification",
+    note: "company bell entries naming applicants",
+  },
+  whatsapp_inbound: {
+    reason: "pending-classification",
+    note: "inbound applicant WhatsApp messages (#64)",
+  },
+
+  availability_rules: { reason: "company-data-only", note: "a member's calendar availability" },
+  background_jobs: {
+    reason: "company-data-only",
+    note: "queue rows; payloads carry ids, not applicant data",
+  },
+  calendar_connections: { reason: "company-data-only", note: "members' connected calendars" },
+  companies: { reason: "company-data-only", note: "the company row; its tenancy column is id" },
+  company_invites: { reason: "company-data-only", note: "pending member invites" },
+  company_member_tips: {
+    reason: "company-data-only",
+    note: "per-member tip dismissals, reached through TIP_TABLE",
+  },
+  company_members: { reason: "company-data-only", note: "a company's members and roles" },
+  company_plan_history: { reason: "company-data-only", note: "plan changes per company" },
+  company_plans: { reason: "company-data-only", note: "a company's plan and allowances" },
+  final_interview_interviewers: {
+    reason: "company-data-only",
+    note: "members assigned to a final interview",
+  },
+  interview_questions: { reason: "company-data-only", note: "a job's interview questions" },
+  job_hiring_team: { reason: "company-data-only", note: "members assigned to a job" },
+  job_question_scoring_guides: {
+    reason: "company-data-only",
+    note: "per-job scoring guides for live questions",
+  },
+  jobs: { reason: "company-data-only", note: "a company's jobs, drafts included" },
+  message_templates: { reason: "company-data-only", note: "a company's message templates" },
+  usage_events: { reason: "company-data-only", note: "per-company usage metering" },
+
+  client_members: {
+    reason: "different-trust-boundary",
+    note: "client portal membership; UNVERIFIED, nothing checks it",
+  },
+  clients: {
+    reason: "different-trust-boundary",
+    note: "client portal accounts; UNVERIFIED, nothing checks it",
+  },
+  talent_profiles: {
+    reason: "different-trust-boundary",
+    note: "candidate-side talent profiles; UNVERIFIED, nothing checks it",
+  },
+  team_members: {
+    reason: "different-trust-boundary",
+    note: "Remotiv's own staff; UNVERIFIED, nothing checks it",
+  },
+
+  admin_users: { reason: "no-tenant-data", note: "the super-admin list" },
+  pricing_settings: { reason: "no-tenant-data", note: "platform-wide price settings" },
+  sentinel: { reason: "no-tenant-data", note: "the staging guard's sentinel row" },
+  worker_heartbeats: { reason: "no-tenant-data", note: "queue worker liveness" },
+};
 
 /**
  * Every distinct value passed to `.eq("company_id_snapshot", …)` at an in-scope
@@ -2663,4 +2832,188 @@ test("#27 a projection the resolver cannot read fails closed and says so", () =>
       `${name}: did not fail closed\n    ${failures.join("\n    ")}`,
     );
   }
+});
+
+/* ── #65: the table inventory ──────────────────────────────────── */
+
+/** The tables this file actually checks. Everything else read on the surface is in UNSCANNED_TABLES. */
+const SCANNED_TABLES = new Set([TABLE]);
+const UNSCANNED_REASONS = new Set([
+  "pending-classification",
+  "company-data-only",
+  "different-trust-boundary",
+  "no-tenant-data",
+]);
+
+/** Receivers whose `.from()` builds a value, not a query. */
+const NOT_A_QUERY_ROOT = /^(Array|Buffer|(Big)?(Ui|I)nt\d+(Clamped)?Array|Float\d+Array)$/;
+
+/**
+ * Every table READ on the tenant surface, from its own pass over the source.
+ *
+ * Deliberately not built on the scan above: that one keeps only
+ * job_applications sites and skips files that mention neither the table nor
+ * `.from(`, and an inventory inheriting either filter would inherit its blind
+ * spots. Every source file is parsed here, and every `.from()` that is not a
+ * storage bucket or an Array/Buffer constructor must resolve to a table name:
+ * a literal, a same-file const, or (through the #27 resolver) an imported
+ * const. A name that resolves to nothing is returned in `unresolved`, which
+ * the test treats as a failure, never as an absence.
+ *
+ * A read is a `.from()` whose own chain has no write method, the same rule
+ * the scan uses. Pure over its arguments so the controls can feed it snippets.
+ */
+function tableInventory(files, readModule) {
+  const reads = new Map();
+  const unresolved = [];
+  for (const { rel, text } of files) {
+    if (!onTenantSurface(rel, text)) continue;
+    const sf = parseModule(rel, text);
+    const consts = stringConsts(sf);
+    const visit = (n) => {
+      if (
+        ts.isCallExpression(n) &&
+        ts.isPropertyAccessExpression(n.expression) &&
+        n.expression.name.text === "from" &&
+        !isStorageChain(n)
+      ) {
+        const root = chainRoot(n.expression);
+        const arg = n.arguments[0];
+        if (!(ts.isIdentifier(root) && NOT_A_QUERY_ROOT.test(root.text))) {
+          const write = chainFrom(n).methods.some((m) => WRITES.has(m.name));
+          const { table, why } = inventoryTable(arg, consts, { rel, sf, readModule });
+          const where = `${rel} ${functionName(n)}(): .from(${arg?.getText().replace(/\s+/g, " ") ?? ""})`;
+          if (table === undefined) unresolved.push(`${where}: ${why}`);
+          else if (!write) {
+            if (!reads.has(table)) reads.set(table, []);
+            reads.get(table).push(where);
+          }
+        }
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(sf);
+  }
+  return { reads, unresolved };
+}
+
+/** The table a `.from()` argument names: `{ table }`, or `{ why }` when it names none statically. */
+function inventoryTable(arg, consts, mod) {
+  if (!arg) return { why: "called with no argument" };
+  if (ts.isStringLiteralLike(arg)) return { table: arg.text };
+  if (ts.isIdentifier(arg) && consts.has(arg.text)) return { table: consts.get(arg.text) };
+  const got = resolveExpr(arg, mod);
+  if (got.why) return { why: got.why };
+  return typeof got.value === "string"
+    ? { table: got.value }
+    : { why: "it does not resolve to a string" };
+}
+
+/** Every way an inventory disagrees with the listed tables. Empty is a pass. */
+function inventoryFailures({ reads, unresolved }, listed = UNSCANNED_TABLES) {
+  const failures = unresolved.map((u) => `unresolved table name, failing closed: ${u}`);
+  for (const [table, where] of reads) {
+    if (SCANNED_TABLES.has(table) || Object.hasOwn(listed, table)) continue;
+    failures.push(
+      `unlisted: ${table} is read on the tenant surface and is neither scanned nor in UNSCANNED_TABLES (${where[0]})`,
+    );
+  }
+  for (const table of Object.keys(listed)) {
+    if (SCANNED_TABLES.has(table)) failures.push(`listed as unscanned but scanned: ${table}`);
+    else if (!reads.has(table))
+      failures.push(
+        `stale: ${table} is in UNSCANNED_TABLES and no longer read on the tenant surface`,
+      );
+  }
+  return failures;
+}
+
+const treeInventory = () =>
+  tableInventory(
+    sourceFiles(SRC).map((file) => ({
+      rel: relative(SRC, file).split(sep).join("/"),
+      text: readFileSync(file, "utf8"),
+    })),
+    diskModule,
+  );
+
+test("#65 every table read on the tenant surface is scanned or listed in UNSCANNED_TABLES", () => {
+  const inventory = treeInventory();
+  const failures = inventoryFailures(inventory);
+  assert.deepEqual(
+    failures,
+    [],
+    `the table inventory does not match:\n    ${failures.join("\n    ")}`,
+  );
+  // Not vacuous: the scanned table is in the inventory, and so is every listed one.
+  assert.ok(inventory.reads.has(TABLE), `the inventory did not find ${TABLE}`);
+  assert.equal(inventory.reads.size, SCANNED_TABLES.size + Object.keys(UNSCANNED_TABLES).length);
+});
+
+test("#65 every UNSCANNED_TABLES entry carries a known reason and a note", () => {
+  for (const [table, entry] of Object.entries(UNSCANNED_TABLES)) {
+    assert.ok(UNSCANNED_REASONS.has(entry.reason), `${table}: unknown reason "${entry.reason}"`);
+    assert.ok(
+      typeof entry.note === "string" && entry.note.trim().length > 0,
+      `${table}: empty note`,
+    );
+  }
+});
+
+const GATED_FILE = `${DASH}/inventory-control.ts`;
+const snippet = (body, rel = GATED_FILE) => ({ rel, text: `${wrap(body)}\n` });
+const onlyListed = { communication_logs: { reason: "pending-classification", note: "x" } };
+
+test("#65 a read of a table absent from UNSCANNED_TABLES fails", () => {
+  const inv = tableInventory(
+    [
+      snippet(
+        'await service.from("communication_logs").select("id"); await service.from("brand_new_table").select("id");',
+      ),
+    ],
+    diskModule,
+  );
+  const failures = inventoryFailures(inv, onlyListed);
+  assert.ok(
+    failures.some((f) => f.startsWith("unlisted: brand_new_table ")),
+    failures.join("\n"),
+  );
+});
+
+test("#65 a listed table with no read left is stale and fails", () => {
+  const inv = tableInventory(
+    [snippet('await service.from("communication_logs").insert({ id: 1 });')],
+    diskModule,
+  );
+  const failures = inventoryFailures(inv, onlyListed);
+  assert.ok(
+    failures.some((f) => f.startsWith("stale: communication_logs ")),
+    failures.join("\n"),
+  );
+});
+
+test("#65 a table name the inventory cannot resolve fails closed", () => {
+  const inv = tableInventory([snippet("await service.from(tableName).select('id');")], diskModule);
+  const failures = inventoryFailures(inv, {});
+  assert.ok(
+    failures.some((f) => f.startsWith("unresolved table name, failing closed: ")),
+    failures.join("\n"),
+  );
+});
+
+test("#65 the inventory does not inherit the scan's filters", () => {
+  // A surface file that never mentions job_applications, the scan's prefilter
+  // key, still has its reads counted; a non-surface file does not; storage
+  // buckets and Array.from are not tables; a same-file const is followed.
+  const inv = tableInventory(
+    [
+      snippet(
+        'const T = "via_const"; await service.from(T).select("id"); await service.storage.from("cvs").remove([p]); Array.from(xs);',
+      ),
+      snippet('await service.from("off_surface").select("id");', "app/talent/page.ts"),
+    ],
+    diskModule,
+  );
+  assert.deepEqual([...inv.reads.keys()], ["via_const"]);
+  assert.deepEqual(inv.unresolved, []);
 });
