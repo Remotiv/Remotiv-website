@@ -3,6 +3,7 @@
 import { AudioLines, CalendarClock, Check, CircleX, Clock, Send, Video } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { LocalTime } from "@/app/ai-dashboard/_components/local-time";
 import { type CompanyRole, canManageBookings } from "@/app/ai-dashboard/lib/company-roles";
 import {
   BAND_LABEL,
@@ -622,24 +623,36 @@ const RESTART_OUTCOME: Record<string, { label: string; finished: boolean }> = {
   ending_unconfirmed: { label: "Ending not confirmed - needs review", finished: false },
 };
 
-// TODO-COPY: every string in liveRestartText is a placeholder - Waleed writes the final copy.
-
-/** The badge and the one line for a restart's status. Never the decision's note. */
-export function liveRestartText(status: LiveRestartStatus): { badge: string; line: string } {
+/**
+ * The badge and the one line for a restart's status. Never the decision's note.
+ * Times are the viewer's own, zone named (LocalTime).
+ */
+export function liveRestartText(status: LiveRestartStatus): {
+  badge: string;
+  line: React.ReactNode;
+} {
   switch (status.kind) {
     case "decision_needed":
       return {
         badge: "Needs a restart decision",
-        line: status.availableAt
-          ? `Needs a restart decision - available from ${fmtStamp(status.availableAt, "UTC")} UTC.`
-          : "Needs a restart decision.",
+        line: status.availableAt ? (
+          <>
+            Needs a restart decision - available from <LocalTime iso={status.availableAt} />.
+          </>
+        ) : (
+          "Needs a restart decision."
+        ),
       };
     case "no_restart":
       return { badge: "No restart", line: "No restart - decided." };
     case "restart_sent":
       return {
-        badge: "Restart sent",
-        line: `Restart sent - not started, deadline ${fmt(status.deadline)}.`,
+        badge: "Restart created",
+        line: (
+          <>
+            Restart created - not started yet, deadline <LocalTime iso={status.deadline} />.
+          </>
+        ),
       };
     case "restart_expired":
       return { badge: "Restart expired", line: "Restart expired." };
@@ -668,7 +681,7 @@ const RESTART_BADGE_CLS = "bg-[var(--ai-amber-tint)] text-[var(--ai-amber-ink)]"
 export function liveSectionView(session: InterviewSessionSummary | null): {
   badge: { label: string; cls: string; icon: typeof Check } | null;
   card: "restart" | "result" | "waiting" | "empty";
-  restartLine: string | null;
+  restartLine: React.ReactNode;
 } {
   if (!session) return { badge: null, card: "empty", restartLine: null };
   if (session.restartStatus) {
@@ -883,7 +896,6 @@ function LiveInterviewSection({
       )}
 
       {reviewHref && !restartHref && (
-        // TODO-COPY: placeholder - Waleed writes the final line.
         <Link
           href={reviewHref}
           className="mt-2.5 self-start text-[12.5px] font-semibold text-remotiv-purple underline"
@@ -894,7 +906,6 @@ function LiveInterviewSection({
       )}
 
       {restartHref && (
-        // TODO-COPY: placeholder - Waleed writes the final line.
         <p
           className="m-0 mt-2.5 text-[12.5px] leading-relaxed text-[var(--ai-t3)]"
           data-live-restarted
@@ -915,7 +926,6 @@ function LiveInterviewSection({
       )}
 
       {canSend && waiting && session && callBegan && (
-        // TODO-COPY: placeholder - Waleed writes the final line.
         <p className="m-0 mt-2.5 text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
           This interview has started, so a new link can&apos;t be sent.
         </p>

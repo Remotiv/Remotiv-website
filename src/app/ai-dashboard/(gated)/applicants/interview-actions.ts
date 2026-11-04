@@ -648,7 +648,6 @@ async function supersedeOpenSession(
   return { ok: true };
 }
 
-// TODO-COPY: placeholder - Waleed writes the final line.
 const LIVE_CALL_REFUSED = {
   ok: false,
   error: "This AI Video Interview has already started, so a new link can't be sent.",
@@ -657,7 +656,6 @@ const LIVE_CALL_REFUSED = {
 
 const SEND_FAILED = "Couldn't send - please try again.";
 
-// TODO-COPY: placeholders - Waleed writes the final lines.
 const RESTARTED_TEXT = "This interview was restarted - manage it from the interview page.";
 const DECIDED_TEXT =
   "A restart decision was made for this interview - manage it from the interview page.";

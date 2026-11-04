@@ -8,6 +8,11 @@ import {
   getAdminLiveTurnAudioUrl,
   getAdminLiveVideoPieceUrl,
 } from "@/app/admin/interviews/actions";
+import {
+  formatLocalTime,
+  LocalTime,
+  viewerTimeZone,
+} from "@/app/ai-dashboard/_components/local-time";
 import { BAND_TEXT, scoreBand } from "@/app/ai-dashboard/lib/score-bands";
 import {
   type LiveRecoveryRequest,
@@ -235,7 +240,7 @@ export function LiveReviewClient({
       )}
       {attempt.isLatest && attempt.earlierSessionIds.length > 0 && (
         <p className={`m-0 ${MUTED}`}>
-          The candidate restarted; only this attempt counts.{" "}
+          This interview was restarted; only this attempt counts.{" "}
           {attempt.earlierSessionIds.map((id, i) => (
             <Link key={id} className="underline" href={`${media.base}/${id}`}>
               View attempt {i + 1} (audit only)
@@ -335,19 +340,10 @@ export type RestartActions = {
 
 const NOTE_MAX = 2000;
 
-/** A time as the page shows it: UTC, so the server and the browser agree. */
-function when(iso: string): string {
-  const d = new Date(iso);
-  const date = d.toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
-  const time = d.toLocaleTimeString("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "UTC",
-  });
-  return `${date}, ${time} UTC`;
-}
+/** The decider's role as the page names it; never the raw role code. */
+const ROLE_LABEL: Record<string, string> = { owner: "Owner", admin: "Admin" };
 
-// TODO-COPY: every string in RESTART_TEXT and RESTART_CODE_TEXT is a placeholder - Waleed writes the final copy.
+// Times are the viewer's own, zone named (LocalTime): never UTC on the dashboard.
 const RESTART_TEXT = {
   title: "Restart decision",
   intro: "The first attempt did not finish cleanly. Decide whether the candidate takes it again.",
@@ -357,31 +353,60 @@ const RESTART_TEXT = {
   continue: "Continue",
   back: "Back",
   confirmRestart:
-    "Confirm restart: a new link is emailed to the candidate, with at least 72 hours to take it.",
+    "Confirm restart: we'll email the candidate a new link with at least 72 hours to take it. If the email fails, you can send it again.",
   confirmNoRestart: "Confirm no restart: this attempt stays as it is. This can't be changed later.",
   confirm: "Confirm",
   working: "Saving...",
   awaiting: "A restart decision is waiting for an owner or admin.",
   tooSoon: (at: string | null) =>
-    at ? `A restart can be decided from ${when(at)}.` : "A restart can be decided soon.",
+    at ? (
+      <>
+        A restart can be decided from <LocalTime iso={at} />.
+      </>
+    ) : (
+      "A restart can be decided soon."
+    ),
   notFinal: "A restart can be decided once every answer has been transcribed.",
   notEnded: "A restart can be decided after the interview has ended.",
-  decided: (d: LiveRestartDecision) =>
-    `Restart decision: ${d.decision === "restart" ? "restart" : "no restart"}, by ${d.byName ?? "a team member"} (${d.byRole}), ${when(d.at)}.`,
+  decided: (d: LiveRestartDecision) => {
+    const role = ROLE_LABEL[d.byRole];
+    return (
+      <>
+        {`Restart decision: ${d.decision === "restart" ? "restart" : "no restart"}, by ${d.byName ?? "a team member"}${role ? ` (${role})` : ""}, `}
+        <LocalTime iso={d.at} />.
+      </>
+    );
+  },
   noteShown: (note: string) => `Note: ${note}`,
   earlier: "Earlier attempt - restarted. Kept for audit only.",
   invitedDeadline: (deadline: string | null) =>
-    deadline ? `Restart link deadline: ${when(deadline)}.` : "Restart link sent.",
+    deadline ? (
+      <>
+        Restart link deadline: <LocalTime iso={deadline} />.
+      </>
+    ) : (
+      "Restart link created."
+    ),
   unconfirmed:
     "Delivery can't be confirmed here - send the link again if the candidate didn't receive it.",
-  linkSent: (at: string, deadline: string | null) =>
-    `Restart link sent - accepted by the email provider on ${when(at)}.${deadline ? ` Deadline ${when(deadline)}.` : ""}`,
+  linkSent: (at: string, deadline: string | null) => (
+    <>
+      Restart link sent - accepted by the email provider on <LocalTime iso={at} />.
+      {deadline && (
+        <>
+          {" "}
+          Deadline <LocalTime iso={deadline} />.
+        </>
+      )}
+    </>
+  ),
   linkFailed: "The restart email was not accepted - send the link again.",
   notRecorded: "This send couldn't be recorded, so the page can't confirm it later.",
   resend: "Send the link again",
   expired: "The restart link expired before it was used.",
   saved: "Decision saved.",
-  sent: (deadline: string) => `Restart link sent - deadline ${when(deadline)}.`,
+  sent: (deadline: string, timeZone: string) =>
+    `Restart link sent - deadline ${formatLocalTime(deadline, timeZone)}.`,
 } as const;
 
 const RESTART_CODE_TEXT: Record<LiveRestartCode, string> = {
@@ -398,13 +423,13 @@ const RESTART_CODE_TEXT: Record<LiveRestartCode, string> = {
   past_retention: "A restart would end after the recording's deletion date, so it can't be sent.",
   expired: "The restart link has expired.",
   not_invited: "The candidate has already started the restarted interview.",
-  email_failed: "The email was not delivered. Send the link again.",
+  email_failed: "The email provider didn't accept the message. Send the link again.",
   deadline_not_extended:
     "The link wasn't sent: its deadline couldn't be extended. The candidate's current link still works - try again.",
   db_error: "Something went wrong. Please try again.",
 };
 
-function notYetText(panel: Extract<LiveRestartPanel, { panel: "not_yet" }>): string {
+function notYetText(panel: Extract<LiveRestartPanel, { panel: "not_yet" }>): React.ReactNode {
   if (panel.reason === "too_soon") return RESTART_TEXT.tooSoon(panel.availableAt);
   if (panel.reason === "not_final") return RESTART_TEXT.notFinal;
   return RESTART_TEXT.notEnded;
@@ -415,9 +440,12 @@ function notYetText(panel: Extract<LiveRestartPanel, { panel: "not_yet" }>): str
  * deadline is the one the email quoted and the database holds; a deadline not
  * extended after delivery still stands, so it reads as sent. A send whose
  * record was not written says so: the panel will not confirm it after a reload.
+ * Built in the click's handler, on the client, so `timeZone` is the viewer's.
  */
-export function restartSendText(sent: LiveRestartSend): string {
-  const text = sent.emailFailed ? RESTART_CODE_TEXT[sent.code] : RESTART_TEXT.sent(sent.deadline);
+export function restartSendText(sent: LiveRestartSend, timeZone: string): string {
+  const text = sent.emailFailed
+    ? RESTART_CODE_TEXT[sent.code]
+    : RESTART_TEXT.sent(sent.deadline, timeZone);
   return sent.recordWarning ? `${text} ${RESTART_TEXT.notRecorded}` : text;
 }
 
@@ -481,7 +509,7 @@ function RestartPanel({
     if (r.decision === "no_restart") {
       setMessage(RESTART_TEXT.saved);
     } else {
-      setMessage(restartSendText(r));
+      setMessage(restartSendText(r, viewerTimeZone()));
       setRetryId(retryable(r) ? r.restartSessionId : null);
     }
     router.refresh();
@@ -493,7 +521,7 @@ function RestartPanel({
     setMessage(null);
     const r = await actions.resend(restartSessionId);
     setBusy(false);
-    setMessage(r.ok ? restartSendText(r) : RESTART_CODE_TEXT[r.code]);
+    setMessage(r.ok ? restartSendText(r, viewerTimeZone()) : RESTART_CODE_TEXT[r.code]);
     setRetryId(r.ok && retryable(r) && restartSessionId !== sessionId ? restartSessionId : null);
     if (r.ok) router.refresh();
   };

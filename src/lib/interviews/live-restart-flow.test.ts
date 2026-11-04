@@ -5,7 +5,9 @@
  * re-send of the same attempt 2, the expiry scheduled once, and the panel the
  * page shows for each state. F10-LOG (migration 055): the link's record
  * written as the gated actor between C5's steps, and the status the page reads
- * from it (tests "F10-LOG a" to "F10-LOG f").
+ * from it (tests "F10-LOG a" to "F10-LOG f"). F10 C7: the approved copy, the
+ * email's exact UTC deadline, the decider's role named, the viewer's own time
+ * on the dashboard (never UTC), and no em or en dash (tests "C7 ...").
  *
  *   node --test src/lib/interviews/live-restart-flow.test.ts
  *
@@ -18,6 +20,7 @@
 // @ts-nocheck - same reason as paging.test.ts: Node's `.ts` specifier vs this tsconfig.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { register } from "node:module";
 import { mock, test } from "node:test";
 
@@ -69,11 +72,32 @@ const NOW = Date.parse("2026-11-03T12:00:00.000Z");
 const HOUR = 60 * 60 * 1000;
 const iso = (ms) => new Date(ms).toISOString();
 const sha256 = (s) => createHash("sha256").update(s).digest("hex");
-const day = (ms) =>
-  new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
-/** A time as the review page prints it (the client's when()). */
-const whenText = (ms) =>
-  `${day(ms)}, ${new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} UTC`;
+/** The email's deadline wording for an instant: "6 November 2026 at 12:00 UTC". */
+const emailDeadline = (ms) => {
+  const d = new Date(ms);
+  const date = d.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  const time = d.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "UTC",
+  });
+  return `${date} at ${time} UTC`;
+};
+/**
+ * Page markup as text. Each time is the viewer's, filled in on the client
+ * (LocalTime): the server markup carries only its instant, shown here as [iso].
+ */
+const textOf = (html) =>
+  html
+    .replace(/<time dateTime="([^"]+)"[^>]*><\/time>/g, "[$1]")
+    .replace(/<[^>]+>/g, "")
+    .replaceAll("&#x27;", "'");
+const at = (ms) => `[${iso(ms)}]`;
 
 const CO = "7aad434d-0000-4000-8000-0000000000c5";
 const OTHER_CO = "7aad434d-0000-4000-8000-0000000000c6";
@@ -493,7 +517,7 @@ test("d: restart, email delivered: decision, attempt 2, the email at the promise
   assert.equal(sha256(tokenOf(email)), second.token_hash, "the link is attempt 2's");
   const promised = NOW + 72 * HOUR;
   assert.ok(
-    email.html.includes(`<strong>${day(promised)}</strong>`),
+    email.html.includes(`<strong>${emailDeadline(promised)}</strong>`),
     "the email shows the promised date",
   );
   assert.deepEqual(
@@ -822,7 +846,10 @@ test("k: the page renders the form and the re-send button for an owner with the 
   };
   const invited = render(failed, true);
   assert.match(invited, /data-restart-resend/);
-  assert.ok(invited.includes(`Restart link deadline: ${whenText(NOW)}.`), "the database deadline");
+  assert.ok(
+    textOf(invited).includes(`Restart link deadline: ${at(NOW)}.`),
+    "the database deadline",
+  );
   assert.ok(invited.includes("Delivery can&#x27;t be confirmed here"), "never claims delivery");
   assert.doesNotMatch(invited, /delivered|Restart link sent/i);
   assert.doesNotMatch(render(failed, false), /data-restart-resend/);
@@ -889,7 +916,7 @@ test("m: first send, extension after delivery fails: the emailed date is the dat
     [{ emailed: atRestart, held: atRestart }],
     "quoted: the restart's own deadline",
   );
-  assert.ok(w.emails[0].html.includes(`<strong>${day(NOW + 72 * HOUR)}</strong>`));
+  assert.ok(w.emails[0].html.includes(`<strong>${emailDeadline(NOW + 72 * HOUR)}</strong>`));
   assert.equal(second.expires_at, atRestart);
   assert.deepEqual(
     expiryJobs(w, second.id).map((j) => j.run_after),
@@ -908,8 +935,8 @@ test("m: first send, extension after delivery fails: the emailed date is the dat
     panel: { panel: "restart_sent", deadline: atRestart, sentAt, canResend: true },
   });
   assert.equal(
-    restartSendText(result),
-    `Restart link sent - deadline ${whenText(NOW + 72 * HOUR)}.`,
+    restartSendText(result, "Asia/Karachi"),
+    "Restart link sent - deadline 6 Nov, 17:00 GMT+5.",
     "the page says the date the email said",
   );
   assert.ok(
@@ -1022,8 +1049,8 @@ test("p: re-send, extension after delivery fails: the quoted database deadline i
   });
   assert.equal(restartRow(w).expires_at, held, "the quoted deadline, still held");
   assert.equal(
-    restartSendText(result),
-    `Restart link sent - deadline ${whenText(dbAt + 72 * HOUR)}.`,
+    restartSendText(result, "America/New_York"),
+    "Restart link sent - deadline 8 Nov, 07:05 EST.",
   );
   const short = lines.filter((l) => l.includes("extension after delivery failed"));
   assert.deepEqual(short, [
@@ -1037,7 +1064,7 @@ const RESTART_ACTIONS = { decide: async () => ({ ok: true }), resend: async () =
 const UNCONFIRMED_TEXT = "Delivery can&#x27;t be confirmed here";
 const FAILED_TEXT = "The restart email was not accepted - send the link again.";
 const sentText = (atMs, deadlineMs) =>
-  `Restart link sent - accepted by the email provider on ${whenText(atMs)}. Deadline ${whenText(deadlineMs)}.`;
+  `Restart link sent - accepted by the email provider on ${at(atMs)}. Deadline ${at(deadlineMs)}.`;
 const events = (w) =>
   w.tables.live_restart_link_events.map((e) => [
     e.event,
@@ -1093,7 +1120,7 @@ test("F10-LOG a: restart, email accepted: one 'sent' row as the gated actor, aft
   const html = await pageHtml(w, second.id);
   const sentAt = Date.parse(w.tables.live_restart_link_events[0].created_at);
   assert.ok(
-    html.includes(sentText(sentAt, Date.parse(second.expires_at))),
+    textOf(html).includes(sentText(sentAt, Date.parse(second.expires_at))),
     "accepted, with the deadline",
   );
   assert.match(html, /data-restart-link="sent"/);
@@ -1157,7 +1184,7 @@ test("F10-LOG c: re-send: 'reissued' then 'sent', each right after its step; the
   );
   let html = await pageHtml(w, id);
   const lastSent = Date.parse(w.tables.live_restart_link_events.at(-1).created_at);
-  assert.ok(html.includes(sentText(lastSent, Date.parse(restartRow(w).expires_at))));
+  assert.ok(textOf(html).includes(sentText(lastSent, Date.parse(restartRow(w).expires_at))));
   // A second re-send, delivered: the newest acceptance is the one shown.
   await resend(w, id, ctx("owner"), { now: () => NOW + 2 * HOUR });
   const newest = w.tables.live_restart_link_events.at(-1);
@@ -1169,7 +1196,7 @@ test("F10-LOG c: re-send: 'reissued' then 'sent', each right after its step; the
   );
   html = await pageHtml(w, id);
   assert.ok(
-    html.includes(`accepted by the email provider on ${whenText(Date.parse(newest.created_at))}`),
+    textOf(html).includes(`accepted by the email provider on ${at(Date.parse(newest.created_at))}`),
   );
   neverClaimsReceipt(html);
 });
@@ -1296,7 +1323,7 @@ test("F10-LOG c: the page's status per latest record: sent, failed, or unconfirm
     if (expected === "unconfirmed") assert.ok(html.includes(UNCONFIRMED_TEXT), name);
     if (expected === "failed") assert.ok(html.includes(FAILED_TEXT), name);
     if (expected === "sent") {
-      assert.ok(html.includes(sentText(NOW - HOUR, NOW + 60 * HOUR)), name);
+      assert.ok(textOf(html).includes(sentText(NOW - HOUR, NOW + 60 * HOUR)), name);
     }
     neverClaimsReceipt(html);
   }
@@ -1336,7 +1363,7 @@ test("F10-LOG d: a record that cannot be written: the email still goes, nothing 
       `[live-restart-flow] restart ${second.id}: link event not recorded (sent)`,
     ]);
     assert.ok(!lines.join("\n").includes("RAW-SQL-DETAIL"), "no database text logged");
-    assert.match(restartSendText(result), /couldn't be recorded/);
+    assert.match(restartSendText(result, "Europe/London"), /couldn't be recorded/);
     const html = await pageHtml(w, second.id);
     assert.match(html, /data-restart-link="unconfirmed"/, `${mode}: the page falls back`);
     assert.ok(html.includes(UNCONFIRMED_TEXT));
@@ -1459,4 +1486,220 @@ test("l: no token, note, email or name in any log line", async () => {
   for (const secret of [NOTE, CANDIDATE_EMAIL, MEMBER_NAME, "Alex", "Synthetic Co"]) {
     assert.ok(!text.includes(secret), `no ${secret}`);
   }
+});
+
+// ── C7: the approved copy ───────────────────────────────────
+
+const APPROVED_EMAIL_LINE = (deadline) =>
+  `<p>Your interview link will remain valid until at least <strong>${deadline}</strong>. Please have your camera and microphone ready.</p>`;
+
+test("C7 email: the deadline is the real one, to the minute, in UTC; two deadlines, two texts; no '72 hours'", async () => {
+  // One world at a time: each world() takes over the email stub.
+  const first = world();
+  await decide(first);
+  const [a] = first.emails;
+  // The database's deadline: greatest(the invite's, now + 72h).
+  assert.equal(restartRow(first).expires_at, iso(NOW + 72 * HOUR));
+  assert.ok(a.html.includes(APPROVED_EMAIL_LINE("6 November 2026 at 12:00 UTC")), "the first");
+  // A re-send quotes the deadline the database holds then.
+  const dbAt = NOW + 48 * HOUR + 7 * 60_000;
+  first.setDbNow(dbAt);
+  const again = await resend(first, restartRow(first).id, ctx("owner"), {
+    now: () => NOW + 48 * HOUR,
+  });
+  assert.equal(again.ok, true);
+  const resent = first.emails[1];
+  assert.ok(resent.html.includes(APPROVED_EMAIL_LINE("8 November 2026 at 12:07 UTC")), "re-sent");
+  assert.equal(emailDeadline(dbAt + 72 * HOUR), "8 November 2026 at 12:07 UTC");
+
+  const later = world({
+    sessions: [firstAttempt({ expires_at: iso(NOW + 100 * HOUR + 30 * 60_000) })],
+  });
+  await decide(later);
+  const [b] = later.emails;
+  assert.equal(restartRow(later).expires_at, iso(NOW + 100 * HOUR + 30 * 60_000));
+  assert.ok(b.html.includes(APPROVED_EMAIL_LINE("7 November 2026 at 16:30 UTC")), "the second");
+  assert.notEqual(a.html, b.html, "two deadlines, two texts");
+
+  for (const email of [a, resent, b]) {
+    assert.match(email.html, /valid until at least <strong>[^<]+ UTC<\/strong>/, "UTC written out");
+    assert.doesNotMatch(`${email.subject}\n${email.html}`, /72 hours|works until/i);
+  }
+});
+
+test("C7 review page: the decider is 'Owner' or 'Admin', never a role code; times are the viewer's, never UTC", async () => {
+  const owner = world();
+  await decide(owner, { decision: "no_restart" }, ctx("owner"));
+  const admin = world();
+  await decide(admin, {}, ctx("admin"));
+  const other = world();
+  other.tables.live_interview_actions.push({
+    session_id: FIRST,
+    company_id: CO,
+    action: "decide_restart",
+    decision: "no_restart",
+    note: NOTE,
+    actor_user_id: "u-other",
+    actor_name: "Synthetic Member",
+    actor_role: "super_admin",
+    created_at: iso(NOW - HOUR),
+  });
+  const cases = [
+    [owner, FIRST, `by ${MEMBER_NAME} (Owner), ${at(NOW)}.`],
+    [admin, FIRST, `by ${MEMBER_NAME} (Admin), ${at(NOW)}.`],
+    [other, FIRST, `by Synthetic Member, ${at(NOW - HOUR)}.`],
+  ];
+  for (const [w, id, expected] of cases) {
+    const text = textOf(await pageHtml(w, id));
+    assert.ok(text.includes(expected), expected);
+    assert.doesNotMatch(text, /\((owner|admin|super_admin|recruiter|hiring_manager)\)|super_admin/);
+    assert.doesNotMatch(text, /UTC/, "no UTC on the dashboard");
+  }
+  // The restart's own page: deadline, acceptance and failure, all in the viewer's time.
+  const sent = textOf(await pageHtml(admin, restartRow(admin).id));
+  assert.match(sent, /accepted by the email provider on \[[^\]]+\]\. Deadline \[[^\]]+\]\./);
+  assert.doesNotMatch(sent, /UTC/);
+  const tooSoon = world({
+    sessions: [firstAttempt({ live_outcome: null, live_ended_at: iso(NOW - 10 * 60_000) })],
+  });
+  const soon = textOf(await pageHtml(tooSoon, FIRST));
+  assert.ok(soon.includes(`A restart can be decided from ${at(NOW + 50 * 60_000)}.`));
+  assert.doesNotMatch(soon, /UTC/);
+});
+
+test("C7 review page: 'Restart link created.' without a deadline; the provider's refusal in its own words", () => {
+  const view = {
+    sessionId: SECOND,
+    interviewerName: "Sarah",
+    attempt: {
+      number: 2,
+      of: 2,
+      isLatest: true,
+      latestSessionId: SECOND,
+      earlierSessionIds: [FIRST],
+    },
+    header: {
+      state: "in_progress",
+      label: "In progress",
+      answered: 0,
+      total: 8,
+      skipped: 0,
+      completionPercent: 0,
+      overall: null,
+      partial: false,
+      partialNote: null,
+      reviewReasons: [],
+      restartNote: null,
+      scoreStatus: "not_scored",
+      scoreNote: null,
+    },
+    questions: [],
+    video: { pieces: [], complete: true, missing: 0, totalMs: 0 },
+    restart: {
+      kind: "restart_attempt",
+      status: "invited",
+      deadline: null,
+      expired: false,
+      link: { status: "unconfirmed" },
+    },
+  };
+  const html = renderToStaticMarkup(
+    createElement(LiveReviewClient, { view, candidateName: "C", jobTitle: "J", canAct: true }),
+  );
+  assert.ok(textOf(html).includes("Restart link created."));
+  assert.doesNotMatch(textOf(html), /Restart link sent\./);
+  assert.ok(
+    textOf(html).includes("This interview was restarted; only this attempt counts."),
+    "the attempt banner",
+  );
+  assert.equal(
+    restartSendText({ emailFailed: true, code: "email_failed" }, "Europe/London"),
+    "The email provider didn't accept the message. Send the link again.",
+  );
+});
+
+/** Every string literal and JSX text in a source file, with its line (TypeScript's own parser). */
+async function stringsOf(path) {
+  const ts = (await import("typescript")).default;
+  const src = readFileSync(new URL(path, import.meta.url), "utf8");
+  const tsx = path.endsWith("x");
+  const file = ts.createSourceFile(
+    path,
+    src,
+    ts.ScriptTarget.Latest,
+    true,
+    tsx ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const kinds = new Set([
+    ts.SyntaxKind.StringLiteral,
+    ts.SyntaxKind.NoSubstitutionTemplateLiteral,
+    ts.SyntaxKind.TemplateHead,
+    ts.SyntaxKind.TemplateMiddle,
+    ts.SyntaxKind.TemplateTail,
+    ts.SyntaxKind.JsxText,
+  ]);
+  const out = [];
+  const visit = (node) => {
+    if (kinds.has(node.kind)) {
+      out.push({
+        line: file.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+        text: node.text ?? node.getText(),
+      });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return out;
+}
+
+const REVIEW_CLIENT =
+  "../../app/ai-dashboard/(gated)/interviews/[sessionId]/_live-review-client.tsx";
+const DRAWER = "../../app/ai-dashboard/(gated)/applicants/_interview-panel.tsx";
+const DRAWER_ACTIONS = "../../app/ai-dashboard/(gated)/applicants/interview-actions.ts";
+const LIST = "../../app/ai-dashboard/(gated)/interviews/_interviews-client.tsx";
+const INTERVIEW_ACTIONS = "../../app/ai-dashboard/(gated)/interviews/actions.ts";
+const LOCAL_TIME = "../../app/ai-dashboard/_components/local-time.tsx";
+
+test("C7: the approved copy is in place, word for word", async () => {
+  const has = async (path, text) => {
+    const all = (await stringsOf(path)).map((s) => s.text.replace(/\s+/g, " ").trim());
+    assert.ok(
+      all.some((t) => t.includes(text)),
+      `${path}: ${text}`,
+    );
+  };
+  await has(
+    REVIEW_CLIENT,
+    "Confirm restart: we'll email the candidate a new link with at least 72 hours to take it. If the email fails, you can send it again.",
+  );
+  await has(REVIEW_CLIENT, "The email provider didn't accept the message. Send the link again.");
+  await has(REVIEW_CLIENT, "Restart link created.");
+  await has(REVIEW_CLIENT, "This interview was restarted; only this attempt counts.");
+  await has(DRAWER, "Restart created");
+  await has(DRAWER, "Restart created - not started yet, deadline");
+  await has(
+    LIST,
+    "Answer counts aren't available for AI Video Interviews. Open the interview to view the conversation.",
+  );
+  await has(
+    INTERVIEW_ACTIONS,
+    "Couldn't reach the recording storage. Nothing was deleted - please try again.",
+  );
+});
+
+test("C7: no em or en dash in any string this change touched", async () => {
+  // Files that are F10's (or new) in full, and the F10 strings in files shared with older copy.
+  const whole = ["./live-restart-flow.ts", REVIEW_CLIENT, INTERVIEW_ACTIONS, LOCAL_TIME];
+  const F10 =
+    /restart|interview page|has started, so|already started|Answer counts|recording storage|Couldn't read the interview|Some recordings|Couldn't send - please try again/i;
+  const shared = [DRAWER, DRAWER_ACTIONS, LIST];
+  let scanned = 0;
+  for (const path of [...whole, ...shared]) {
+    const strings = (await stringsOf(path)).filter((s) => whole.includes(path) || F10.test(s.text));
+    scanned += strings.length;
+    for (const s of strings) {
+      assert.doesNotMatch(s.text, /[\u2013\u2014]/, `${path}:${s.line}: ${s.text.trim()}`);
+    }
+  }
+  assert.ok(scanned > 500, `strings scanned: ${scanned}`);
 });

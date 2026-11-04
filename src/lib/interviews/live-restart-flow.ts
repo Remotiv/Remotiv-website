@@ -320,7 +320,8 @@ async function sendRestartLink(
     app,
     rawToken: token,
     expiresAt: quoted,
-    copy: restartEmail,
+    // The exact deadline, to the minute, rather than sendInviteEmail's date-only wording.
+    copy: (link) => restartEmail(link, quoted),
   });
   const record = notRecorded(
     await recordLinkEvent(service, ctx, restartSessionId, sent.ok ? "sent" : "failed"),
@@ -417,9 +418,27 @@ async function scheduleExpiryOnce(
 }
 
 /**
- * The restart email.
- * TODO-COPY: placeholder subject and body - Waleed writes the final copy.
+ * The deadline as the email states it: "7 November 2026 at 14:00 UTC", from
+ * the database's deadline, in UTC with the zone written out (a candidate may
+ * be anywhere).
  */
+export function restartDeadlineText(deadline: string): string {
+  const at = new Date(deadline);
+  const date = at.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  const time = at.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "UTC",
+  });
+  return `${date} at ${time} UTC`;
+}
+
+/** The restart email. `deadline` is the database's deadline (an ISO timestamp). */
 function restartEmail(link: string, deadline: string) {
   return {
     subject: "Your new AI Video Interview link for {{job_title}} at {{company_name}}",
@@ -427,7 +446,7 @@ function restartEmail(link: string, deadline: string) {
       "<p>Hi {{candidate_first_name}},</p>",
       "<p><strong>{{company_name}}</strong> would like you to take your AI Video Interview for <strong>{{job_title}}</strong> again. Your earlier link no longer works.</p>",
       `<p><a href="${escapeHtml(link)}" style="color:#7E47FF;font-weight:700">Start your interview</a></p>`,
-      `<p>The link works until <strong>${escapeHtml(deadline)}</strong>. Have your camera and microphone ready.</p>`,
+      `<p>Your interview link will remain valid until at least <strong>${escapeHtml(restartDeadlineText(deadline))}</strong>. Please have your camera and microphone ready.</p>`,
       "<p>Good luck.</p>",
     ].join("\n"),
   };

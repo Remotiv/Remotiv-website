@@ -43,6 +43,20 @@ const { liveReviewHref, liveRestartText, liveSectionView, liveSendControls } = a
   "./_interview-panel.tsx"
 );
 const { fakeLiveDb } = await import("../../../../test-support/fake-live-db.mjs");
+const { createElement, Fragment } = await import("react");
+const { renderToStaticMarkup } = await import("react-dom/server");
+
+/**
+ * A status line as text. Its times are the viewer's, filled in on the client
+ * (LocalTime): the server markup carries only the instant, shown here as [iso].
+ */
+const lineText = (node) =>
+  typeof node === "string"
+    ? node
+    : renderToStaticMarkup(createElement(Fragment, null, node)).replace(
+        /<time dateTime="([^"]+)"[^>]*><\/time>/g,
+        "[$1]",
+      );
 
 const NOW = Date.parse("2026-11-03T12:00:00.000Z");
 mock.timers.enable({ apis: ["Date"], now: NOW });
@@ -157,7 +171,7 @@ const STATES = [
     { sessions: [endedFirst({ live_ended_at: at(-30 * MIN), live_outcome: null })] },
     { kind: "decision_needed", availableAt: at(30 * MIN) },
     FIRST,
-    "Needs a restart decision - available from 3 Nov, 12:30 UTC.",
+    `Needs a restart decision - available from [${at(30 * MIN)}].`,
   ],
   [
     "2. no restart decided",
@@ -171,7 +185,7 @@ const STATES = [
     restarted(restart()),
     { kind: "restart_sent", deadline: at(2 * DAY) },
     SECOND,
-    "Restart sent - not started, deadline 5 Nov.",
+    `Restart created - not started yet, deadline [${at(2 * DAY)}].`,
   ],
   [
     "4. restart past its deadline",
@@ -246,7 +260,9 @@ test("a: each state shows its status and links the latest attempt", async () => 
     world(seed);
     const { session } = await panel();
     assert.deepEqual(session.restartStatus, status, name);
-    assert.equal(liveSectionView(session).restartLine, line, name);
+    const shown = lineText(liveSectionView(session).restartLine);
+    assert.equal(shown, line, name);
+    assert.doesNotMatch(shown, /UTC/, `${name}: no UTC on the dashboard`);
     assert.equal(liveReviewHref(session), href(latest), name);
   }
 });
@@ -258,7 +274,7 @@ test("a: every terminal restart outcome; a technical failure never reads as fini
     assert.deepEqual(session.restartStatus, { kind: "restart_finished", outcome }, name);
     const view = liveSectionView(session);
     assert.equal(view.badge.label, badge, name);
-    assert.equal(view.restartLine, line, name);
+    assert.equal(lineText(view.restartLine), line, name);
     assert.equal(liveReviewHref(session), href(SECOND), name);
   }
   assert.equal(

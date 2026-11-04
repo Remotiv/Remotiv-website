@@ -776,8 +776,7 @@ export function AnswerCount({ row }: { row: InterviewRow }) {
     return (
       <span
         className="text-[12.5px] font-semibold tabular-nums text-[var(--ai-t4)]"
-        // TODO-COPY: placeholder - Waleed writes the final line.
-        title="AI Video Interviews have no recorded answers to count. Open it to see the conversation."
+        title="Answer counts aren't available for AI Video Interviews. Open the interview to view the conversation."
         data-live-answers
       >
         -

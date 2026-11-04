@@ -539,7 +539,7 @@ export async function deleteInterview(
     console.error("[interview] delete: storage list failed:", err);
     return {
       ok: false,
-      error: "Couldn't reach the recording storage. Nothing was deleted — please try again.",
+      error: "Couldn't reach the recording storage. Nothing was deleted - please try again.",
     };
   }
 
@@ -648,7 +648,6 @@ async function deleteRestartChain(
     if (done.objectsLeft > 0) {
       // B7-style retryable cleanup: when this returns, the sessions may already be closed
       // and some files removed, but every row is kept; a retry finishes it.
-      // TODO-COPY: placeholder - Waleed writes the final line.
       return {
         ok: false,
         error:
