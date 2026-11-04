@@ -152,11 +152,19 @@ export default async function GatedCompanyLayout({
           })(),
           // Scoped on job_id like Jobs, not through applications: an interview
           // belongs to a job, and the list this badge labels is scoped that way.
+          //
+          // A restart is one interview, as the list shows it (F10 C6d): its
+          // first attempt is not counted. 'abandoned' is exactly that row: 053
+          // allows it only after a recorded restart decision, set in the same
+          // transaction that inserts attempt 2 on the same job, and it is
+          // terminal and live-only. Re-sent invites ('cancelled') and async
+          // interviews count as before.
           (() => {
             const q = service
               .from("interview_sessions")
               .select("id", { count: "exact", head: true })
-              .eq("company_id", ctx.companyId);
+              .eq("company_id", ctx.companyId)
+              .neq("status", "abandoned");
             return scope.scoped ? q.in("job_id", scope.jobIds) : q;
           })(),
         ]),
