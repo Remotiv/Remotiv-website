@@ -2,11 +2,49 @@
 -- Migration 055 - live restart link events, and no new first attempt for an
 --                 interview already restarted or decided (F10-LOG)
 -- ----------------------------------------------------------------------------
--- NOT RUN YET. For review. Run by hand in the Supabase SQL editor, after 053
--- (054 is unrelated and may run in either order). Run the pre-check from the
--- F10-LOG report first: it confirms 053 is applied and that the names used
--- here are free, and lists the triggers already on interview_sessions. This
--- file also stops before changing anything if 053 is missing.
+-- APPLIED. Per the F10 records, staging and production 3 Nov 2026; this
+-- repository holds no record of that date and no post-check record, and the
+-- catalog read below does not establish the date.
+--
+-- OBJECTS CONFIRMED PRESENT ON PRODUCTION, from the 5 Nov 2026 catalog read
+-- described in 053's header (catalog only, unscoped, every object in public
+-- whose name contains restart, decide or decision). Of this file's objects it
+-- lists: table live_restart_link_events; its constraints
+-- live_restart_link_events_pkey, live_restart_link_events_session_id_fkey,
+-- live_restart_link_events_event and live_restart_link_events_actor_role; its
+-- indexes live_restart_link_events_pkey, live_restart_link_events_session and
+-- live_restart_link_events_company; functions live_restart_link_events_rules,
+-- live_restart_link_events_append_only,
+-- interview_sessions_no_first_attempt_after_restart,
+-- live_interview_actions_restart_rules and live_restart_session (the last two
+-- are replaced here, and the read cannot tell 053's body from this file's).
+-- Present means present on 5 Nov 2026, not when they appeared. Also confirmed
+-- by that read's indexdef: interview_sessions_live_application is
+-- btree (application_id) WHERE kind = 'live'.
+--
+-- TRIGGERS CONFIRMED ATTACHED AND ENABLED ON PRODUCTION, from a second
+-- catalog read on 5 Nov 2026 by Waleed in the Supabase SQL editor (pg_trigger
+-- with tgenabled, catalog only, no rows): all five this file attaches, the
+-- four on live_restart_link_events (live_restart_link_events_rules,
+-- live_restart_link_events_no_update, live_restart_link_events_no_delete,
+-- live_restart_link_events_no_truncate) and
+-- interview_sessions_no_first_attempt_after_restart on interview_sessions,
+-- every one enabled. An enabled trigger names its function, not that
+-- function's body: the read cannot tell this file's replacement of
+-- live_interview_actions_restart_rules and live_restart_session from 053's.
+--
+-- THE ONE ITEM STILL UNPROVEN: row level security on
+-- live_restart_link_events. Neither read covered pg_class.relrowsecurity or
+-- any policy. The "After running" queries at the end of this file are the
+-- post-check for it; when they are run against production, file the result
+-- and name its location here.
+--
+-- Run by hand in the Supabase SQL editor, after 053 (production 31 Oct 2026,
+-- staging 3 Nov 2026, per Waleed's records; 054 is unrelated and may run in
+-- either order). Run the pre-check from the F10-LOG report first: it confirms
+-- 053 is applied and that the names used here are free, and lists the
+-- triggers already on interview_sessions. This file also stops before changing
+-- anything if 053 is missing.
 --
 -- ── 1. live_restart_link_events ──────────────────────────────
 --

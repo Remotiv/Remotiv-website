@@ -2,11 +2,56 @@
 -- Migration 053 - live interview restart: the decision, the restart, and its
 --                 guards (F10 C2)
 -- ----------------------------------------------------------------------------
--- NOT RUN YET. For review. Run by hand in the Supabase SQL editor, after 052.
--- Run the pre-check from the F10 C2 report first: it confirms 042, 048-052 are
--- applied and that the constraints and function replaced here are still the
--- ones 049 and 020 wrote. This file also stops before changing anything if
--- 020, 042, 049 or 050 is missing.
+-- APPLIED. Production on 31 Oct 2026, then staging on 3 Nov 2026: production
+-- FIRST, staging three days later, the reverse of the usual order. Those two
+-- dates are Waleed's apply records, repeated in the headers of
+-- lib/interviews/live-restart.ts and migration-053.test.ts; no file in this
+-- repository records the apply itself or a post-check, and the catalog read
+-- below does not establish either date.
+--
+-- OBJECTS CONFIRMED PRESENT ON PRODUCTION, from a catalog read on 5 Nov 2026
+-- by Waleed in the Supabase SQL editor: catalog only, no rows, no table
+-- scoped, no name guessed; every constraint, index, function, table or column
+-- in public whose name contains restart, decide or decision. Of this file's
+-- objects it lists: column live_interview_actions.decision; CHECK constraint
+-- live_interview_actions_decision; unique index
+-- live_interview_actions_one_restart_decision; functions
+-- live_interview_actions_restart_rules, live_restart_session and
+-- live_restart_extend_deadline. Present means present on 5 Nov 2026; the read
+-- says nothing about when they appeared, which body a replaced function holds
+-- (055 replaces two of them), or what a constraint's definition contains. No
+-- object is NAMED for decide_restart; the word appears only inside
+-- definitions. Not covered by that name read, because their names match none
+-- of the three words: the CHECKs live_interview_actions_action and
+-- live_interview_actions_target, and the function
+-- interview_sessions_attempt_rules.
+--
+-- TRIGGERS CONFIRMED ATTACHED AND ENABLED ON PRODUCTION, from a second
+-- catalog read on 5 Nov 2026 by Waleed in the Supabase SQL editor (pg_trigger
+-- with tgenabled, catalog only, no rows) covering every trigger on
+-- interview_sessions, live_interview_actions and live_restart_link_events,
+-- all of them enabled: live_interview_actions_restart_rules (this file's
+-- decision trigger) and interview_sessions_attempt_rules (020's trigger,
+-- whose function body this file replaces). Five further triggers exist on
+-- live_interview_actions (live_interview_actions_company, _stamp, _no_update,
+-- _no_delete, _no_truncate), so 042's append-only guards are live. A trigger
+-- being enabled says which function it calls, not which body that function
+-- holds: the catalog still cannot tell 053's body of
+-- live_interview_actions_restart_rules or live_restart_session from 055's
+-- replacement of it, nor 020's body of interview_sessions_attempt_rules from
+-- this file's.
+-- scripts/backfills/tenancy-columns-production-2026-11-04.md (the keys of
+-- interview_sessions, read from production on 4 Nov 2026) covers none of these.
+--
+-- Because staging was applied after the 2 Nov 2026 catalog run,
+-- scripts/backfills/054-execution-sequence.md (stage 18, the P7 to P8b scope
+-- note) found staging's interview_sessions_attempt_rules to be 020's body: that
+-- is one of #68's four staging differences, and the 3 Nov apply resolves it.
+-- Never re-run after 055 (the guard below refuses). For a fresh environment:
+-- run by hand in the Supabase SQL editor, after 052, with the pre-check from
+-- the F10 C2 report first (042, 048-052 applied; the constraints and function
+-- replaced here still the ones 049 and 020 wrote). This file also stops before
+-- changing anything if 020, 042, 049 or 050 is missing.
 --
 -- ── What a restart is (decisions of 31 Oct 2026) ─────────────
 --
@@ -455,7 +500,8 @@ grant execute on function public.live_restart_extend_deadline(uuid, uuid)
 commit;
 
 -- ── After running ────────────────────────────────────────────
--- The 3 constraints each name decide_restart; the index exists; the action
+-- Each of the 3 constraint definitions contains decide_restart (no object is
+-- NAMED for it); the index exists; the action
 -- trigger exists; both functions are executable by service_role only:
 --
 -- select conname, pg_get_constraintdef(oid) from pg_constraint
