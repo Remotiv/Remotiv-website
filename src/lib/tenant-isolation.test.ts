@@ -599,7 +599,15 @@ const UNREADABLE_SELECTS = [
  * What this guarantees is that the INVENTORY is complete. It is not security
  * coverage: a new unfiltered read of a table already listed here passes. Being
  * listed means "known and unchecked", never "safe".
- * Complete only for the surface as onTenantSurface defines it: app/admin, app/api, app/talent, the public pages and lib/ workers off it (lib/interviews, lib/final-interviews, lib/ai, lib/cv-purge.ts and others) read tenant tables this inventory never sees.
+ *
+ * Complete only for the surface as onTenantSurface defines it, and that
+ * definition has a blind spot this file does not close: a file is on the
+ * surface if its path starts with app/ai-dashboard/ OR its text mentions
+ * CompanyContext or companyId, i.e. because it MENTIONS a company filter. A
+ * file that reads a tenant table and never mentions one is excluded by
+ * construction, and that is exactly the shape of an unfiltered read. On
+ * 2026-11-04, 94 of the 132 excluded files that call .from() read tables,
+ * lib/interviews/ among them. Documenting it here does not resolve it.
  *
  * The reasons, and what each one does NOT claim:
  *   pending-classification   carries applicant data. Unchecked. The #65 audit
