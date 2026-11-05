@@ -337,7 +337,11 @@ test("b: a failed email cancels the new session exactly as before, and nothing i
   ]) {
     const w = world({ sessions, deliver: () => PROVIDER_FAILED });
     const { result, steps } = await run(name, w, action);
-    assert.deepEqual(result, { success: false, error: PROVIDER_FAILED.message }, name);
+    assert.deepEqual(
+      result,
+      { success: false, error: "The email couldn't be sent - please try again." },
+      name,
+    );
     const cancel = only(steps, "write").at(-1);
     // The async send supplies its id (normalised to <SESSION>); fake-live-db gives the
     // live insert none, so its cancel filters on that missing id, before and after the move.
@@ -399,7 +403,12 @@ test("c: sendInviteEmail on a failure returns ok:false with deliverEmail's code,
     });
     const before = structuredClone(w.tables.interview_sessions);
     const result = await sendInviteEmail(w.service, emailInput());
-    assert.deepEqual(result, { ok: false, code: kind, message: `msg-${kind}` });
+    assert.deepEqual(result, {
+      ok: false,
+      code: kind,
+      message:
+        kind === "provider" ? "The email couldn't be sent - please try again." : `msg-${kind}`,
+    });
     assert.deepEqual(w.tables.interview_sessions, before, "the session untouched");
     assert.deepEqual(
       w.service.queries.map((q) => [q.table, q.calls[0][0]]),

@@ -50,10 +50,26 @@ export type InviteEmailInput = {
 /** Why the email was not sent: deliverEmail's own reason, unchanged. */
 export type InviteEmailFailure = Extract<DeliveryOutcome, { ok: false }>["kind"];
 
+/** deliverEmail's reasons whose message it writes itself. Any other is never shown. */
+const OWN_WORDS: ReadonlySet<InviteEmailFailure> = new Set([
+  "cap",
+  "duplicate",
+  "not_configured",
+  "log",
+]);
+
+/**
+ * The sentence for the recruiter. A 'provider' failure's message is the email
+ * provider's own text, which can name an address or a key: never passed on.
+ */
+function inviteFailureMessage(code: InviteEmailFailure, message: string): string {
+  return OWN_WORDS.has(code) ? message : "The email couldn't be sent - please try again.";
+}
+
 /**
  * Email the invitation, and nothing else: whatever happens, the session is left
- * as it is. `code` is deliverEmail's reason and `message` its sentence for the
- * recruiter.
+ * as it is. `code` is deliverEmail's reason and `message` the sentence for the
+ * recruiter (inviteFailureMessage), never the email provider's own text.
  *
  * The invite goes out through the SAME path as every other candidate email —
  * renderCopy for substitution, buildCandidateHtml for the shell and the
@@ -119,7 +135,13 @@ export async function sendInviteEmail(
     sentByName: ctx.memberName,
   });
 
-  if (!outcome.ok) return { ok: false, code: outcome.kind, message: outcome.message };
+  if (!outcome.ok) {
+    return {
+      ok: false,
+      code: outcome.kind,
+      message: inviteFailureMessage(outcome.kind, outcome.message),
+    };
+  }
   return { ok: true, deadline };
 }
 
@@ -134,6 +156,7 @@ export async function deliverInvite(
 ): Promise<{ ok: true; deadline: string } | { ok: false; error: string }> {
   const sent = await sendInviteEmail(service, input);
   if (!sent.ok) {
+    console.warn(`[interview] session ${input.sessionId}: invite email not sent (${sent.code})`);
     /*
      * The session exists but nobody can reach it, so it is cancelled rather
      * than left as a live token with no delivered link. Re-sending mints a

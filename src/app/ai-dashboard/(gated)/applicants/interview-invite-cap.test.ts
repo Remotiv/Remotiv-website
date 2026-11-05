@@ -243,7 +243,7 @@ for (const [label, opts, expectInsert, expectEmail] of [
 
 test("a failed email still cancels the session, as before", async () => {
   const r = await send({ email: "refused" });
-  assert.equal(r.result.error, "The email provider rejected the message.");
+  assert.equal(r.result.error, "The email couldn't be sent - please try again.");
   const sessionId = consumes(r)[0].args.p_ref;
   const cancel = r.service.queries.find(
     (q) => q.table === "interview_sessions" && call(q.calls, "update"),
