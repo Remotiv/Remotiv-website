@@ -3,8 +3,8 @@
 --                 interview already restarted or decided (F10-LOG)
 -- ----------------------------------------------------------------------------
 -- APPLIED. Per the F10 records, staging and production 3 Nov 2026; this
--- repository holds no record of that date and no post-check record, and the
--- catalog read below does not establish the date.
+-- repository holds no record of that date, and the catalog reads below
+-- establish what is present on 5 Nov 2026, not when it appeared.
 --
 -- OBJECTS CONFIRMED PRESENT ON PRODUCTION, from the 5 Nov 2026 catalog read
 -- described in 053's header (catalog only, unscoped, every object in public
@@ -33,11 +33,75 @@
 -- function's body: the read cannot tell this file's replacement of
 -- live_interview_actions_restart_rules and live_restart_session from 053's.
 --
--- THE ONE ITEM STILL UNPROVEN: row level security on
--- live_restart_link_events. Neither read covered pg_class.relrowsecurity or
--- any policy. The "After running" queries at the end of this file are the
--- post-check for it; when they are run against production, file the result
--- and name its location here.
+-- ROW LEVEL SECURITY AND TABLE PRIVILEGES CONFIRMED ON PRODUCTION, from a
+-- third catalog read on 5 Nov 2026 by Waleed in the Supabase SQL editor
+-- (pg_class including relowner, pg_policies,
+-- information_schema.role_table_grants, pg_roles, has_table_privilege and
+-- has_any_column_privilege; catalog only, no rows). Two barriers keep
+-- live_restart_link_events server-only. They are independent but not
+-- interchangeable: RLS covers SELECT, INSERT, UPDATE and DELETE for roles
+-- subject to it, and nothing else; the privilege layer covers those four
+-- plus TRUNCATE, REFERENCES and TRIGGER, which RLS never sees. For
+-- TRUNCATE, REFERENCES and TRIGGER the privilege layer is the only barrier.
+-- For the four row operations both hold, and RLS is the one that would
+-- survive a grant added later.
+--
+--   Privilege layer. role_table_grants lists postgres and service_role only,
+--   each with SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES and
+--   TRIGGER; no row for anon, none for authenticated. has_table_privilege
+--   returned false for all 14 combinations of anon and authenticated with
+--   those seven privileges, so nothing reaches them through PUBLIC or an
+--   inherited role either. A statement from anon or authenticated is refused
+--   here, before RLS is consulted.
+--
+--   RLS layer. pg_class: rowsecurity = true. pg_policies: no rows, zero
+--   policies. pg_roles: anon and authenticated are rolsuper = false and
+--   rolbypassrls = false, so both are subject to RLS. A table with RLS on
+--   and no policy is default-deny for SELECT, INSERT, UPDATE and DELETE by
+--   every role subject to RLS: even a grant added later would still be
+--   refused. No policy is stronger than a permissive policy, not weaker.
+--
+--   TRUNCATE, REFERENCES and TRIGGER are outside RLS; the privilege layer
+--   is the load-bearing barrier for them, and it holds: no grant, and
+--   has_table_privilege false for both roles.
+--
+--   Column privileges. has_table_privilege answers for table-level grants
+--   only; a column-level grant is a separate thing, so the read also ran
+--   has_any_column_privilege for the four privileges a column can carry.
+--   All eight are false: anon SELECT, INSERT, UPDATE, REFERENCES; and
+--   authenticated SELECT, INSERT, UPDATE, REFERENCES. That is NO EFFECTIVE
+--   COLUMN PRIVILEGE for either role, now, including through PUBLIC and
+--   role membership; it is not proof that no GRANT was ever issued, since
+--   the function says nothing about a grant later revoked. The read
+--   mattered although the table-level answer was already no: SELECT,
+--   INSERT and UPDATE through a column grant would still meet the
+--   zero-policy denial, but REFERENCES sits outside RLS, so it is the only
+--   privilege a column grant could ever have opened. TRUNCATE and TRIGGER
+--   are absent from this read because neither is a column-level privilege;
+--   has_any_column_privilege does not apply to them, and the table-level
+--   has_table_privilege result is the whole answer for both.
+--
+--   service_role is rolbypassrls = true and holds the grants above. That is
+--   why the server can write to a table with zero policies: it is exempt from
+--   RLS, not let through by a policy. Without this the configuration would
+--   read as broken; it is not.
+--
+--   forced = false (relforcerowsecurity) is not a weakness. It exempts only
+--   the table owner from RLS. pg_class.relowner: the owner is postgres.
+--   pg_roles for postgres: rolsuper = false, rolbypassrls = true. postgres
+--   is exempt from RLS by BYPASSRLS, not by being a superuser, and a role
+--   with BYPASSRLS is exempt whether or not RLS is forced. FORCE ROW LEVEL
+--   SECURITY would not subject this owner to RLS; relforcerowsecurity =
+--   false changes nothing. Do not "fix" it.
+--
+-- WHAT THE THREE CATALOG READS ESTABLISH, all as of 5 Nov 2026: that the
+-- objects exist, that the triggers are attached and enabled, the RLS state,
+-- the policy count, the table owner, and the table and column privileges.
+-- WHAT THEY DO NOT ESTABLISH: any function's body (the reads name
+-- live_interview_actions_restart_rules and live_restart_session and cannot
+-- tell this file's replacement from 053's), and any date. The "After running"
+-- queries at the end of this file are kept as the record of what to check;
+-- they are no longer a pending post-check.
 --
 -- Run by hand in the Supabase SQL editor, after 053 (production 31 Oct 2026,
 -- staging 3 Nov 2026, per Waleed's records; 054 is unrelated and may run in
