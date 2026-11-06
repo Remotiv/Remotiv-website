@@ -1,11 +1,29 @@
 -- ============================================================================
 -- Migration 056 - candidate erasure, slice 1: the orphan sweep (#72)
 -- ----------------------------------------------------------------------------
--- NOT RUN. This file is a report. Waleed applies it by hand in the Supabase
--- SQL editor after reviewing the SQL and running the pre-check below. Nothing
--- in the repository executes it; migration-056.test.ts pins its text against
--- the TypeScript constants it must agree with.
+-- APPLIED to production, 6 Nov 2026, by Waleed in the Supabase SQL editor:
+-- one paste, one execution, "Success. No rows returned". This header is
+-- Waleed's apply record. The SQL below is what was run, performed_by id in
+-- step 6 included, the way 054's applied SQL is preserved. Nothing in the
+-- repository executes it; migration-056.test.ts pins its text against the
+-- TypeScript constants it must agree with.
 --
+-- POST-CHECK EVIDENCE, read on production on 6 Nov 2026 after the apply, all
+-- nine as expected:
+--   triggers_on_both 2; orphan_messages_with_address 0;
+--   orphan_sweepable_bells 0; team_bells_untouched 2;
+--   audit row 7b2c9b8e-0056-4a6e-9f01-202611060000 | sweep |
+--     {"communication_logs": 86, "notifications_company": 29};
+--   functions_using_type_list 2; rls_on true / policies 0;
+--   orphan_messages_still_present 86 (cleared, not deleted: the counts survive);
+--   stamped_orphans 0 (nothing orphaned since the trigger has existed).
+--
+-- STEP 6 IS SPENT. Its operation id now exists in candidate_erasures, so a
+-- re-run of this file raises at step 6 and rolls back whole. The routine path
+-- from here is erase_orphaned_message_rows, called by the super-admin action
+-- (app/admin/erasure/actions.ts) with the 30-day window; nothing schedules it.
+--
+-- A fresh environment still needs the next paragraph.
 -- RUN THIS FILE AS ONE EXECUTION: PASTE IT WHOLE, FROM begin; TO commit;.
 -- RUNNING IT IN PIECES BREAKS THE ROLLBACK GUARANTEE. The SQL editor sends
 -- the whole text in one request, and the explicit begin; and commit; make it
@@ -80,7 +98,7 @@
 -- applicant. It stays. There is no one-time title rewrite either: with zero
 -- rows it would be a no-op.
 --
--- ── Pre-check (run first; every expected value is from 6 Nov 2026) ─
+-- ── Pre-check (was run first and passed on 6 Nov 2026; expected values from that day's measurement) ─
 --
 -- select count(*) as orphan_messages                               -- expect 86
 --   from public.communication_logs where application_id is null;
@@ -96,9 +114,9 @@
 -- select count(*) filter (where created_at >= '2026-10-01') as orphans_after_cutoff  -- expect 0
 --   from public.communication_logs where application_id is null;
 --
--- Your own auth.users id, for performed_by in step 6 (pick your row):
+-- The auth.users id for performed_by in step 6 was read with (own row picked):
 -- select id, email from auth.users where email ilike '%@remotiv.work' order by created_at;
--- Then replace the sentinel in step 6 with it. The block refuses the sentinel.
+-- It is in the file now. The block still refuses the all-zero sentinel.
 --
 -- Nothing left behind (after a failed run, or to confirm a clean start):
 -- select to_regclass('public.candidate_erasures') as table_left,                          -- null
@@ -320,8 +338,9 @@ grant execute on function public.erase_orphaned_message_rows(uuid, uuid, timesta
 
 -- ── 6. ONE-TIME: the rows that predate orphaned_at ───────────
 --
--- Run once, with this migration, never again. The 86 message rows and the
--- 29 bells were orphaned before any stamp existed and can never carry one.
+-- Ran once, with this migration, on 6 Nov 2026; now spent, and a re-run is
+-- refused below. The 86 message rows and the 29 bells were orphaned before
+-- any stamp existed and could never carry one.
 -- The predicate is exactly "no stamp and created before 2026-10-01":
 --   orphaned_at IS NULL   excludes anything orphaned since step 2 created the
 --                         trigger, which is the row a window protects, even if
@@ -342,7 +361,12 @@ grant execute on function public.erase_orphaned_message_rows(uuid, uuid, timesta
 do $$
 declare
   op           constant uuid := '7b2c9b8e-0056-4a6e-9f01-202611060000';
-  performed_by constant uuid := '00000000-0000-0000-0000-000000000000';  -- REPLACE with your auth.users id
+  -- Waleed's auth.users id (waleed@remotiv.work): the record of who ran this.
+  -- Set after the pre-check passed on production, 6 Nov 2026: 86 orphan
+  -- messages, 29 sweepable bells, 0 applicant_deleted, 0 triggers, no
+  -- candidate_erasures table, both race detectors 0. The guard below keeps
+  -- refusing the all-zero sentinel, so a copy with the id removed cannot run.
+  performed_by constant uuid := 'a15c1b8a-562b-4d2d-8c67-a8b2f6c8fd31';
   n_logs  bigint;
   n_bells bigint;
 begin
@@ -426,7 +450,7 @@ $$;
 
 commit;
 
--- ── After running ────────────────────────────────────────────
+-- ── After running (read 6 Nov 2026; the results are in the header) ───
 --
 -- select count(*) as triggers_on_both                                -- expect 2
 --   from pg_trigger
