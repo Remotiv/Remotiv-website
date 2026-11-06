@@ -57,6 +57,20 @@ import { LiveInterviewsSection } from "./_live-interviews-section";
  *   communication_logs              NOTHING expires these. The bodies of every
  *                                   email and message we sent are kept, and
  *                                   section 3's "everything else" says so.
+ *                                   Since migration 056 (applied 6 Nov 2026)
+ *                                   a super admin can CLEAR, by hand, the
+ *                                   address, subject, body and provider ids
+ *                                   of rows whose applicant was deleted more
+ *                                   than 30 days earlier
+ *                                   (erase_orphaned_message_rows, called from
+ *                                   app/admin/erasure/actions.ts); the row
+ *                                   keeps event, channel, status, company,
+ *                                   times and sent_by_name. Not scheduled,
+ *                                   not reachable by a candidate, and it does
+ *                                   not reach sweep_not_covered(): inbound
+ *                                   WhatsApp, the opt-out tables, interview
+ *                                   bookings, talent profiles. Section 3's
+ *                                   two-paths paragraph says exactly that.
  *   Google user data (section 13)   read from src/lib/calendar/. Scopes are
  *                                   google.ts SCOPES (calendar.events,
  *                                   calendar.readonly, userinfo.email; Google
@@ -114,7 +128,7 @@ export const metadata: Metadata = {
 };
 
 /** Shown at the top. Update whenever the substance below changes. */
-const LAST_UPDATED = "25 October 2026";
+const LAST_UPDATED = "6 November 2026";
 
 const CONTACT = "talent@remotiv.work";
 
@@ -314,8 +328,24 @@ export default function PrivacyPage() {
           <P>
             Four things here expire on their own. Nothing else does. The four that do are enforced
             by jobs that run every day; they are not a statement of intent, they are code that
-            deletes. Everything else we keep until you ask us to remove it, and we would rather say
-            that than describe a deletion that does not happen.
+            deletes. Everything else we keep until you ask us to remove it, with one exception that
+            keeps less than that: once a company has deleted your application, we clear our record
+            of the messages we sent you ourselves, without being asked, as the next paragraph
+            describes. We would rather say exactly what happens than describe a deletion that does
+            not.
+          </P>
+          <P>
+            When a company hiring through us deletes your application, your application, your CV,
+            your interviews and their recordings are removed from that company&apos;s account at
+            that moment. Our record of the messages we sent you is not removed then. Someone at
+            Remotiv clears it later by hand, with no fixed timing. Clearing removes the address we
+            sent to, the subject and the text of each message. The record keeps the kind of message,
+            the channel, whether it was sent, the company that sent it, the times it was scheduled
+            and sent, and the name of the team member who sent it. It does not reach every record we
+            hold: an inbound WhatsApp message you sent us, an unsubscribe you recorded, your
+            interview booking times, a talent-pool profile if you have one, and anything the email
+            or messaging providers keep on their side are not cleared by it. We keep a record of
+            each clearing that does not contain your address.
           </P>
 
           <H3>CVs sent to a company: 24 months from the day you apply</H3>
@@ -395,7 +425,9 @@ export default function PrivacyPage() {
             Contact form messages, our record of the emails and messages we sent you, booking
             requests, account records and application records are kept while they remain useful to
             the hiring or business relationship they belong to. We do not currently apply an
-            automatic expiry to them.
+            automatic expiry to them. A company deleting your application does not clear our record
+            of the messages we sent you; someone at Remotiv clears it later by hand, as section 3
+            describes.
           </P>
 
           <H2>4. Why we are allowed to process it</H2>
