@@ -63,6 +63,13 @@ export const COMPANY_NOTIFICATION_TYPES = [
   "final_recording_lobby",
   "final_recording_failed",
   "final_recording_ready",
+  /*
+   * A candidate message that did not arrive (#71A). Written by
+   * lib/notifications/send-failure.ts from every path that marks a
+   * communication_logs row failed. Same unconstrained column: the production
+   * catalog read of 6 Nov 2026 shows no CHECK on type, so no migration.
+   */
+  "message_failed",
   "job_published",
   "job_closed",
   "job_archived",
@@ -107,6 +114,7 @@ const APPLICANT_TYPES = new Set<CompanyNotificationType>([
   "final_recording_lobby",
   "final_recording_failed",
   "final_recording_ready",
+  "message_failed",
 ]);
 
 /**
@@ -180,13 +188,16 @@ type MemberRow = { id: string; role: string };
 async function resolveRecipients(
   service: ReturnType<typeof createServiceClient>,
   input: NotifyInput,
+  /** Aborts both reads. notifyCompany passes one it never aborts. */
+  signal: AbortSignal,
 ): Promise<string[]> {
   const { data: memberRows } = await service
     .from("company_members")
     .select("id, role")
     .eq("company_id", input.companyId)
     .eq("status", "active")
-    .limit(1000);
+    .limit(1000)
+    .abortSignal(signal);
 
   const members = (memberRows ?? []) as MemberRow[];
   const siteWide = members.filter((m) => m.role === "owner" || m.role === "admin").map((m) => m.id);
@@ -199,7 +210,8 @@ async function resolveRecipients(
     .select("member_id")
     .eq("company_id", input.companyId)
     .eq("job_id", input.jobId)
-    .limit(500);
+    .limit(500)
+    .abortSignal(signal);
 
   const assigned = ((teamRows ?? []) as { member_id: string | null }[])
     .map((r) => r.member_id)
@@ -224,7 +236,10 @@ export async function notifyCompany(input: NotifyInput): Promise<void> {
     if (!input.companyId || !input.title) return;
     const service = createServiceClient();
 
-    const recipients = (await resolveRecipients(service, input)).filter(
+    // Never aborted: this path has no deadline of its own. The signal exists
+    // so resolveRecipients has one shape for both callers.
+    const signal = new AbortController().signal;
+    const recipients = (await resolveRecipients(service, input, signal)).filter(
       (id) => id !== input.actorMemberId,
     );
     if (recipients.length === 0) return;
@@ -261,6 +276,55 @@ export async function notifyCompany(input: NotifyInput): Promise<void> {
  * event, and telling the rest of the team that someone else was added is the
  * kind of noise this system is trying to avoid.
  */
+/**
+ * notifyCompany, with one bell per recipient per KEY rather than per call.
+ *
+ * The caller derives each row's id from its own key and the member
+ * (deterministicUuid), so the primary key is the dedup: notifications_company
+ * has no other unique index (production catalog, 6 Nov 2026), and a second
+ * insert of the same id is refused with 23505, which is read as "already
+ * there" exactly as final-interviews/alerts.ts reads it. One insert per
+ * recipient rather than one chunked insert, because one duplicate inside a
+ * chunk would refuse the whole chunk and silence the members who had no row.
+ *
+ * Takes the caller's service client, so a queue handler or a webhook passes
+ * the one it already holds, and the caller's abort signal, which goes into
+ * every read and insert so a caller with a deadline can abandon the requests
+ * rather than merely stop waiting. Same recipient rule as notifyCompany:
+ * resolveRecipients decides who, the actor is left out. Unlike notifyCompany
+ * this one THROWS on an abort or a failed read, so the caller's own handler
+ * sees it; a refused duplicate (23505) is "already there" and not an error.
+ */
+export async function notifyCompanyOnce(
+  service: ReturnType<typeof createServiceClient>,
+  input: NotifyInput & { idFor: (memberId: string) => string; signal: AbortSignal },
+): Promise<void> {
+  if (!input.companyId || !input.title) return;
+  const recipients = (await resolveRecipients(service, input, input.signal)).filter(
+    (id) => id !== input.actorMemberId,
+  );
+  const href = resolveHref(input);
+  for (const memberId of recipients) {
+    const { error } = await service
+      .from("notifications_company")
+      .insert({
+        id: input.idFor(memberId),
+        company_id: input.companyId,
+        member_id: memberId,
+        type: input.type,
+        title: input.title,
+        body: input.body,
+        job_id: input.jobId ?? null,
+        application_id: input.applicationId ?? null,
+        href,
+      })
+      .abortSignal(input.signal);
+    if (error && error.code !== "23505") {
+      console.error("[notify-company] once insert failed:", error.message);
+    }
+  }
+}
+
 export async function notifyCompanyMember(input: {
   companyId: string;
   memberId: string;

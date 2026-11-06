@@ -1132,6 +1132,8 @@ export async function sendManualMessage(input: {
     replyTo: (company?.candidate_reply_email ?? "").trim() || null,
     note,
     sentByName: ctx.memberName,
+    // The sender sees a failure on screen, so the failure bell skips them (#71A).
+    actorMemberId: ctx.memberId,
   });
 
   if (!outcome.ok) {
@@ -1301,6 +1303,8 @@ export async function sendScheduledNow(
     companyName: (company?.name ?? "").trim(),
     replyTo: (company?.candidate_reply_email ?? "").trim() || null,
     note: `Sent immediately by ${ctx.memberName} instead of waiting for the scheduled time.`,
+    // The sender sees a failure on screen, so the failure bell skips them (#71A).
+    actorMemberId: ctx.memberId,
   });
 
   if (!outcome.ok) return { success: false, error: outcome.message };

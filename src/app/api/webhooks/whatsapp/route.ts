@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { toWhatsAppDigits } from "@/lib/normalize";
+import { alertSendFailure, updatedOne } from "@/lib/notifications/send-failure";
 import { createServiceClient } from "@/lib/supabase/server";
 import { recordUsage } from "@/lib/usage";
 import { isOnePerson, type MatchRow, phonePrefilterPattern } from "@/lib/whatsapp/number-owners";
@@ -248,7 +249,11 @@ async function applyStatus(event: MetaStatus): Promise<void> {
   const service = createServiceClient();
   const { data, error } = await service
     .from("communication_logs")
-    .select("id, status, company_id")
+    // application_id and event are read for the failure bell (#71A) alone:
+    // without them the alert could not deep-link the applicant, name the
+    // message, or reach the job's hiring team, and would go to owners and
+    // admins only. Nothing else in this function reads them.
+    .select("id, status, company_id, application_id, event")
     .eq("provider_message_id", wamid)
     .eq("channel", "whatsapp")
     .maybeSingle();
@@ -258,7 +263,13 @@ async function applyStatus(event: MetaStatus): Promise<void> {
     return;
   }
 
-  const row = data as { id: string; status: string | null; company_id: string | null } | null;
+  const row = data as {
+    id: string;
+    status: string | null;
+    company_id: string | null;
+    application_id: string | null;
+    event: string | null;
+  } | null;
 
   if (!row) {
     /*
@@ -306,10 +317,33 @@ async function applyStatus(event: MetaStatus): Promise<void> {
     patch.error = [code, title].filter(Boolean).join(" ").slice(0, 500) || "WhatsApp delivery failed.";
   }
 
-  const { error: updErr } = await service
+  // The row back (.select) for the failure bell below: a zero-row update
+  // returns no error, so updErr alone cannot say the mark landed. Nothing
+  // else here reads the returned row.
+  const { data: marked, error: updErr } = await service
     .from("communication_logs")
     .update(patch)
-    .eq("id", row.id);
+    .eq("id", row.id)
+    .select("id");
+
+  /*
+   * A failure Meta reports AFTER accepting the message (#71A). The row is
+   * marked failed above; this is the one path from that mark to a person.
+   * Only once exactly one row came back from that update, so the bell never
+   * claims a failure the record does not show. Best-effort by construction:
+   * the response below stays 200 whatever happens here. No actor: a webhook
+   * has nobody behind it.
+   */
+  if (!updErr && isFailure && row.company_id && updatedOne(marked)) {
+    await alertSendFailure(service, {
+      logId: row.id,
+      companyId: row.company_id,
+      applicationId: row.application_id,
+      event: row.event,
+      channel: "whatsapp",
+      actorMemberId: null,
+    });
+  }
 
   /*
    * ── Metering, on the DELIVERY THRESHOLD ──

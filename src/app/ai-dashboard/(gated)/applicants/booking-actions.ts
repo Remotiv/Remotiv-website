@@ -222,6 +222,8 @@ export async function sendBookingLink(
     companyName: ctx.company.name,
     replyTo: null,
     sentByName: ctx.memberName,
+    // The sender sees a failure on screen, so the failure bell skips them (#71A).
+    actorMemberId: ctx.memberId,
   });
 
   if (!outcome.ok) {

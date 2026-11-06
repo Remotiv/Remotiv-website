@@ -1,6 +1,11 @@
 import "server-only";
 import { Resend } from "resend";
 import { redactCandidateLinks } from "@/lib/candidate-links";
+import {
+  alertSendFailure,
+  type SendFailureInput,
+  updatedOne,
+} from "@/lib/notifications/send-failure";
 import type { createServiceClient } from "@/lib/supabase/server";
 import { EMAIL_SHELL } from "./templates";
 import type { LoggedEvent, MessageStatus } from "./types";
@@ -242,6 +247,26 @@ export async function countSentToday(service: Service): Promise<number> {
  * evidence rather than silence — and a row that reads 'sent' can only have
  * been written after Resend accepted the message.
  */
+/**
+ * The failure bell's input for a row this file has just marked failed. One
+ * builder for both failed branches, so they cannot drift apart. The bell is
+ * best-effort by construction (alertSendFailure never throws), so the two
+ * return values below are exactly what they were before it existed.
+ */
+function failedSend(
+  input: { companyId: string; applicationId: string; event: string; actorMemberId?: string | null },
+  logId: string,
+): SendFailureInput {
+  return {
+    logId,
+    companyId: input.companyId,
+    applicationId: input.applicationId,
+    event: input.event,
+    channel: "email",
+    actorMemberId: input.actorMemberId ?? null,
+  };
+}
+
 export async function deliverEmail(
   service: Service,
   input: {
@@ -264,6 +289,12 @@ export async function deliverEmail(
     note?: string;
     /** Author of a manual message. Automatic mail leaves this null. */
     sentByName?: string | null;
+    /**
+     * The member whose action this send is, for the failure bell (#71A): they
+     * saw the error on screen, so they are left out of the fan-out. Automatic
+     * mail and callers that cannot name one leave it null.
+     */
+    actorMemberId?: string | null;
   },
 ): Promise<DeliveryOutcome> {
   const cap = dailyCap();
@@ -340,10 +371,13 @@ export async function deliverEmail(
   const logId = written.logId;
   const client = getResend();
   if (!client) {
-    await service
+    // The row back (.select), so the bell rings only for a mark that landed.
+    const { data: marked } = await service
       .from("communication_logs")
       .update({ status: "failed", error: "RESEND_API_KEY not configured." })
-      .eq("id", logId);
+      .eq("id", logId)
+      .select("id");
+    if (updatedOne(marked)) await alertSendFailure(service, failedSend(input, logId));
     return {
       ok: false,
       kind: "not_configured",
@@ -365,10 +399,13 @@ export async function deliverEmail(
   });
 
   if (error) {
-    await service
+    // The row back (.select), so the bell rings only for a mark that landed.
+    const { data: marked } = await service
       .from("communication_logs")
       .update({ status: "failed", error: error.message ?? "Resend error" })
-      .eq("id", logId);
+      .eq("id", logId)
+      .select("id");
+    if (updatedOne(marked)) await alertSendFailure(service, failedSend(input, logId));
     return {
       ok: false,
       kind: "provider",

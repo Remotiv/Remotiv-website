@@ -1,6 +1,7 @@
 import "server-only";
 import { redactCandidateLinks } from "@/lib/candidate-links";
 import { skipJob } from "@/lib/job-skip";
+import { alertSendFailure, updatedOne } from "@/lib/notifications/send-failure";
 import { createServiceClient } from "@/lib/supabase/server";
 import { isWhatsAppOptedOut } from "@/lib/whatsapp/opt-out";
 import {
@@ -353,10 +354,32 @@ export async function handleWhatsAppMessage(job: {
     return;
   }
 
-  await service
+  // The row back (.select), so the bell rings only for a mark that landed.
+  const { data: marked } = await service
     .from("communication_logs")
     .update({ status: "failed", error: result.message.slice(0, 500) })
-    .eq("id", logId);
+    .eq("id", logId)
+    .select("id");
+
+  /*
+   * Someone is told (#71A). BEFORE the terminal/transient branch below, on
+   * purpose: the terminal case returns normally, so the job is marked
+   * succeeded and the queue's job_dead alert never fires for it. This line is
+   * the only path from that failure to a person. Best-effort by construction,
+   * so the throw below and the return after it are exactly what they were.
+   * No actor: a recruiter's WhatsApp send is queued, so nobody saw this error
+   * on a screen and nobody is left out of the fan-out.
+   */
+  if (updatedOne(marked)) {
+    await alertSendFailure(service, {
+      logId,
+      companyId,
+      applicationId,
+      event,
+      channel: "whatsapp",
+      actorMemberId: null,
+    });
+  }
 
   /*
    * ── Terminal vs transient ──
