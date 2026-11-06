@@ -90,6 +90,17 @@ export type LoggedEvent = MessageEvent | LogOnlyEvent;
 export type MessageStatus = "queued" | "sent" | "failed" | "cancelled" | "skipped";
 
 /**
+ * What to_address reads once the orphan sweep (#72, migration 056) has
+ * cleared a row. The column is NOT NULL, so erasure writes this fixed value
+ * rather than nulling it; the row keeps its event, channel, status, company,
+ * times and sent_by_name so every count survives. No writer ever produces
+ * this value, and no visible Messages row can carry it, because the page
+ * hides rows whose applicant is gone (messages/actions.ts:596). The SQL twin
+ * is erased_address() in migration 056; migration-056.test.ts holds them equal.
+ */
+export const ERASED_ADDRESS = "[erased]";
+
+/**
  * Pipeline stages that trigger a candidate email, mapped to their event.
  *
  * THIS MAP IS THE ONLY SWITCH. queueStageChange looks a stage up here and

@@ -118,6 +118,51 @@ const APPLICANT_TYPES = new Set<CompanyNotificationType>([
 ]);
 
 /**
+ * The bell types the orphan sweep (#72, migration 056) deletes once their
+ * applicant is gone: ONLY the types whose title or body can carry the
+ * candidate's name. A type that never writes a name gains nothing from a
+ * sweep and costs the company an unread notification. The SQL twin is
+ * sweepable_notification_types() in migration 056; migration-056.test.ts
+ * holds the two equal, and orphan-sweep-scan.test.ts proves every writer of
+ * these types passes an application id from a live row.
+ *
+ *   score_ready            cv-scoring.ts:1713-1717, title "<name> scored"
+ *   stage_change           applicants/actions.ts:1375 and :1421, title "<name> moved to"
+ *   interview_booked       api/book/[token]/route.ts:489-493, title "<name> booked"
+ *   interview_rescheduled  api/book/[token]/route.ts:604-608, title "<name> moved their interview"
+ *   interview_cancelled    api/book/[token]/route.ts:694-700, booking-actions.ts:433,
+ *                          final-interview-actions.ts:839-840, title "<name> cancelled"
+ *   interview_expired      interviews/expiry.ts:574-576 and :588, title "<name>'s deadline passed"
+ *
+ * Each name is read from the application row the id names, so a bell written
+ * after the applicant is gone carries the fallback label and no name: every
+ * name-bearing write has a live application. That is what closes the
+ * structural hole of a bell born with a NULL application_id, which is never
+ * updated and so never stamped orphaned_at: such a bell of these types has no
+ * name in it. What is left unswept is that nameless residue, not personal.
+ *
+ * Deliberately absent:
+ *   applicant_deleted      always written with a NULL application_id
+ *                          (applicants/actions.ts:2504-2508): orphaned from
+ *                          birth, and the one bell meant to outlive the
+ *                          applicant. #88 stops it writing the name, in the
+ *                          body as well as the title.
+ *   final_recording_*      alerts.ts:550-551 and :669-670: the title is the
+ *                          email subject and the body a fixed sentence; no name.
+ *   message_failed         send-failure.ts names the applicant by six id
+ *                          characters, by design.
+ *   team and job types     no candidate at all.
+ */
+export const SWEEPABLE_NOTIFICATION_TYPES = [
+  "score_ready",
+  "stage_change",
+  "interview_booked",
+  "interview_rescheduled",
+  "interview_cancelled",
+  "interview_expired",
+] as const satisfies readonly CompanyNotificationType[];
+
+/**
  * Where the row navigates to.
  *
  * Exported for its test — it is the whole rule, and a rule six call sites now
