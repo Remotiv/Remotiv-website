@@ -668,8 +668,9 @@ Two behaviours worth knowing before you read the results:
 - **Internal email fails silently.** `email/send.ts:8-11` logs a warning and
   returns null.
 
-There is no `crons` array in `vercel.json`. Cron schedules are configured in the
-Vercel dashboard, so a staging deployment will not inherit them. Leave them off.
+There is no `crons` array in `vercel.json`. The production worker is called by
+cron-job.org, not Vercel Cron (see `docs/OPERATIONS-WORKER-SCHEDULER.md`), so a
+staging deployment has no schedule. Leave it that way.
 
 ## 8. Install Playwright
 
