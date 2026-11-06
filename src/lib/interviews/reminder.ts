@@ -51,7 +51,7 @@ export const REMINDER_EVENT = "interview_reminder" as const;
 const ALREADY_HANDLED = ["queued", "sent", "skipped", "cancelled"];
 
 /** Statuses that mean the candidate is done, one way or another. */
-const FINISHED_STATUSES = new Set(["submitted", "cancelled", "expired"]);
+const FINISHED_STATUSES = new Set(["submitted", "cancelled", "expired", "abandoned"]);
 
 export type InterviewReminderPayload = {
   sessionId: string;
@@ -127,6 +127,7 @@ export async function handleInterviewReminder(job: {
    * cancelled  the invite was superseded by a re-send, or the invitation email
    *            failed and sendInterviewInvite rolled the session back
    * expired    the window closed early, or the expiry job got here first
+   * abandoned  a first attempt that was restarted (migration 053); this link was replaced
    *
    * `submitted_at` is checked independently of `status` rather than trusted
    * through it: a submit that wrote the timestamp but crashed before the status

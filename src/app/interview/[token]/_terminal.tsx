@@ -78,6 +78,7 @@ type TerminalKind =
   | "cancelled"
   | "unavailable"
   | "ended"
+  | "replaced"
   | "invalid"
   | "no-questions";
 
@@ -202,6 +203,30 @@ export function TerminalScreen({
           <p className="m-0 mt-2.5 text-[13px] leading-relaxed text-[var(--t3)]">
             Nothing has gone wrong on your side, and nothing has been recorded. Reply to the email
             invitation and {company}&apos;s team will be in touch.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  /*
+   * A first attempt's link after a restart (F10): this link was replaced, and
+   * nothing else. No new link and no deadline: whoever holds an old link learns
+   * nothing about the restart. Hyphens only.
+   */
+  if (kind === "replaced") {
+    return (
+      <div className="iv-card" data-terminal="replaced">
+        <div className="flex flex-col items-center px-1 pb-2 pt-3.5 text-center">
+          <span className="mb-[18px] flex size-[72px] items-center justify-center rounded-3xl bg-[var(--inset)] text-[var(--t3)]">
+            <Clock className="size-[34px]" strokeWidth={2.2} />
+          </span>
+          <h1 className="iv-sora m-0 mb-2.5 text-[23px] font-extrabold leading-tight tracking-[-0.032em] text-[var(--t1)]">
+            This link was replaced
+          </h1>
+          <p className="m-0 mb-1.5 text-sm leading-relaxed text-[var(--t2)]">
+            Please use the link in your most recent interview email. If you haven&apos;t received
+            one, contact the company that invited you.
           </p>
         </div>
       </div>

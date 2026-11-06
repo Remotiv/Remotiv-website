@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { rateLimitByKey } from "@/app/api/_lib/rate-limit";
 import { handleLiveEvent } from "@/lib/interviews/live-events";
+import { hashSessionToken } from "@/lib/interviews/tokens";
 import { createServiceClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -14,12 +15,14 @@ export const dynamic = "force-dynamic";
  *   200 { ok }                  recorded (live_session_events, migration 050)
  *   400 bad_event               not one of the codes
  *   409 not_started             the interview never started
+ *   409 link_replaced           a first attempt that was restarted: nothing stored
  *   502 not_recorded            not stored; the screen may send it again
  *
  * A record, never an outcome, and never the interview's end: no report, not
  * even provider_end_reported, stamps live_ended_at (RB1). Only the server's
- * time-limit backstop may stamp it here. Every rule is in
- * lib/interviews/live-events.ts.
+ * time-limit backstop may stamp it here. Every rule but link_replaced is in
+ * lib/interviews/live-events.ts; that one is refused here, before any of them,
+ * so a restarted attempt gets no new row and no backstop stamp.
  */
 export async function POST(request: Request) {
   let body: Record<string, unknown>;
@@ -39,6 +42,30 @@ export async function POST(request: Request) {
       { status: 429 },
     );
   }
-  const result = await handleLiveEvent(body, { service: createServiceClient() });
+  const service = createServiceClient();
+  if (token.length >= 20 && token.length <= 200) {
+    const { data, error } = await service
+      .from("interview_sessions")
+      .select("id, status")
+      .eq("token_hash", hashSessionToken(token))
+      .maybeSingle();
+    // Unknown is not "allowed": 5xx, which the screen may send again.
+    if (error) {
+      console.error(`[live-events] status read failed (${error.code ?? "error"})`);
+      return NextResponse.json(
+        { code: "not_recorded", error: "Couldn't record that. Please try again." },
+        { status: 502 },
+      );
+    }
+    const row = data as { id: string; status: string } | null;
+    if (row?.status === "abandoned") {
+      console.warn(`[live-events] session ${row.id}: refused, the link was replaced`);
+      return NextResponse.json(
+        { code: "link_replaced", error: "This link was replaced." },
+        { status: 409 },
+      );
+    }
+  }
+  const result = await handleLiveEvent(body, { service });
   return NextResponse.json(result.body, { status: result.status });
 }

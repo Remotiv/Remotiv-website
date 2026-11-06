@@ -49,7 +49,7 @@ import { createServiceClient } from "@/lib/supabase/server";
  */
 
 /** Statuses that reached their own conclusion and must not be overwritten. */
-const SETTLED_STATUSES = new Set(["submitted", "cancelled", "expired"]);
+const SETTLED_STATUSES = new Set(["submitted", "cancelled", "expired", "abandoned"]);
 
 /** The two this job is allowed to close. Also the race guard on the UPDATE. */
 const EXPIRABLE_STATUSES = ["invited", "started"];
@@ -211,6 +211,8 @@ async function expireOneSessionById(
    *   expired    a previous run of this job already did the work. Returning
    *              here is what stops a second notification — see the conditional
    *              UPDATE below for the concurrent case.
+   *   abandoned  a first attempt that was restarted (migration 053). Final: its
+   *              restart has its own deadline and its own expiry job.
    */
   if (SETTLED_STATUSES.has(session.status) || session.submitted_at) {
     skipJob(

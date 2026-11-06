@@ -51,6 +51,24 @@ export default async function InterviewPage({
   const { session } = resolved;
 
   /*
+   * A first attempt that was restarted: 'abandoned' is written only by a
+   * restart (migration 053) and is final. Ahead of every state, because this is
+   * true whatever session.state says: an old link past its own deadline reads
+   * "expired" there, and the candidate would never learn to look for the new one.
+   */
+  if (resolved.row.status === "abandoned") {
+    return (
+      <InterviewShell
+        companyName={session.companyName}
+        companyInitial={session.companyInitial}
+        jobTitle={session.jobTitle}
+      >
+        <TerminalScreen kind="replaced" />
+      </InterviewShell>
+    );
+  }
+
+  /*
    * An AI Video Interview, on the live screen (AVI commit 10): only behind
    * LIVE_INTERVIEW_SCREEN_ENABLED, and only while it can still start. The
    * page gets the interviewer's name and the time limit (liveWelcomeFacts:
