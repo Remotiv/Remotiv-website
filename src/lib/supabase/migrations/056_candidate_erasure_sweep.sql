@@ -6,6 +6,21 @@
 -- in the repository executes it; migration-056.test.ts pins its text against
 -- the TypeScript constants it must agree with.
 --
+-- RUN THIS FILE AS ONE EXECUTION: PASTE IT WHOLE, FROM begin; TO commit;.
+-- RUNNING IT IN PIECES BREAKS THE ROLLBACK GUARANTEE. The SQL editor sends
+-- the whole text in one request, and the explicit begin; and commit; make it
+-- one transaction; if any statement errors, the transaction is aborted, the
+-- trailing commit; performs a ROLLBACK, and every column, trigger, function,
+-- table and grant below vanishes together, DDL included. Run step by step,
+-- each execution is its own transaction and the earlier steps survive a
+-- failure in a later one.
+--
+-- If any statement errors: run, as a separate execution,
+--   rollback;
+-- (harmless if nothing is open: "there is no transaction in progress"), then
+-- prove nothing was left behind with the one query at the end of the
+-- pre-check, which must answer null, 0, 0, 0.
+--
 -- ── What this is ─────────────────────────────────────────────
 --
 -- When a company deletes an application, communication_logs.application_id
@@ -81,11 +96,32 @@
 -- select count(*) filter (where created_at >= '2026-10-01') as orphans_after_cutoff  -- expect 0
 --   from public.communication_logs where application_id is null;
 --
--- Then set performed_by in step 6 to your auth.users id. The block refuses
--- the sentinel.
+-- Your own auth.users id, for performed_by in step 6 (pick your row):
+-- select id, email from auth.users where email ilike '%@remotiv.work' order by created_at;
+-- Then replace the sentinel in step 6 with it. The block refuses the sentinel.
+--
+-- Nothing left behind (after a failed run, or to confirm a clean start):
+-- select to_regclass('public.candidate_erasures') as table_left,                          -- null
+--        (select count(*) from pg_trigger
+--          where tgrelid in ('public.communication_logs'::regclass, 'public.notifications_company'::regclass)
+--            and not tgisinternal) as triggers_left,                                         -- 0
+--        (select count(*) from pg_proc
+--          where proname in ('erased_address', 'sweepable_notification_types', 'sweep_not_covered',
+--                            'stamp_orphaned_at', 'preview_orphaned_message_rows',
+--                            'erase_orphaned_message_rows')) as functions_left,              -- 0
+--        (select count(*) from information_schema.columns
+--          where table_schema = 'public' and column_name = 'orphaned_at'
+--            and table_name in ('communication_logs', 'notifications_company')) as columns_left;  -- 0
 -- ============================================================================
 
 begin;
+
+-- The ALTERs in step 2 take ACCESS EXCLUSIVE on communication_logs and on
+-- notifications_company and hold it until commit. If a long transaction
+-- already holds a lock on either, the ALTER would wait and every new reader
+-- and writer would queue behind it. Fail fast instead: the migration rolls
+-- back whole, and is simply run again.
+set local lock_timeout = '5s';
 
 -- ── 1. Constants: one SQL home each ──────────────────────────
 --
@@ -124,6 +160,18 @@ $$;
 -- born with a NULL application_id is never updated this way and never gets a
 -- stamp, which is why the sweep's type list holds only types that are always
 -- written against a live application (company.ts).
+--
+-- BEFORE UPDATE OF application_id fires only for an UPDATE whose SET list
+-- names application_id. The status and error updates in deliverEmail
+-- (lib/email/candidate/deliver.ts), the WhatsApp dispatcher
+-- (lib/whatsapp/dispatch.ts) and the WhatsApp webhook
+-- (app/api/webhooks/whatsapp/route.ts) set status, error, sent_at and the
+-- provider ids and never application_id, so none of them runs this trigger.
+-- Neither do the sweep's own updates below, which set to_address, subject,
+-- body, error and the provider ids. The only statement that writes
+-- application_id is the FK's ON DELETE SET NULL, which is exactly the one
+-- this trigger exists for. A trigger on the busiest table is not a cost on
+-- its busiest path.
 
 alter table public.communication_logs    add column orphaned_at timestamptz;
 alter table public.notifications_company add column orphaned_at timestamptz;
@@ -337,6 +385,45 @@ begin
 end;
 $$;
 
+-- ── 7. THE INVARIANT, asserted before commit ─────────────────
+--
+-- The race step 6 cannot see: an application deleted between the pre-check
+-- and this run leaves a message with application_id NULL and no stamp (the
+-- trigger did not exist yet). If that message was created on or after
+-- 2026-10-01, step 6 skips it, the counts still read 86 and 29, and the row
+-- would then be unreachable for ever: the sweep requires orphaned_at and
+-- step 6 never runs again. So the success condition is not the two counts
+-- alone but this: after step 6, nothing orphaned is unstamped.
+--
+--   communication_logs: every writer requires a string application id
+--   (deliver.ts:99, whatsapp/dispatch.ts:104-106, triggers.ts:200-209,
+--   reminder.ts:410-419), so a NULL one is always an orphan. Unambiguous.
+--   notifications_company: scoped to the six sweepable types, because
+--   invite_accepted and added_to_job are legitimately born null. A sweepable
+--   bell born null carries the fallback label and no name and would be
+--   harmless, but letting it through costs an unreachable row while raising
+--   costs a re-measure and a re-run. For a migration that runs once, strict.
+
+do $$
+declare
+  n_msgs  bigint;
+  n_bells bigint;
+begin
+  select count(*) into n_msgs
+    from public.communication_logs
+   where application_id is null and orphaned_at is null
+     and to_address <> public.erased_address();
+  select count(*) into n_bells
+    from public.notifications_company
+   where application_id is null and orphaned_at is null
+     and type = any (public.sweepable_notification_types());
+  if n_msgs <> 0 or n_bells <> 0 then
+    raise exception 'migration 056: % message row(s) and % bell(s) are orphaned with no stamp after the one-time clear: an application was deleted between the pre-check and this run. Nothing is committed. Re-measure, then either widen the dated predicate in step 6 or stamp the new rows, and retry.',
+      n_msgs, n_bells;
+  end if;
+end;
+$$;
+
 commit;
 
 -- ── After running ────────────────────────────────────────────
@@ -345,10 +432,17 @@ commit;
 --   from pg_trigger
 --  where tgrelid in ('public.communication_logs'::regclass, 'public.notifications_company'::regclass)
 --    and not tgisinternal;
--- select count(*) as orphan_messages_with_address                    -- expect 0
+-- The invariant, true at every later date too: nothing orphaned is unstamped
+-- and still carries an address.
+-- select count(*) as unstamped_orphans_with_address                  -- expect 0, always
+--   from public.communication_logs
+--  where application_id is null and orphaned_at is null and to_address <> '[erased]';
+-- Right after THIS migration only. A row orphaned tomorrow legitimately keeps
+-- its address for 30 days, so this reads above 0 later and that is not a fault.
+-- select count(*) as orphan_messages_with_address                    -- expect 0 today only
 --   from public.communication_logs
 --  where application_id is null and to_address <> '[erased]';
--- select count(*) as orphan_name_bells                               -- expect 0
+-- select count(*) as orphan_name_bells                               -- expect 0 today; later, bells orphaned inside the window
 --   from public.notifications_company
 --  where application_id is null and type = any (public.sweepable_notification_types());
 -- select count(*) as team_bells_untouched                            -- expect 2

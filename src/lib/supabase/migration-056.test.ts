@@ -169,6 +169,42 @@ function problems(text) {
   )
     out.push("the one-time counts do not come from the statements");
 
+  // ── the invariant before commit, the lock timeout, the one-execution rule ──
+  const after = code(text);
+  const invariantAt = after.indexOf("orphaned with no stamp after the one-time clear");
+  const commitAt = after.lastIndexOf("commit;");
+  const oneTimeAt = after.indexOf(`'${ONE_TIME_OP}'`);
+  if (invariantAt < 0) out.push("the invariant is not asserted");
+  else {
+    if (!(oneTimeAt < invariantAt && invariantAt < commitAt))
+      out.push("the invariant is not between the one-time block and commit");
+    if (
+      !has(
+        after,
+        "where application_id is null and orphaned_at is null and to_address <> public.erased_address();",
+      )
+    )
+      out.push("the message invariant is not the unstamped-orphan-with-address predicate");
+    if (
+      !has(
+        after,
+        "where application_id is null and orphaned_at is null and type = any (public.sweepable_notification_types());",
+      )
+    )
+      out.push("the bell invariant is not scoped to the sweepable types");
+    if (!has(after, "if n_msgs <> 0 or n_bells <> 0 then raise exception"))
+      out.push("the invariant does not raise");
+    if (!text.includes("widen the dated predicate in step 6 or stamp the new rows"))
+      out.push("the invariant's message does not say what to do");
+  }
+  if (!has(after, "begin; set local lock_timeout = '5s';"))
+    out.push("lock_timeout is not set right after begin");
+  if (!text.includes("RUNNING IT IN PIECES BREAKS THE ROLLBACK GUARANTEE"))
+    out.push("the header no longer says to run it as one execution");
+  if (!text.includes("expect 0, always") || !text.includes("expect 0 today only"))
+    out.push("the post-check no longer separates the invariant from the day-of expectation");
+  if (!text.includes("from auth.users where email")) out.push("the performed_by query is gone");
+
   // ── what the comments promise ──
   if (!text.includes("ONE DATE SERVES BOTH TABLES"))
     out.push("the shared date is no longer explained");
@@ -313,6 +349,43 @@ test("each check fails on a broken copy", () => {
         "          jsonb_build_object('communication_logs', 86, 'notifications_company', 29),",
       ),
     ],
+    [
+      "invariant gone",
+      sql.replace(
+        "  if n_msgs <> 0 or n_bells <> 0 then\n    raise exception",
+        "  if false then\n    raise exception",
+      ),
+    ],
+    [
+      "invariant unscoped",
+      sql.replace(
+        "   where application_id is null and orphaned_at is null\n     and type = any (public.sweepable_notification_types());\n  if n_msgs",
+        "   where application_id is null and orphaned_at is null;\n  if n_msgs",
+      ),
+    ],
+    [
+      "invariant after commit",
+      sql
+        .replace("\ncommit;\n\n-- ── After running", "\n-- ── After running")
+        .replace(
+          "-- ── 7. THE INVARIANT, asserted before commit",
+          "commit;\n-- ── 7. THE INVARIANT, asserted before commit",
+        ),
+    ],
+    [
+      "invariant message",
+      sql.replace("widen the dated predicate in step 6 or stamp the new rows", "try again"),
+    ],
+    ["lock timeout", sql.replace("set local lock_timeout = '5s';", "")],
+    [
+      "one execution",
+      sql.replace(
+        "RUNNING IT IN PIECES BREAKS THE ROLLBACK GUARANTEE",
+        "run it in pieces if you like",
+      ),
+    ],
+    ["post-check honesty", sql.replace("expect 0 today only", "expect 0")],
+    ["performed_by query", sql.replace("from auth.users where email", "from users where email")],
   ];
   for (const [name, copy] of broken) {
     assert.notEqual(copy, sql, `${name}: the broken copy changed nothing`);
