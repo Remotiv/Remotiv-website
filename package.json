@@ -33,7 +33,6 @@
     "clsx": "^2.1.1",
     "lucide-react": "^1.7.0",
     "next": "16.4.5",
-    "pdf-parse": "^2.4.5",
     "pdfjs-dist": "^5.7.284",
     "react": "19.2.4",
     "react-dom": "19.2.4",
@@ -48,10 +47,8 @@
     "@playwright/test": "^1.64.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
-    "@types/pdf-parse": "^1.1.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "shadcn": "^4.4.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
