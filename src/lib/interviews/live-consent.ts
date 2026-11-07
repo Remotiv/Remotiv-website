@@ -22,7 +22,9 @@
  *   livePrivacySection()  returns null: the privacy page renders neither
  *                         section 15 nor its link from section 1
  *
- * PRIVACY_NOTICE_VERSION moves only when section 15 actually goes live.
+ * PRIVACY_NOTICE_VERSION moves with every published change to the notice, never
+ * with the hidden section 15. When section 15 goes live, that is one more such
+ * change.
  *
  * ── Copy ─────────────────────────────────────────────────────
  *

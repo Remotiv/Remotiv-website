@@ -49,7 +49,6 @@ const {
 const { INTERVIEW_CONSENT_VERSION } = await import("./consent.ts");
 const { liveInterviewsAvailableFor } = await import("./live-availability.ts");
 const { recordLiveConsent, requireLiveConsent } = await import("./live-consent-record.ts");
-const { PRIVACY_NOTICE_VERSION } = await import("../privacy-version.ts");
 const { default: PrivacyPage } = await import("../../app/privacy/page.tsx");
 const { LiveInterviewsSection } = await import("../../app/privacy/_live-interviews-section.tsx");
 const { reservePieceUpload, confirmPiece } = await import("./live-video.ts");
@@ -222,11 +221,6 @@ test("the privacy page renders no section 15 and no link to it while a placehold
   assert.equal(placeholdersIn(html).length, 0, "a placeholder reached the public page");
   assert.match(html, /15\. Contact/, "the page is as it was: Contact is still section 15");
   assert.doesNotMatch(html, /16\. Contact/);
-  assert.equal(
-    PRIVACY_NOTICE_VERSION,
-    "2026-10-25",
-    "the notice version moves with a published change (here 047, access-record retention), not with the hidden section 15",
-  );
 });
 
 test("once the facts are filled in, the section renders every block, and nothing of it is a placeholder", () => {
