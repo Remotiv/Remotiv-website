@@ -161,7 +161,7 @@ export async function handleTranscribe(
   }
 
   if (!answer.video_path) {
-    await markFailed(service, answer, recordedAt, "Answer has no video to transcribe.");
+    await markFailed(service, job.id, answer, recordedAt, "Answer has no video to transcribe.");
     return;
   }
 
@@ -171,7 +171,14 @@ export async function handleTranscribe(
     // block the session's scorecard and the recovery button forever. The dead
     // job is replayed from the admin panel once the key exists.
     const c = classifyProviderError(new Error("OPENAI_API_KEY is not configured"));
-    await markFailed(service, answer, recordedAt, safeFailureSentence(c, "transcription"));
+    const marked = await markFailed(
+      service,
+      job.id,
+      answer,
+      recordedAt,
+      safeFailureSentence(c, "transcription"),
+    );
+    if (!marked) return;
     throw new TerminalJobError("configuration", "transcribe: OPENAI_API_KEY is not configured");
   }
 
@@ -197,6 +204,7 @@ export async function handleTranscribe(
     // is recorded as failed rather than burning three attempts on it.
     await markFailed(
       service,
+      job.id,
       answer,
       recordedAt,
       `Recording is ${Math.round(bytes.byteLength / 1024 / 1024)}MB, over the ${WHISPER_MAX_BYTES / 1024 / 1024}MB transcription limit.`,
@@ -308,7 +316,14 @@ export async function handleTranscribe(
       // 400, 401, 403, 413 and the like: the same request fails the same way.
       // The row says so in a fixed sentence; the provider's own words go to
       // the job's last_error only.
-      await markFailed(service, answer, recordedAt, safeFailureSentence(c, "transcription"));
+      const marked = await markFailed(
+        service,
+        job.id,
+        answer,
+        recordedAt,
+        safeFailureSentence(c, "transcription"),
+      );
+      if (!marked) return;
       throw new TerminalJobError(
         c.failureClass as "deterministic" | "configuration" | "billing",
         c.summary,
@@ -465,13 +480,19 @@ export function toStoredSegments(raw: unknown): TranscriptSegment[] {
  * Terminal, non-retryable failure of THIS recording. The video is untouched
  * and still plays. Compare-and-set on recorded_at like the success write, so
  * a stale job cannot mark a newer recording failed.
+ *
+ * True when the row now says failed. False when no row matched: the answer was
+ * re-recorded or deleted, so this failure belongs to a recording that is gone
+ * and the caller stops without burying the job. A write that errors throws, so
+ * the queue retries it: the row is still pending and must not end up succeeded.
  */
 async function markFailed(
   service: Service,
+  jobId: string,
   answer: AnswerRow,
   recordedAt: string | null,
   message: string,
-): Promise<void> {
+): Promise<boolean> {
   let write = service
     .from("interview_answers")
     .update({
@@ -480,6 +501,16 @@ async function markFailed(
     })
     .eq("id", answer.id);
   if (recordedAt !== null) write = write.eq("recorded_at", recordedAt);
-  await write;
+  const { data, error } = await write.select("id");
+  if (error) throw new Error(`transcribe: answer ${answer.id} could not be marked failed`);
+  if ((data ?? []).length === 0) {
+    skipJob(
+      "transcribe",
+      jobId,
+      `answer ${answer.id}: nothing changed marking it failed; re-recorded or deleted`,
+    );
+    return false;
+  }
   console.error(`[transcribe] ${answer.id}: ${message}`);
+  return true;
 }
