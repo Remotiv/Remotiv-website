@@ -104,11 +104,14 @@ export async function handleTranscribe(
 
   const service = createServiceClient();
 
-  const { data } = await service
+  const { data, error: readError } = await service
     .from("interview_answers")
     .select("id, session_id, video_path, transcript_status, duration_seconds, recorded_at")
     .eq("id", answerId)
     .maybeSingle();
+  // A failed read says nothing about the row. Reading it as "deleted" would mark
+  // the job succeeded and leave the answer pending for good, so the queue retries.
+  if (readError) throw new Error(`transcribe: answer ${answerId} could not be read`);
 
   const answer = data as AnswerRow | null;
   /*
@@ -203,11 +206,13 @@ export async function handleTranscribe(
 
   // ── Generation check 2: after the download, before paying for Whisper ──
   if (recordedAt !== null) {
-    const { data: fresh } = await service
+    const { data: fresh, error: freshError } = await service
       .from("interview_answers")
       .select("recorded_at")
       .eq("id", answerId)
       .maybeSingle();
+    // Same as the first read: a failed read must not pass for "re-recorded".
+    if (freshError) throw new Error(`transcribe: answer ${answerId} could not be re-read`);
     const current = (fresh as { recorded_at: string | null } | null)?.recorded_at ?? null;
     if (resolveGeneration(recordedAt, current) === "stale") {
       skipJob(
