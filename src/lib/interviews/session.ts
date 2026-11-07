@@ -5,6 +5,7 @@ import { hashSessionToken } from "./tokens";
 import {
   type CandidateQuestion,
   type CandidateSession,
+  type SessionStatus,
   shortLabelFor,
 } from "./types";
 
@@ -138,14 +139,7 @@ export async function resolveSessionByToken(
   const job = jobRow as { title: string | null; allow_rerecord: boolean | null } | null;
 
   const expired = new Date(row.expires_at).getTime() < Date.now();
-  const recordedState: CandidateSession["state"] =
-    row.status === "cancelled"
-      ? "cancelled"
-      : row.status === "submitted"
-        ? "submitted"
-        : expired || row.status === "expired"
-          ? "expired"
-          : "ready";
+  const recordedState = recordedStateFor(row, expired);
 
   /*
    * ── Only an ASYNC session may be opened here ──
@@ -204,6 +198,46 @@ export async function resolveSessionByToken(
 }
 
 /**
+ * Every status this file knows. SESSION_STATUSES does not list 'abandoned'
+ * (migration 020), so it is added here.
+ */
+type KnownStatus = SessionStatus | "abandoned";
+
+/**
+ * What the stored status and the deadline say, before the session's kind is
+ * considered. Anything not listed is refused: a status this code has never heard
+ * of must not open an interview. Add a status to SessionStatus and this stops
+ * compiling until it is handled here.
+ *
+ * 'abandoned' reads like an open one on purpose. A live session is corrected
+ * below (liveState, or `unavailable` with the live screen off), the page shows
+ * the replaced screen ahead of every state, and migration 020 forbids it on an
+ * async session.
+ */
+function recordedStateFor(
+  row: Pick<SessionRow, "id" | "status">,
+  expired: boolean,
+): CandidateSession["state"] {
+  const status = row.status as KnownStatus;
+  switch (status) {
+    case "cancelled":
+      return "cancelled";
+    case "submitted":
+      return "submitted";
+    case "expired":
+      return "expired";
+    case "invited":
+    case "started":
+    case "abandoned":
+      return expired ? "expired" : "ready";
+    default:
+      status satisfies never;
+      console.warn(`[interview-session] session ${row.id}: unrecognised status, refused`);
+      return "unavailable";
+  }
+}
+
+/**
  * A live session's candidate state. Once it has started (a provider session
  * exists) or ended, it is over for the candidate: reopening the link never
  * starts a second conversation (no automatic restart, decision 26 Oct 2026).
@@ -212,7 +246,9 @@ function liveState(
   row: SessionRow,
   recorded: CandidateSession["state"],
 ): CandidateSession["state"] {
-  if (recorded === "cancelled" || recorded === "expired") return recorded;
+  if (recorded === "cancelled" || recorded === "expired" || recorded === "unavailable") {
+    return recorded;
+  }
   if (
     recorded === "submitted" ||
     row.status === "abandoned" ||
