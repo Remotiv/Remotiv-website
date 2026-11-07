@@ -15,6 +15,7 @@ export const dynamic = "force-dynamic";
  *   200 { ok }                  recorded (live_session_events, migration 050)
  *   400 bad_event               not one of the codes
  *   409 not_started             the interview never started
+ *   409 not_open                finished, closed or past retention: nothing stored
  *   409 link_replaced           a first attempt that was restarted: nothing stored
  *   502 not_recorded            not stored; the screen may send it again
  *

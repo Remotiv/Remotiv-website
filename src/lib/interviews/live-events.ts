@@ -1,5 +1,6 @@
 import "server-only";
 import { isLiveEventKind, validEventDetail } from "@/lib/interviews/live-event-codes";
+import { retentionOver } from "@/lib/interviews/session";
 import { hashSessionToken } from "@/lib/interviews/tokens";
 import { MAX_SESSION_SECONDS, readLiveSettings } from "@/lib/interviews/types";
 import type { createServiceClient } from "@/lib/supabase/server";
@@ -67,14 +68,18 @@ type SessionRow = {
   id: string;
   company_id: string;
   kind: string | null;
+  status: string;
+  expires_at: string;
   started_at: string | null;
   live_ended_at: string | null;
   provider_session_id: string | null;
   live_settings: unknown;
+  delete_after: string | null;
+  purged_at: string | null;
 };
 
 const SESSION_COLUMNS =
-  "id, company_id, kind, started_at, live_ended_at, provider_session_id, live_settings";
+  "id, company_id, kind, status, expires_at, started_at, live_ended_at, provider_session_id, live_settings, delete_after, purged_at";
 
 /** When the backstop ends this interview, or null before it has started. */
 export function liveEndDueAt(
@@ -123,6 +128,22 @@ async function sessionFor(service: Service, token: string): Promise<SessionRow |
   return row?.kind === "live" ? row : null;
 }
 
+/**
+ * Whether this session still takes reports. A real call's status stays `started`
+ * from the start route on, through the export and the end stamp, so its late
+ * reports (video_saved after the end, say) still land, and a call that runs past
+ * expires_at is not closed by it: the expiry job never expires a call that began.
+ * An `invited` session is closed once its deadline passes. Anything else is
+ * refused, so a status this code has never heard of records nothing and stamps
+ * nothing.
+ */
+function closedToReports(row: SessionRow, nowMs: number): boolean {
+  if (retentionOver(row, nowMs)) return true;
+  if (row.status === "started") return false;
+  if (row.status === "invited") return Date.parse(row.expires_at) <= nowMs;
+  return true;
+}
+
 export type LiveEventDeps = { service: Service; now?: () => number };
 
 /**
@@ -142,6 +163,10 @@ export async function handleLiveEvent(
   }
   const session = await sessionFor(deps.service, String(body.token ?? ""));
   if (!session) return fail(404, "not_found", "This interview link isn't valid.");
+  if (closedToReports(session, now())) {
+    console.warn(`[live-events] session ${session.id}: refused, closed`);
+    return fail(409, "not_open", "This interview is closed.");
+  }
   // Nothing to report before the conversation was set up (api/interview/live/start).
   if (!session.provider_session_id) {
     return fail(409, "not_started", "This interview hasn't started.");
