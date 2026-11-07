@@ -1,5 +1,6 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
+import { retentionPassed } from "./async-score-purge";
 import { liveScreenEnabled } from "./live-screen";
 import { hashSessionToken } from "./tokens";
 import {
@@ -57,6 +58,9 @@ type SessionRow = {
   /** Live only: whether it has started or ended (live-screen.ts). */
   live_ended_at: string | null;
   provider_session_id: string | null;
+  /** Retention over, or the application being deleted (retentionOver). */
+  delete_after: string | null;
+  purged_at: string | null;
 };
 
 /**
@@ -114,7 +118,7 @@ export async function resolveSessionByToken(
   const { data } = await service
     .from("interview_sessions")
     .select(
-      "id, company_id, application_id, job_id, status, kind, allow_rerecord, consent_at, consent_version, submitted_at, expires_at, questions_snapshot, live_ended_at, provider_session_id",
+      "id, company_id, application_id, job_id, status, kind, allow_rerecord, consent_at, consent_version, submitted_at, expires_at, questions_snapshot, live_ended_at, provider_session_id, delete_after, purged_at",
     )
     .eq("token_hash", hashSessionToken(rawToken))
     .maybeSingle();
@@ -138,8 +142,9 @@ export async function resolveSessionByToken(
     "the company";
   const job = jobRow as { title: string | null; allow_rerecord: boolean | null } | null;
 
-  const expired = new Date(row.expires_at).getTime() < Date.now();
-  const recordedState = recordedStateFor(row, expired);
+  const nowMs = Date.now();
+  const expired = new Date(row.expires_at).getTime() < nowMs;
+  const recordedState = recordedStateFor(row, expired, nowMs);
 
   /*
    * ── Only an ASYNC session may be opened here ──
@@ -198,6 +203,19 @@ export async function resolveSessionByToken(
 }
 
 /**
+ * This session's words are gone or going, so its link must not open: it was
+ * purged, or it is past delete_after. Application deletion sets delete_after to
+ * now and then cancels in a second statement, so after a half-failed deletion
+ * this is the only thing that closes the link. Same date rule as live-video.ts.
+ */
+export function retentionOver(
+  row: { delete_after: string | null; purged_at: string | null },
+  nowMs: number,
+): boolean {
+  return Boolean(row.purged_at) || retentionPassed(row.delete_after, nowMs);
+}
+
+/**
  * Every status this file knows. SESSION_STATUSES does not list 'abandoned'
  * (migration 020), so it is added here.
  */
@@ -213,10 +231,15 @@ type KnownStatus = SessionStatus | "abandoned";
  * below (liveState, or `unavailable` with the live screen off), the page shows
  * the replaced screen ahead of every state, and migration 020 forbids it on an
  * async session.
+ *
+ * Past retention reads `cancelled`, the state a completed application deletion
+ * leaves. Only a session that would otherwise be open: one already closed keeps
+ * the screen that says why.
  */
 function recordedStateFor(
-  row: Pick<SessionRow, "id" | "status">,
+  row: Pick<SessionRow, "id" | "status" | "delete_after" | "purged_at">,
   expired: boolean,
+  nowMs: number,
 ): CandidateSession["state"] {
   const status = row.status as KnownStatus;
   switch (status) {
@@ -229,7 +252,12 @@ function recordedStateFor(
     case "invited":
     case "started":
     case "abandoned":
-      return expired ? "expired" : "ready";
+      if (expired) return "expired";
+      if (retentionOver(row, nowMs)) {
+        console.warn(`[interview-session] session ${row.id}: past retention, refused`);
+        return "cancelled";
+      }
+      return "ready";
     default:
       status satisfies never;
       console.warn(`[interview-session] session ${row.id}: unrecognised status, refused`);

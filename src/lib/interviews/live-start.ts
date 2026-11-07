@@ -22,6 +22,7 @@ import {
   liveProviderMode,
   liveScreenEnabled,
 } from "@/lib/interviews/live-screen";
+import { retentionOver } from "@/lib/interviews/session";
 import { hashSessionToken } from "@/lib/interviews/tokens";
 import { readLiveSettings } from "@/lib/interviews/types";
 import type { createServiceClient } from "@/lib/supabase/server";
@@ -85,12 +86,28 @@ type SessionRow = {
   live_settings: unknown;
   live_ended_at: string | null;
   provider_session_id: string | null;
+  delete_after: string | null;
+  purged_at: string | null;
   questions_snapshot: unknown;
   scoring_snapshot: unknown;
 };
 
 const SESSION_COLUMNS =
-  "id, company_id, application_id, job_id, kind, status, expires_at, live_settings, live_ended_at, provider_session_id, questions_snapshot, scoring_snapshot";
+  "id, company_id, application_id, job_id, kind, status, expires_at, live_settings, live_ended_at, provider_session_id, delete_after, purged_at, questions_snapshot, scoring_snapshot";
+
+/**
+ * Past retention, this session's first transcript write would fail (RT063), so
+ * it is refused here: before consent is saved and before a provider session,
+ * which costs money, is created.
+ */
+function refusedForRetention(
+  row: Pick<SessionRow, "id" | "delete_after" | "purged_at">,
+  nowMs: number,
+): StartResult | null {
+  if (!retentionOver(row, nowMs)) return null;
+  console.warn(`[live-start] session ${row.id}: past retention, refused`);
+  return fail(409, "not_open", "This interview is closed.");
+}
 
 export type StartDeps = {
   service: Service;
@@ -129,6 +146,8 @@ export async function startLiveInterview(
   if (!OPEN_STATUSES.includes(row.status) || Date.parse(row.expires_at) <= now()) {
     return fail(409, "not_open", "This interview is closed.");
   }
+  const pastRetention = refusedForRetention(row, now());
+  if (pastRetention) return pastRetention;
 
   let consent: Awaited<ReturnType<typeof requireLiveConsent>>;
   try {
@@ -242,12 +261,21 @@ export async function agreeToLiveInterview(
   }
   const { data } = await deps.service
     .from("interview_sessions")
-    .select("id, kind, status, expires_at, provider_session_id, live_ended_at")
+    .select(
+      "id, kind, status, expires_at, provider_session_id, live_ended_at, delete_after, purged_at",
+    )
     .eq("token_hash", hashSessionToken(token))
     .maybeSingle();
   const row = data as Pick<
     SessionRow,
-    "id" | "kind" | "status" | "expires_at" | "provider_session_id" | "live_ended_at"
+    | "id"
+    | "kind"
+    | "status"
+    | "expires_at"
+    | "provider_session_id"
+    | "live_ended_at"
+    | "delete_after"
+    | "purged_at"
   > | null;
   if (row?.kind !== "live") return fail(404, "not_found", "This interview link isn't valid.");
   if (!liveScreenEnabled()) return fail(409, "not_open", "This interview isn't open yet.");
@@ -259,6 +287,8 @@ export async function agreeToLiveInterview(
   ) {
     return fail(409, "not_open", "This interview is closed.");
   }
+  const pastRetention = refusedForRetention(row, (deps.now ?? Date.now)());
+  if (pastRetention) return pastRetention;
   const saved = await recordLiveConsent(
     deps.service,
     row.id,
