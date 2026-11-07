@@ -16,7 +16,7 @@ const { decideRecovery, RECOVERY_AGE_MS, RECOVERY_BATCH, runTranscribeRecovery }
 const G1 = "2026-09-30T10:00:00.123+00:00";
 const G2 = "2026-09-30T10:04:30.5+00:00";
 
-test("decision: no job → enqueue; live → leave; dead → leave; succeeded-yet-pending → anomaly", () => {
+test("decision: no job → enqueue; live → leave; dead → dead; succeeded-yet-pending → anomaly", () => {
   assert.equal(decideRecovery([]), "enqueue");
   assert.equal(decideRecovery([{ status: "queued" }]), "live");
   assert.equal(decideRecovery([{ status: "running" }]), "live");
@@ -66,6 +66,13 @@ function service({ answers, jobs }) {
   };
   return {
     from: (table) => ({
+      update: () => {
+        const chain = {
+          eq: () => chain,
+          select: async () => ({ data: [{ id: "written" }], error: null }),
+        };
+        return chain;
+      },
       select: () =>
         table === "interview_answers"
           ? filterable(answers, (r, c) => r[c])
@@ -94,7 +101,7 @@ test("only the lost-enqueue case is re-queued; jobs for OLDER generations are ir
       transcript_status: "pending",
       interview_sessions: { company_id: "co" },
     },
-    // Current generation's job is dead → leave for admin replay.
+    // Current generation's job is dead → marked failed, for admin replay.
     {
       id: "a3",
       recorded_at: G1,
@@ -136,6 +143,7 @@ test("only the lost-enqueue case is re-queued; jobs for OLDER generations are ir
   assert.equal(summary.enqueued, 1);
   assert.equal(summary.live, 1);
   assert.equal(summary.dead, 1);
+  assert.equal(summary.failed, 1);
   assert.equal(summary.anomalies, 0);
 });
 
@@ -158,7 +166,7 @@ test("recovery never creates a duplicate: an already_queued answer counts, not e
   assert.equal(summary.errors, 0);
 });
 
-test("a succeeded job with a still-pending row is reported, not looped", async () => {
+test("a succeeded job with a still-pending row gets its one more try, not a normal request", async () => {
   const now = Date.parse("2026-09-30T12:00:00Z");
   const answers = [
     {
@@ -178,7 +186,9 @@ test("a succeeded job with a still-pending row is reported, not looped", async (
       requests++;
       return { ok: true, outcome: "queued" };
     },
+    requeue: async (input) => ({ ok: true, id: input.id }),
   });
   assert.equal(requests, 0);
   assert.equal(summary.anomalies, 1);
+  assert.equal(summary.requeued, 1);
 });

@@ -55,10 +55,12 @@ import { readTranscribePayload, resolveGeneration } from "./transcribe-generatio
  *
  * The VIDEO is never at risk. It is already uploaded and its row already
  * exists; transcription is a later enrichment of a row that is safe. A job
- * that exhausts its attempts leaves transcript_status = 'failed' with a safe
- * message in transcript_error, the answer still plays in the drawer, and the
- * reviewer sees "Transcript unavailable" beside a working video rather than a
- * blank panel. Replaying the dead job later fills it in.
+ * that exhausts its attempts goes dead and leaves the row `pending`: this
+ * handler writes nothing on that path. The recovery sweep in the next worker
+ * tick (transcribe-recovery.ts) then marks it `failed` with a safe sentence, the
+ * answer still plays, and the reviewer sees "Transcription didn't complete"
+ * beside a working video. Replaying the dead job later fills the transcript in
+ * and asks for a new scorecard, which replaces any stored one.
  */
 
 /**
