@@ -550,6 +550,20 @@ test("completed: 'Completed', the overall, no partial label", () => {
   assert.doesNotMatch(html, /data-partial/);
 });
 
+test("an earlier-attempt pointer the company filter does not return is never listed or linked", async () => {
+  const db = await saved((p) => ([4, 5].includes(p) ? "um... uh" : undefined));
+  await resolveAll(db, fakeModel());
+  const FOREIGN = "5e551011-0000-4000-8000-0000000000f9";
+  db.tables.interview_sessions.push(
+    frozenRow({ id: FOREIGN, company_id: "c0000000-0000-4000-8000-0000000000f9" }),
+    frozenRow({ id: RESTART, attempt: 2, previous_attempt_id: FOREIGN }),
+  );
+
+  const { attempt } = await view(db, "owner", RESTART);
+  assert.deepEqual(attempt.earlierSessionIds, []);
+  assert.equal(attempt.number, 1);
+});
+
 test("attempt 2: only the latest attempt is the result; the earlier one opens for audit, with no actions", async () => {
   const db = await saved((p) => ([4, 5].includes(p) ? "um... uh" : undefined));
   const model = fakeModel();

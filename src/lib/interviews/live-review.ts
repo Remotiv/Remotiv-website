@@ -873,13 +873,13 @@ async function reviewFor(
   const earlier: string[] = [];
   let back = session.previous_attempt_id;
   for (let hop = 0; back && hop < MAX_ATTEMPTS; hop++) {
-    earlier.unshift(back);
     const { data } = await service
       .from("interview_sessions")
       .select("id, previous_attempt_id")
       .eq("id", back)
       .eq("company_id", companyId)
       .maybeSingle();
+    if (data) earlier.unshift(back);
     back = (data as { previous_attempt_id: string | null } | null)?.previous_attempt_id ?? null;
   }
   const counting = await countingLiveScore(service, companyId, session.id);
