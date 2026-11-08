@@ -48,12 +48,20 @@
  * upload. Each decision above ends with the row settled or with a job running. A
  * row with a job running holds a place only until that job finishes.
  *
- * ── A settled answer is not a scorecard ──────────────────────
+ * ── The last answer to settle asks for the scorecard ─────────
  *
- * Marking `failed` asks for no scorecard. It unblocks the recruiter's "Score
- * interview" button, and a replay that writes the transcript asks for one itself.
+ * Settling the last pending answer asks exactly as the transcribe handler does
+ * when a transcript lands (requestScorecard). That includes a session with no
+ * transcript at all: the scorer makes no provider call and writes a `skipped`
+ * record saying no answer could be scored, with no number, so the recruiter reads
+ * why. A replay that writes a transcript asks again and replaces it.
+ *
+ * Only the sweep whose write changed the row asks, and a settled row is never
+ * scanned again, so a later sweep cannot ask twice. Two sweeps settling a session's
+ * last answers at the same moment are stopped by migration 027's index.
  */
 import { createHash } from "node:crypto";
+import { requestScorecard } from "./scorecard";
 import {
   requestTranscription,
   TRANSCRIBE_JOB_TYPE,
@@ -102,11 +110,14 @@ export type RecoverySummary = {
   requeued: number;
   /** Re-recorded, deleted or settled since the read: nothing changed. */
   skipped: number;
+  /** Scorecards queued because this sweep settled a session's last answer. */
+  scorecardsRequested: number;
   errors: number;
 };
 
 type PendingRow = {
   id: string;
+  session_id: string;
   recorded_at: string | null;
   interview_sessions: { company_id: string | null } | { company_id: string | null }[] | null;
 };
@@ -139,6 +150,47 @@ type RequeueFn = (input: {
 }) => Promise<{ ok: true; id: string } | { ok: false; error: string; code?: string }>;
 
 /**
+ * This answer just settled: ask for the scorecard if it was the session's last.
+ * Non-fatal, as in the transcribe handler: the answer is settled either way, and
+ * the recruiter's button can still ask.
+ */
+async function askForScorecardIfLast(
+  service: RecoveryService,
+  sessionId: string,
+  summary: RecoverySummary,
+): Promise<void> {
+  const { data, error } = await service
+    .from("interview_answers")
+    .select("transcript_status")
+    .eq("session_id", sessionId)
+    .limit(50);
+  if (error) {
+    summary.errors += 1;
+    console.error(
+      `[transcribe-recovery] session ${sessionId}: answers not read; scorecard not asked`,
+    );
+    return;
+  }
+  const statuses = ((data ?? []) as { transcript_status: string | null }[]).map(
+    (a) => a.transcript_status,
+  );
+  if (statuses.includes("pending")) return;
+  try {
+    // Cast: see RecoveryService. The real client satisfies what this reads.
+    const asked = await requestScorecard(service as never, sessionId);
+    if (asked.ok) {
+      if (asked.outcome === "queued") summary.scorecardsRequested += 1;
+    } else if (asked.reason === "enqueue_failed") {
+      summary.errors += 1;
+      console.error(`[transcribe-recovery] session ${sessionId}: scorecard not queued`);
+    }
+  } catch {
+    summary.errors += 1;
+    console.error(`[transcribe-recovery] session ${sessionId}: scorecard request failed`);
+  }
+}
+
+/**
  * Settle one answer for this recording. Only a row still pending: one a replay
  * finished since the read keeps its transcript. Throws on a refused write, so the
  * row stays pending and the next tick reads it again.
@@ -146,6 +198,7 @@ type RequeueFn = (input: {
 async function markSettled(
   service: RecoveryService,
   answerId: string,
+  sessionId: string,
   recordedAt: string,
   summary: RecoverySummary,
 ): Promise<void> {
@@ -166,6 +219,7 @@ async function markSettled(
   }
   summary.failed += 1;
   console.warn(`[transcribe-recovery] answer ${answerId}: marked failed`);
+  await askForScorecardIfLast(service, sessionId, summary);
 }
 
 export async function runTranscribeRecovery(
@@ -193,13 +247,14 @@ export async function runTranscribeRecovery(
     failed: 0,
     requeued: 0,
     skipped: 0,
+    scorecardsRequested: 0,
     errors: 0,
   };
 
   const cutoff = new Date(now() - RECOVERY_AGE_MS).toISOString();
   const { data, error } = await service
     .from("interview_answers")
-    .select("id, recorded_at, interview_sessions(company_id)")
+    .select("id, session_id, recorded_at, interview_sessions(company_id)")
     .eq("transcript_status", "pending")
     .not("recorded_at", "is", null)
     .lt("recorded_at", cutoff)
@@ -237,7 +292,7 @@ export async function runTranscribeRecovery(
     }
     if (decision === "dead") {
       summary.dead += 1;
-      await markSettled(service, row.id, row.recorded_at, summary);
+      await markSettled(service, row.id, row.session_id, row.recorded_at, summary);
       continue;
     }
 
@@ -248,7 +303,7 @@ export async function runTranscribeRecovery(
       summary.anomalies += 1;
       const requeueId = transcribeRequeueJobId(row.id, row.recorded_at);
       if (found.some((j) => j.id === requeueId)) {
-        await markSettled(service, row.id, row.recorded_at, summary);
+        await markSettled(service, row.id, row.session_id, row.recorded_at, summary);
         continue;
       }
       const requeue = deps.requeue ?? (await import("@/lib/jobs-queue")).enqueue;

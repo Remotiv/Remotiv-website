@@ -159,7 +159,8 @@ test("replay of the dead job: the transcript lands and a new scorecard is queued
   });
   await sweep(db);
   assert.equal(row(db).transcript_status, "failed");
-  assert.equal(jobsOf(db, "ai_scorecard").length, 0, "settling asks for no scorecard");
+  assert.equal(jobsOf(db, "ai_scorecard").length, 1, "settling the last answer asks");
+  jobsOf(db, "ai_scorecard")[0].status = "succeeded";
 
   // What the admin retry does to the row, then the worker running it.
   Object.assign(db.tables.background_jobs[0], { status: "queued", attempts: 0, last_error: null });
@@ -167,7 +168,7 @@ test("replay of the dead job: the transcript lands and a new scorecard is queued
   assert.equal(row(db).transcript_status, "done");
   assert.equal(row(db).transcript, SAID);
   assert.equal(row(db).transcript_error, null);
-  assert.equal(jobsOf(db, "ai_scorecard").length, 1, "the replay asks for the re-score");
+  assert.equal(jobsOf(db, "ai_scorecard").length, 2, "the replay asks for the re-score");
 });
 
 test("a settled row unblocks the recruiter's button: nothing is pending any more", async () => {
