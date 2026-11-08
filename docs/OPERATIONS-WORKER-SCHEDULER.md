@@ -32,10 +32,11 @@ So when the worker stops, all of the above stops. Jobs can still be added to the
 
 | Worker response | Meaning |
 |---|---|
-| 200 with `ok: true` | The tick ran. Individual jobs can still have failed; those are counted in the response. |
+| 202 with `{ ok: true, accepted: true }` | The tick was accepted. It answers in about 1-3 seconds and the work runs after the response, for up to 60 seconds. A 202 does not mean the tick worked. |
 | 401 | The secret is missing or wrong. |
 | 503 | `CRON_SECRET` is not set on the deployment, so the route refuses every request. |
-| 500 with `ok: false` | The tick failed before finishing, usually because the queue was unreachable. |
+
+cron-job.org no longer sees whether a tick worked, only whether it was accepted. A tick that fails or never finishes writes no heartbeat, so the "Remotiv worker health" job gets a 503 within about 10 minutes and cron-job.org emails. Jobs that die also raise an admin notice. Each tick ends with one line in the Vercel function logs for `/api/jobs/worker`: `[worker] tick done:` followed by the counts, or `[worker] drain failed` followed by the error's name.
 
 ## How the health check works
 
@@ -55,10 +56,11 @@ When the worker recovers after a gap longer than 10 minutes, its first tick also
 ## Runbook: worker looks stopped
 
 1. Open `https://remotiv.work/api/health/worker`. `ok: false` or a high `ageSeconds` means the worker is stale.
-2. Check the job history in cron-job.org for failures or an auto-disabled job. Re-enable the job if it was disabled.
-3. Check that the Vercel deployment is Ready and that the project is not paused.
-4. If `CRON_SECRET` was rotated, update it in both the Vercel environment variables and the cron-job.org job header, then redeploy. A 401 in the job history points to this.
-5. Confirm the health route shows `ok: true` within about 2 minutes.
+2. Check the job history in cron-job.org for failures or an auto-disabled job. Re-enable the job if it was disabled. A healthy run is a 202 in a few seconds.
+3. If cron-job.org shows 202s but the health route is stale, the tick itself is failing. Open the Vercel function logs for `/api/jobs/worker` and look for `[worker] tick done` or `[worker] drain failed`.
+4. Check that the Vercel deployment is Ready and that the project is not paused.
+5. If `CRON_SECRET` was rotated, update it in both the Vercel environment variables and the cron-job.org job header, then redeploy. A 401 in the job history points to this.
+6. Confirm the health route shows `ok: true` within about 2 minutes.
 
 ## Incident: 3 to 6 November 2026
 

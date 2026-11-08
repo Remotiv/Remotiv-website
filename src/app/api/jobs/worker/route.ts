@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { stampOverdueLiveEnds } from "@/lib/interviews/live-events";
 import { type RecoveryService, runTranscribeRecovery } from "@/lib/interviews/transcribe-recovery";
 import {
@@ -143,8 +143,8 @@ function authorize(request: Request): NextResponse | null {
   return null;
 }
 
-async function drain() {
-  const startedAt = Date.now();
+/** One tick. `startedAt` is when the REQUEST arrived, so the deadline counts from there. */
+async function drain(startedAt: number) {
   const deadlineAt = deadlineFor(startedAt);
   const summary = {
     purgesScheduled: [] as string[],
@@ -373,7 +373,8 @@ async function recordHeartbeatAndAlerts(summary: TickSummary, startedAt: number)
 
   // Was the worker down until just now? Notice it once per gap.
   const stale = staleGapNotice(previousTickAt, now, WORKER_TICK_STALE_MS);
-  const alreadyNoticed = stale !== null && staleNoticedAt !== null && staleNoticedAt === previousTickAt;
+  const alreadyNoticed =
+    stale !== null && staleNoticedAt !== null && staleNoticedAt === previousTickAt;
   if (stale && !alreadyNoticed) {
     await notifyAllAdmins({
       event_type: "worker_stale",
@@ -420,17 +421,43 @@ async function recordHeartbeatAndAlerts(summary: TickSummary, startedAt: number)
   }
 }
 
+/**
+ * The tick, run after the response, with its outcome logged rather than returned.
+ * The summary holds counts and job type names only. A failure here is the queue
+ * itself being unreachable, not a job, and is logged by name only: its message
+ * can carry database text.
+ */
+async function runTick(requestStartedAt: number) {
+  try {
+    const summary = await drain(requestStartedAt);
+    console.log(`[worker] tick done: ${JSON.stringify(summary)}`);
+    return summary;
+  } catch (err) {
+    console.error(`[worker] drain failed (${err instanceof Error ? err.name : "unknown"})`);
+    return null;
+  }
+}
+
+/**
+ * Accept the tick and answer at once: 202, work accepted, not yet done.
+ *
+ * The scheduler (cron-job.org) gives up after 30 seconds, and a busy tick may
+ * run for 55. So the tick runs in after(), which on Vercel holds the invocation
+ * open (waitUntil) for the route's maxDuration, 60 seconds in vercel.json. The
+ * deadline is counted from the request, taken here before anything else, so the
+ * whole tick still fits inside the invocation however late after() begins.
+ *
+ * Auth first: an unauthorised call schedules nothing. Whether the tick worked is
+ * known from the heartbeat it writes at the end (GET /api/health/worker), the
+ * end-of-tick log line and the admin alerts, never from this response.
+ */
 export async function POST(request: Request) {
+  const requestStartedAt = Date.now();
   const denied = authorize(request);
   if (denied) return denied;
 
-  try {
-    return NextResponse.json({ ok: true, ...(await drain()) });
-  } catch (err) {
-    // A failure here is the queue itself being unreachable, not a job.
-    console.error("[worker] drain failed:", err);
-    return NextResponse.json({ ok: false, error: "Worker run failed" }, { status: 500 });
-  }
+  after(() => runTick(requestStartedAt));
+  return NextResponse.json({ ok: true, accepted: true }, { status: 202 });
 }
 
 /**

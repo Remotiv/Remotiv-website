@@ -3,9 +3,11 @@
  * under bare node:test. Register AFTER node-resolve.mjs and
  * fake-service-client-hook.mjs, so this one sees the bare specifiers first.
  *
- *   next/server         -> NextResponse.json returning { status, body }, all
- *                          the route needs (the real module does not resolve
- *                          under Node's ESM loader)
+ *   next/server         -> NextResponse.json returning { status, body }, and
+ *                          after() pushing its callback onto
+ *                          globalThis.__afterCallbacksForTests, so a test runs
+ *                          the tick when it chooses (the real module does not
+ *                          resolve under Node's ESM loader)
  *   @/lib/notifications -> notifyAllAdmins recording each call on
  *                          globalThis.__adminNotificationsForTests, so a test
  *                          sees exactly which alerts a tick raised
@@ -18,6 +20,9 @@ const STUBS = {
     "export const NextResponse = {",
     "  json(body, init) { return { status: init?.status ?? 200, body }; },",
     "};",
+    "export function after(callback) {",
+    "  (globalThis.__afterCallbacksForTests ??= []).push(callback);",
+    "}",
   ].join("\n"),
   "@/lib/notifications": [
     "export async function notifyAllAdmins(input) {",

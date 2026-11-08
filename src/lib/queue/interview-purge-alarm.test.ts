@@ -158,9 +158,14 @@ async function tick() {
       headers: { authorization: `Bearer ${SECRET}` },
     }),
   );
-  assert.equal(res.status, 200, "the tick never throws");
-  // The route hook's NextResponse carries the body as an object.
-  return res.body;
+  // The route answers at once and runs the tick in after(): run it here.
+  assert.equal(res.status, 202, "the response never waits for the tick");
+  assert.deepEqual(res.body, { ok: true, accepted: true });
+  const scheduled = (globalThis.__afterCallbacksForTests ?? []).splice(0);
+  assert.equal(scheduled.length, 1, "one tick scheduled");
+  const summary = await scheduled[0]();
+  assert.ok(summary, "the tick never throws");
+  return summary;
 }
 
 const alerts = (kind) =>
