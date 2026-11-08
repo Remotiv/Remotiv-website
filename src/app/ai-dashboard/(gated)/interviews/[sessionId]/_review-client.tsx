@@ -39,6 +39,7 @@ import type {
   ScoredEvidence,
   SessionCriterion,
 } from "@/lib/interviews/review-types";
+import { scorecardIsPartial } from "@/lib/interviews/scorecard-partial";
 import { INTERVIEW_KIND_LABELS } from "@/lib/interviews/types";
 import { isSafeFailureSentence } from "@/lib/queue/failure-class";
 import {
@@ -324,6 +325,7 @@ export function ReviewClient({
         sessionId={session.id}
         score={session.score}
         canScore={session.canScore}
+        partial={scorecardIsPartial(session)}
         onSeekCriterion={onSeekCriterion}
         evidenceDeleted={session.evidenceDeleted}
         status={session.status}
@@ -636,6 +638,7 @@ function VerdictStrip({
   sessionId,
   score,
   canScore,
+  partial,
   evidenceDeleted,
   status,
   onToast,
@@ -646,6 +649,8 @@ function VerdictStrip({
   score: InterviewScore | null;
   /** Server-derived: this submitted interview never got a scorecard and may ask for one. */
   canScore: boolean;
+  /** Scored, but some questions were not (scorecard-partial.ts). */
+  partial: boolean;
   /** Past the retention date: the explanations and quotes are gone, the scores are not. */
   evidenceDeleted: boolean;
   status: string;
@@ -750,18 +755,30 @@ function VerdictStrip({
         </div>
 
         <div className="flex shrink-0 flex-row items-center justify-between gap-2.5 px-6 pb-5 min-[720px]:flex-col min-[720px]:items-end min-[720px]:justify-center min-[720px]:py-5 min-[720px]:pl-0">
-          {score?.confidence && (
-            <span
-              className={`whitespace-nowrap rounded-full px-[11px] py-1 text-[10.5px] font-bold ${
-                score.confidence === "high"
-                  ? "bg-[rgba(73,215,167,0.16)] text-remotiv-green"
-                  : score.confidence === "low"
-                    ? "bg-[rgba(245,165,36,0.18)] text-[#F7C36B]"
-                    : "bg-white/10 text-white/[0.78]"
-              }`}
-            >
-              {score.confidence} confidence
-            </span>
+          {(score?.confidence || partial) && (
+            <div className="flex flex-wrap items-center gap-1.5 min-[720px]:justify-center">
+              {score?.confidence && (
+                <span
+                  className={`whitespace-nowrap rounded-full px-[11px] py-1 text-[10.5px] font-bold ${
+                    score.confidence === "high"
+                      ? "bg-[rgba(73,215,167,0.16)] text-remotiv-green"
+                      : score.confidence === "low"
+                        ? "bg-[rgba(245,165,36,0.18)] text-[#F7C36B]"
+                        : "bg-white/10 text-white/[0.78]"
+                  }`}
+                >
+                  {score.confidence} confidence
+                </span>
+              )}
+              {partial && (
+                <span
+                  className="whitespace-nowrap rounded-full bg-[rgba(245,165,36,0.18)] px-[11px] py-1 text-[10.5px] font-bold text-[#F7C36B]"
+                  data-scorecard-partial
+                >
+                  Partial
+                </span>
+              )}
+            </div>
           )}
           {scored && (
             <button

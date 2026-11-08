@@ -1711,9 +1711,11 @@ export async function handleAiScorecard(
       criteria: rollup.criteria,
       verdict: rollup.verdict,
       summary: rollup.summary ? `${rollup.summary}${coverage}` : coverage.trim() || null,
-      // The rollup's own confidence, lowered when any answer failed outright —
-      // a set with a hole in it is less trustworthy than the model can know.
-      confidence: anyFailed ? "low" : rollup.confidence,
+      // The rollup's own confidence, lowered when any question went unscored:
+      // scoring that failed, a transcript that failed or could not be assessed,
+      // or a question never answered. A set with a hole in it is less
+      // trustworthy than the model can know.
+      confidence: anyFailed || unscored.length > 0 ? "low" : rollup.confidence,
       ai_model: model,
       prompt_version: PROMPT_VERSION,
       scored_by_job_id: job.id,
