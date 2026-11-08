@@ -161,7 +161,8 @@ test("nothing scored: no Partial, the not-scored strip is unchanged", () => {
     score: sessionScore("skipped"),
   });
   assert.ok(!partial(html));
-  assert.match(html, /Not scored yet/);
+  assert.match(html, />Not scored</);
+  assert.doesNotMatch(html, /Not scored yet/);
 });
 
 test("a transcript still pending: no Partial, even beside a stored scorecard", () => {

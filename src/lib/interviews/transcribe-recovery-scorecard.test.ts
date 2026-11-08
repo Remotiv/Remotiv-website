@@ -188,7 +188,11 @@ test("every answer failed: one scorecard job, and the real scorer writes a skipp
   assert.equal(providerCalls, 0);
   const [card] = db.tables.interview_session_scores;
   assert.equal(card.status, "skipped");
-  assert.match(card.error, /^No answer in this interview could be scored/);
+  assert.equal(
+    card.error,
+    "No answer in this interview could be scored. See the individual answers for why.",
+  );
+  assert.doesNotMatch(card.error, /[\u2013\u2014]/, "hyphens only");
   assert.equal(card.overall_score ?? null, null, "no number");
   assert.equal(card.verdict ?? null, null);
   assert.deepEqual(

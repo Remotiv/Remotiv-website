@@ -1650,7 +1650,7 @@ export async function handleAiScorecard(
   // ── Session rollup ──
   if (scored.length === 0) {
     await skipSession(
-      "No answer in this interview could be scored — see the individual answers for why.",
+      "No answer in this interview could be scored. See the individual answers for why.",
     );
     return;
   }

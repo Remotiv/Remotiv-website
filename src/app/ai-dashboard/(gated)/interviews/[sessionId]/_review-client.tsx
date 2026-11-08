@@ -665,6 +665,7 @@ function VerdictStrip({
 
   const shown = score?.humanScore ?? score?.overall ?? null;
   const scored = score?.status === "scored" && shown !== null;
+  const notScoredLabel = score?.status === "skipped" ? "Not scored" : "Not scored yet";
   const band = scored ? BAND_PANEL[scoreBand(shown)] : null;
   const adj = score?.adjustment ?? null;
 
@@ -724,7 +725,7 @@ function VerdictStrip({
           {/* Explicit colours: the DS's global `p { color:#444 }` beats an
               inherited white on a dark surface. */}
           <p className="m-0 mb-1.5 text-[15.5px] font-bold leading-snug tracking-[-0.015em] text-white">
-            {scored ? (score?.verdict ?? "Scored — see the answers below") : "Not scored yet"}
+            {scored ? (score?.verdict ?? "Scored - see the answers below") : notScoredLabel}
           </p>
           <p className="m-0 text-[12.5px] leading-relaxed text-white/[0.58]">
             {scored
@@ -736,8 +737,8 @@ function VerdictStrip({
                   ? (score.error?.slice(0, 200) ??
                     "This interview wasn't scored. The recording is unaffected.")
                   : canScore
-                    ? "Scoring was never queued for this interview. Score it now, or watch the answers and judge them yourself - the recording is unaffected."
-                    : "Scoring runs on the transcript, so it starts once transcription is switched on for this workspace. The recording is unaffected — watch and judge it yourself in the meantime."}
+                    ? "This interview hasn't been scored yet. Score it now."
+                    : "Scoring starts once all answers are transcribed."}
           </p>
           {adj && (
             <p className="m-0 mt-2 text-[11.5px] leading-relaxed text-remotiv-lime">
@@ -1465,7 +1466,7 @@ function Transcript({ answer }: { answer: InterviewAnswerView }) {
   const copy = {
     pending: {
       title: "Transcript not available yet",
-      body: "Transcription isn't switched on for this workspace, so answers are video-only for now. Nothing is missing from the recording — watch and score it as normal.",
+      body: "This answer is being transcribed. This may take a few minutes.",
     },
     failed: {
       title: "Transcription didn't complete",
