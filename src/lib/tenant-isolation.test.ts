@@ -336,23 +336,28 @@ const ALLOWLIST = [
     file: "app/api/cv/company-application/[id]/route.ts",
     fn: "GET",
     query:
-      '.select("id, cv_path, cv_url, cv_delete_after, company_id_snapshot").eq("id", id).maybeSingle()',
+      '.select("id, job_id, cv_path, cv_url, cv_delete_after, company_id_snapshot").eq("id", id).maybeSingle()',
     // The same fetch-then-verify shape as the applicants sites, and the real
     // cross-company risk here, so it is checked the same way.
     verifyAfter: {},
     unprovable: [
       "That the rejection precedes every side effect. It is asserted to FOLLOW the read and to " +
         "return, but 'nothing leaks before it' is read off the source by eye — the signed URL is " +
-        "minted after, which this does not assert.",
+        "minted after, which this does not assert. The route's own test " +
+        "(app/api/cv/company-application/[id]/route.test.ts) asserts it behaviourally: a refused " +
+        "request mints no signed URL and writes no signed_url_logs row.",
+      "Job scope. This file asserts the company filter only; the job check at 111 (#97, " +
+        "canAccessJob on the row's job_id, same 404) is asserted by the route's own test.",
     ],
     why:
-      "An authenticated COMPANY request — ctx = await getCompanyContext() at 54, 403 on throw, " +
-      "rate-limited at 33 — so this is the real cross-company risk shape, and it is fetch-then-" +
+      "An authenticated COMPANY request — ctx = await getCompanyContext() at 55, 403 on throw, " +
+      "rate-limited at 34 — so this is the real cross-company risk shape, and it is fetch-then-" +
       "verify like the applicants sites. id is the fully client-controlled route param; the query " +
-      "selects company_id_snapshot precisely so the row can be rejected at 83 — " +
+      "selects company_id_snapshot precisely so the row can be rejected at 92 — " +
       "`if (!application || application.company_id_snapshot !== ctx.companyId)` → 404 — before " +
-      "any signed CV URL is minted. Missing and not-yours share one response, so ids cannot be " +
-      "probed.",
+      "any signed CV URL is minted, and job_id so the viewer's hiring team can be checked at 111 " +
+      "with the identical 404 (#97). Missing, not-yours and not-your-job share one response, so " +
+      "neither ids nor a colleague's jobs can be probed.",
   },
   {
     file: "app/api/book/[token]/route.ts",

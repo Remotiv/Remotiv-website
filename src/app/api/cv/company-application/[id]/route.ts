@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
+import { canAccessJob } from "@/app/ai-dashboard/lib/job-scope";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
 import { deriveCvPathFromUrl } from "@/lib/cv-path";
+import { createServiceClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
@@ -26,10 +27,7 @@ function htmlError(status: number, title: string, body: string): NextResponse {
   });
 }
 
-export async function GET(
-  request: Request,
-  routeCtx: { params: Promise<{ id: string }> },
-) {
+export async function GET(request: Request, routeCtx: { params: Promise<{ id: string }> }) {
   const rl = rateLimit(request, {
     bucketKey: "cv-company-application",
     max: 30,
@@ -53,11 +51,7 @@ export async function GET(
   try {
     ctx = await getCompanyContext();
   } catch {
-    return htmlError(
-      403,
-      "Not authorised",
-      "Sign in to your company workspace to open this CV.",
-    );
+    return htmlError(403, "Not authorised", "Sign in to your company workspace to open this CV.");
   }
 
   const service = createServiceClient();
@@ -66,26 +60,49 @@ export async function GET(
   //    same reason the list is: it survives job deletion.
   const { data: appRow } = await service
     .from("job_applications")
-    .select("id, cv_path, cv_url, cv_delete_after, company_id_snapshot")
+    .select("id, job_id, cv_path, cv_url, cv_delete_after, company_id_snapshot")
     .eq("id", id)
     .maybeSingle();
 
   const application = appRow as {
     id: string;
+    job_id: string | null;
     cv_path: string | null;
     cv_url: string | null;
     cv_delete_after: string | null;
     company_id_snapshot: string | null;
   } | null;
 
-  // Missing and not-yours return the SAME response on purpose — a distinct
-  // 404 would confirm that some other company's application id exists.
-  if (!application || application.company_id_snapshot !== ctx.companyId) {
-    return htmlError(
+  // Missing, not-yours and not-your-job return the SAME response on purpose —
+  // a distinct 404 would confirm that some other company's application id
+  // exists, or that a colleague's job does.
+  const notInWorkspace = () =>
+    htmlError(
       404,
       "CV not found",
       "This application isn't in your workspace, or it no longer exists.",
     );
+  if (!application || application.company_id_snapshot !== ctx.companyId) {
+    return notInWorkspace();
+  }
+
+  // 2b. Job scope, the pairing gateApplication uses (applicants/actions.ts):
+  //     company first, then the viewer's hiring team. Owner and admin pass for
+  //     any job of their company; a recruiter or hiring manager passes only for
+  //     a job they are on (#97).
+  //
+  //     job_id is NULL for an application whose job was deleted
+  //     (job_applications.job_id is ON DELETE SET NULL on production, read
+  //     8 Nov 2026) and for a direct-add candidate. The empty string is
+  //     deliberate: canAccessJob answers true for owner and admin before it
+  //     reads the id, and false for a scoped role on a missing id. So a
+  //     job-less application stays open to the roles that see every job and
+  //     closed to the roles that are given jobs one at a time — the same answer
+  //     the Applicants list already gives them (.in("job_id", scope)), since an
+  //     application on no job is on no hiring team. Nothing here changes those
+  //     rows; they stay out of dashboard scope.
+  if (!(await canAccessJob(ctx, application.job_id ?? ""))) {
+    return notInWorkspace();
   }
 
   // 3. Resolve the storage path (prefer cv_path; derive from the legacy public
@@ -102,20 +119,14 @@ export async function GET(
      * job deleted. A future date with no path never had one.
      */
     const deleteAfter = application.cv_delete_after;
-    const expired = Boolean(
-      deleteAfter && new Date(deleteAfter).getTime() <= Date.now(),
-    );
+    const expired = Boolean(deleteAfter && new Date(deleteAfter).getTime() <= Date.now());
     return expired
       ? htmlError(
           410,
           "CV expired",
           "CVs are removed 24 months after the application. The applicant's details and your hiring notes are unaffected.",
         )
-      : htmlError(
-          404,
-          "CV not found",
-          "This application doesn't have a CV file attached.",
-        );
+      : htmlError(404, "CV not found", "This application doesn't have a CV file attached.");
   }
 
   // 4. ?download=1 forces Content-Disposition: attachment.
