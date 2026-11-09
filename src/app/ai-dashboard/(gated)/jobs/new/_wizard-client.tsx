@@ -2435,8 +2435,8 @@ export function WizardClient({
                         No interview questions yet
                       </p>
                       <p className="m-0 mt-1.5 text-xs leading-relaxed text-[var(--ai-t3)]">
-                        Add {MIN_QUESTIONS}–{MAX_QUESTIONS}. Candidates answer each one on camera in
-                        their own time — there&apos;s no call to schedule. Leave this empty to skip
+                        Add {MIN_QUESTIONS}-{MAX_QUESTIONS}. Candidates answer each one on camera in
+                        their own time - there&apos;s no call to schedule. Leave this empty to skip
                         the video round for this job.
                       </p>
                     </div>
@@ -2555,7 +2555,7 @@ export function WizardClient({
                           >
                             {["1", "2", "3", "4", "5"].map((w) => (
                               <option key={w} value={w}>
-                                {w === "1" ? "1 — normal" : w === "5" ? "5 — critical" : w}
+                                {w === "1" ? "1 - normal" : w === "5" ? "5 - critical" : w}
                               </option>
                             ))}
                           </select>
@@ -2630,7 +2630,7 @@ export function WizardClient({
                           className="size-4 shrink-0 accent-[var(--remotiv-purple,#7E47FF)]"
                         />
                         <span className="text-[12.5px] text-[var(--ai-t2)]">
-                          Required — the candidate can&apos;t submit without it
+                          Required - the candidate can&apos;t submit without it
                         </span>
                       </label>
                     </div>
@@ -2649,7 +2649,7 @@ export function WizardClient({
                   </button>
 
                   <p className="mt-3 text-xs leading-relaxed text-[var(--ai-t3)]">
-                    {MIN_QUESTIONS}–{MAX_QUESTIONS} questions works best — long enough to judge,
+                    {MIN_QUESTIONS}-{MAX_QUESTIONS} questions works best - long enough to judge,
                     short enough that people finish. Candidates get a practice round first, which is
                     never recorded or shared.
                   </p>

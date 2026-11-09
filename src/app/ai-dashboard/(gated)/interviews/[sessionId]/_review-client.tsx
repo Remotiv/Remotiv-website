@@ -75,7 +75,7 @@ function fmtStamp(seconds: number): string {
 }
 
 function mmss(total: number | null): string {
-  if (!total || total < 0) return "—";
+  if (!total || total < 0) return "-";
   const m = Math.floor(total / 60);
   const s = total % 60;
   return `${m}:${s < 10 ? "0" : ""}${s}`;
@@ -132,7 +132,7 @@ export function ReviewClient({
     (seconds: number) => {
       const el = videoRef.current;
       if (!el) {
-        setToast(`Recording unavailable — quote at ${fmtStamp(seconds)}`);
+        setToast(`Recording unavailable - quote at ${fmtStamp(seconds)}`);
         return;
       }
       el.currentTime = seconds;
@@ -315,7 +315,7 @@ export function ReviewClient({
       {archivedAt !== null && (
         <Notice tone="slate" icon={<Archive className="size-[17px]" strokeWidth={2} />}>
           <b className="font-bold">Archived.</b> Hidden from the interviews list and its counts. The
-          recording, transcripts and notes are untouched, and the candidate is unaffected —
+          recording, transcripts and notes are untouched, and the candidate is unaffected -
           archiving is not the same as cancelling an invitation. Restore puts it back exactly as it
           was.
         </Notice>
@@ -578,7 +578,7 @@ function DeleteConfirm({
           </p>
           <p className="m-0 mt-3 text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
             If you only want it out of your list, cancel and use{" "}
-            <b className="font-bold text-[var(--ai-t2)]">Archive</b> instead — that hides it and
+            <b className="font-bold text-[var(--ai-t2)]">Archive</b> instead - that hides it and
             keeps everything.
           </p>
           <div className="mt-6 flex justify-end gap-2.5">
@@ -710,7 +710,7 @@ function VerdictStrip({
               band ? `text-[42px] ${band.numeral}` : "text-[26px] text-white/50"
             }`}
           >
-            {scored ? shown : "—"}
+            {scored ? shown : "-"}
           </p>
           <p
             className={`m-0 mt-1.5 text-[9px] font-extrabold uppercase tracking-[0.14em] ${
@@ -743,9 +743,9 @@ function VerdictStrip({
           {adj && (
             <p className="m-0 mt-2 text-[11.5px] leading-relaxed text-remotiv-lime">
               {adj.by} changed this from{" "}
-              <span className="line-through opacity-70">{adj.aiScore ?? "—"}</span> to{" "}
+              <span className="line-through opacity-70">{adj.aiScore ?? "-"}</span> to{" "}
               <b className="font-bold">{shown}</b> · {fmtDate(adj.at)}
-              {adj.feedback ? ` — “${adj.feedback}”` : ""}
+              {adj.feedback ? ` - “${adj.feedback}”` : ""}
             </p>
           )}
           {evidenceDeleted && scored && (
@@ -1046,7 +1046,7 @@ function Scorecard({
           <PenLine className="mt-px size-[15px] shrink-0 text-remotiv-purple" strokeWidth={2} />
           <p className="m-0 text-xs leading-relaxed text-[var(--ai-purple-ink)]">
             <b className="font-bold">{adj.by} changed this score</b> from{" "}
-            <span className="line-through opacity-65">{adj.aiScore ?? "—"}</span> to{" "}
+            <span className="line-through opacity-65">{adj.aiScore ?? "-"}</span> to{" "}
             <b className="font-bold">{shown}</b> · {fmtDate(adj.at)}
             {adj.feedback ? (
               <>
@@ -1480,7 +1480,7 @@ function Transcript({ answer }: { answer: InterviewAnswerView }) {
     },
     empty: {
       title: "Nothing was transcribed",
-      body: "Transcription ran but returned no words — usually silence or an inaudible recording. Worth watching the video to check.",
+      body: "Transcription ran but returned no words - usually silence or an inaudible recording. Worth watching the video to check.",
     },
     done: { title: "", body: "" },
   }[answer.transcriptState];
@@ -1529,7 +1529,7 @@ function NothingRecorded({ session }: { session: InterviewSessionDetail }) {
       <p className="m-0 mx-auto mb-5 max-w-[430px] text-sm leading-relaxed text-[var(--ai-t3)]">
         {expired
           ? `The invitation expired on ${fmtDate(session.expiresAt)} with nothing recorded. Send a new one from their applicant record if you'd still like to hear from them.`
-          : `The invitation went out on ${fmtDate(session.sentAt)} and the link is open until ${fmtDate(session.expiresAt)}. You'll see answers here as they come in — there's nothing to do until then.`}
+          : `The invitation went out on ${fmtDate(session.sentAt)} and the link is open until ${fmtDate(session.expiresAt)}. You'll see answers here as they come in - there's nothing to do until then.`}
       </p>
       {session.applicationId && (
         <Link
@@ -1620,7 +1620,7 @@ function NotesCard({
             onClick={() => {
               void run(
                 () => addInterviewNote(sessionId, draft),
-                "Note saved — your team can see it",
+                "Note saved - your team can see it",
               ).then((ok) => {
                 if (ok) setDraft("");
               });
@@ -1637,7 +1637,7 @@ function NotesCard({
              feature. Saying it once here costs a line and answers it. */
           <p className="m-0 mt-3 border-t border-[var(--ai-line-soft)] pt-3 text-[11.5px] leading-relaxed text-[var(--ai-t4)]">
             No notes yet. Notes are attributed and timestamped, and you can edit or delete your own
-            afterwards — your teammates&apos; stay as they wrote them.
+            afterwards - your teammates&apos; stay as they wrote them.
           </p>
         )}
 

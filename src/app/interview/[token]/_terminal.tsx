@@ -174,7 +174,7 @@ export function TerminalScreen({
             {company} replaced or withdrew this interview invitation.
           </p>
           <p className="m-0 mt-2.5 text-[13px] leading-relaxed text-[var(--t3)]">
-            Check your email for a newer invitation — if there isn&apos;t one, reply to
+            Check your email for a newer invitation - if there isn&apos;t one, reply to
             the original and their team can send a fresh link.
           </p>
         </div>
@@ -324,7 +324,7 @@ export function UnsupportedScreen() {
             instruction anyone can act on. */}
         <p className="m-0 mt-2.5 text-[13px] leading-relaxed text-[var(--t3)]">
           Open this same link in <b className="text-[var(--t2)]">Chrome</b> on Android
-          or desktop, or <b className="text-[var(--t2)]">Safari</b> on iPhone — both
+          or desktop, or <b className="text-[var(--t2)]">Safari</b> on iPhone - both
           work. If you&apos;re in an app&apos;s built-in browser (Instagram, LinkedIn,
           Gmail), tap the ⋯ menu and choose &ldquo;Open in browser&rdquo;.
         </p>

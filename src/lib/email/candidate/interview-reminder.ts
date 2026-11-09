@@ -55,7 +55,7 @@ export function interviewReminderCopy(deadline: string): InterviewReminderCopy {
     body: [
       "<p>Hi {{candidate_first_name}},</p>",
       `<p>A quick reminder: the video interview <strong>{{company_name}}</strong> asked you to record for <strong>{{job_title}}</strong> closes on <strong>${when}</strong>.</p>`,
-      "<p>If you've already started, nothing is lost — every answer you recorded is saved, and you can pick up from the next question. It only counts as finished once you submit.</p>",
+      "<p>If you've already started, nothing is lost - every answer you recorded is saved, and you can pick up from the next question. It only counts as finished once you submit.</p>",
       '<p>Your interview link is in the earlier email from us, subject "Your video interview for {{job_title}} at {{company_name}}". Opening that link again takes you back to where you stopped.</p>',
       "<p>Good luck.</p>",
     ].join("\n"),

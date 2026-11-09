@@ -73,7 +73,7 @@ const FIRST = "d0000000-0000-4000-8000-0000000000e1";
 const SECOND = "d0000000-0000-4000-8000-0000000000e2";
 const NOTE = "SYNTHETIC-DECISION-NOTE-should-never-reach-the-drawer";
 const href = (id) => `/ai-dashboard/interviews/${id}`;
-const GENERIC = ["Sent — not started", "Cancelled"];
+const GENERIC = ["Sent - not started", "Cancelled"];
 
 const live = (over = {}) => ({
   id: FIRST,

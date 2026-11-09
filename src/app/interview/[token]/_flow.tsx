@@ -1391,7 +1391,7 @@ export function InterviewFlow({
       releaseCamera();
       setScreen("done");
     } catch {
-      const message = "Your connection dropped. Your answers are saved — try again.";
+      const message = "Your connection dropped. Your answers are saved - try again.";
       setSubmitErr(message);
       announce(message, { assertive: true });
     } finally {
@@ -1610,7 +1610,7 @@ export function InterviewFlow({
                 clearPracticeClip();
                 setQi(firstUnanswered());
                 setPhase("prep");
-                notify("Practice done — nothing was saved");
+                notify("Practice done - nothing was saved");
               }}
             />
           )}
@@ -1714,7 +1714,7 @@ function Welcome({
       </h1>
       <p className="m-0 mb-5 text-sm leading-relaxed text-[var(--t2)]">
         {questionCount} question{questionCount === 1 ? "" : "s"}, answered{" "}
-        <span className="iv-hl">in your own time</span> — no scheduling, no call.
+        <span className="iv-hl">in your own time</span> - no scheduling, no call.
         {session.allowRerecord
           ? " You can re-record anything before you submit."
           : " Each answer is recorded once, so take a moment before you start."}
@@ -1735,7 +1735,7 @@ function Welcome({
         />
         <p className="m-0 text-[12.5px] leading-relaxed text-[var(--mint-ink)]">
           <b className="font-bold">There&apos;s a practice round first.</b> It
-          isn&apos;t recorded or shared — it&apos;s just to get comfortable.
+          isn&apos;t recorded or shared - it&apos;s just to get comfortable.
         </p>
       </div>
 
@@ -1799,7 +1799,7 @@ export function Consent({
         Before you start
       </h1>
       <p className="m-0 mb-5 text-sm leading-relaxed text-[var(--t2)]">
-        Please read these — they matter.
+        Please read these - they matter.
       </p>
       {again && (
         // Spoken by askConsentAgain through the page's one announcer, not a region of its own.
@@ -1997,7 +1997,7 @@ function TechCheck({
           title={cam === "bad" && blocked ? "Camera blocked" : "Camera"}
           sub={
             cam === "ok"
-              ? "Looking good — you're centred"
+              ? "Looking good - you're centred"
               : cam === "bad"
                 ? blocked
                   ? "Blocked for this site"
@@ -2034,7 +2034,7 @@ function TechCheck({
           title="Connection"
           sub={
             net === "ok"
-              ? "Stable — fast enough for video"
+              ? "Stable - fast enough for video"
               : net === "bad"
                 ? "Too slow or unreachable right now"
                 : asked
@@ -2126,9 +2126,9 @@ function TechCheck({
 
       <p className="m-0 mt-[11px] text-center text-[12.5px] leading-relaxed text-[var(--t3)]">
         {passed
-          ? "All set. The practice round is next — it isn't recorded."
+          ? "All set. The practice round is next - it isn't recorded."
           : copy?.switchDevice
-            ? "This link stays open — you can finish on another device whenever suits you."
+            ? "This link stays open - you can finish on another device whenever suits you."
             : fault
               ? "Follow the steps above, then tap the button."
               : !asked
@@ -2290,7 +2290,7 @@ function Recorder({
               <b className="font-bold">
                 {interrupted === "background"
                   ? "Recording stopped when you left this screen."
-                  : "Recording stopped — your camera was interrupted."}
+                  : "Recording stopped - your camera was interrupted."}
               </b>{" "}
               {interrupted === "background"
                 ? "Phones switch the camera off when you change app or lock the screen, so we saved what you had said up to that point rather than letting it run on with nothing being captured."
@@ -2449,11 +2449,11 @@ function Recorder({
             {/* The headline leads with what is NOT lost. Someone who has just
                 spoken for two minutes needs that before anything else. */}
             <p className="iv-q m-0 max-w-[260px] text-[15px] font-bold leading-snug">
-              Your answer is still here — it just hasn&apos;t sent
+              Your answer is still here - it just hasn&apos;t sent
             </p>
             <p className="iv-dim m-0 max-w-[260px] text-[12.5px] leading-relaxed">
               {uploadError ?? "The connection dropped while sending."} We tried{" "}
-              {UPLOAD_AUTO_ATTEMPTS} times. Tap Retry when you have signal —
+              {UPLOAD_AUTO_ATTEMPTS} times. Tap Retry when you have signal -
               you don&apos;t need to record it again.
             </p>
             <p className="iv-dimmer m-0 max-w-[240px] text-[11px] leading-relaxed">
@@ -2479,7 +2479,7 @@ function Recorder({
                 : isPractice
                   ? "Getting your clip ready…"
                   : uploadAttempt > 1
-                    ? "Your connection dropped — trying again…"
+                    ? "Your connection dropped - trying again…"
                     : `Saving your answer… ${uploadPct}%`}
             </p>
             {/* Honest about what is happening, and about the one thing that
@@ -2583,13 +2583,13 @@ function Recorder({
           {isPractice ? (
             <>
               <b className="font-bold text-[var(--t1)]">This one isn&apos;t saved.</b>{" "}
-              Practice is just for you — nothing here is uploaded or shared with{" "}
+              Practice is just for you - nothing here is uploaded or shared with{" "}
               {companyName}.
             </>
           ) : (
             <>
               <b className="font-bold text-[var(--t1)]">Saved as you go.</b> Each answer
-              uploads the moment you finish it — if your connection drops you&apos;ll
+              uploads the moment you finish it - if your connection drops you&apos;ll
               only lose the one you&apos;re on.
             </>
           )}
@@ -2724,7 +2724,7 @@ function Review({
           ) : (
             <>
               <b className="font-bold">All {questions.length} recorded.</b> Have a last
-              look, then send them over — you can&apos;t change them afterwards.
+              look, then send them over - you can&apos;t change them afterwards.
             </>
           )}
         </p>
@@ -2762,7 +2762,7 @@ function Submitted({ companyName }: { companyName: string }) {
           <Check className="size-[34px]" strokeWidth={2.2} />
         </span>
         <h1 tabIndex={-1} data-screen-heading className="iv-sora m-0 mb-2.5 text-[23px] font-extrabold leading-tight tracking-[-0.032em] text-[var(--t1)]">
-          That&apos;s everything — thank you
+          That&apos;s everything - thank you
         </h1>
         <p className="m-0 mb-1.5 text-sm leading-relaxed text-[var(--t2)]">
           Your answers are with {companyName}&apos;s hiring team.

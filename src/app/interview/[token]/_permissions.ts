@@ -191,7 +191,7 @@ export function recoveryFor(platform: Platform): Recovery {
       return {
         lead: "Your browser is blocking the camera for this site.",
         steps: [
-          "Open your browser's site settings for this page — usually the icon next to the web address",
+          "Open your browser's site settings for this page - usually the icon next to the web address",
           "Set Camera and Microphone to Allow",
           "Reload this page",
         ],
@@ -289,7 +289,7 @@ export function faultCopy(fault: MediaFault, platform: Platform): FaultCopy {
     const mobile = platform === "ios-safari" || platform === "android-chrome";
     return {
       title: "We couldn't find a camera on this device.",
-      lead: "Nothing is set wrongly — this device just doesn't have a camera we can use.",
+      lead: "Nothing is set wrongly - this device just doesn't have a camera we can use.",
       steps: mobile
         ? [
             "Check nothing is covering the lens, then try again",
@@ -298,7 +298,7 @@ export function faultCopy(fault: MediaFault, platform: Platform): FaultCopy {
           ]
         : [
             "If you have an external webcam, plug it in and press Try again",
-            "Otherwise open this same link on your phone — it works there and takes about the same time",
+            "Otherwise open this same link on your phone - it works there and takes about the same time",
             "Your progress is saved, so nothing you have already recorded is lost",
           ],
       retryLabel: "Check again",
@@ -309,7 +309,7 @@ export function faultCopy(fault: MediaFault, platform: Platform): FaultCopy {
   if (fault === "in-use") {
     return {
       title: "Your camera is busy in another app.",
-      lead: "Something else has hold of it — most often a video call left open.",
+      lead: "Something else has hold of it - most often a video call left open.",
       steps: [
         "Close Zoom, Teams, Meet, FaceTime or any other app using your camera",
         "Close any other browser tab that has the camera on",

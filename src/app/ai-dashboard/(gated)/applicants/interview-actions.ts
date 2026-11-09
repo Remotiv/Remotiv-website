@@ -200,7 +200,7 @@ export async function sendInterviewInvite(
         subject: `Your video interview for {{job_title}} at {{company_name}}`,
         body: [
           "<p>Hi {{candidate_first_name}},</p>",
-          "<p><strong>{{company_name}}</strong> would like you to answer a few questions on video for <strong>{{job_title}}</strong>. There's no call to schedule — you record the answers in your own time, from your phone or laptop.</p>",
+          "<p><strong>{{company_name}}</strong> would like you to answer a few questions on video for <strong>{{job_title}}</strong>. There's no call to schedule - you record the answers in your own time, from your phone or laptop.</p>",
           `<p><a href="${escapeHtml(link)}" style="color:#7E47FF;font-weight:700">Start your interview</a></p>`,
           `<p>The link works until <strong>${escapeHtml(deadline)}</strong>. There's a practice round first, and it isn't recorded.</p>`,
           "<p>Good luck.</p>",
@@ -461,7 +461,7 @@ export async function sendLiveInterviewInvite(
 type Service = ReturnType<typeof createServiceClient>;
 type CompanyCtx = Awaited<ReturnType<typeof getCompanyContext>>;
 
-const NO_QUESTIONS = "Add interview questions to this job first — there's nothing to ask yet.";
+const NO_QUESTIONS = "Add interview questions to this job first - there's nothing to ask yet.";
 
 /**
  * The application, re-fetched and checked: company, then hiring team, then an

@@ -212,7 +212,7 @@ export function InterviewsClient({ initial }: { initial: Read<InterviewListResul
             <span className="relative z-0 inline-block px-1 font-bold text-[var(--ai-t1)] before:absolute before:-left-[3px] before:-right-[3px] before:bottom-[8%] before:top-[6%] before:-z-10 before:-rotate-[1.2deg] before:rounded-[3px] before:bg-remotiv-lime before:content-['']">
               whenever suits you
             </span>{" "}
-            — no scheduling, no calls.
+            - no scheduling, no calls.
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-3">
@@ -493,7 +493,7 @@ function ScorePill({ score }: { score: InterviewScore | null }) {
     const shown = score.humanScore ?? score.overall;
     if (shown === null) {
       return (
-        <span className="text-[12.5px] italic text-[var(--ai-t4)]">—</span>
+        <span className="text-[12.5px] italic text-[var(--ai-t4)]">-</span>
       );
     }
     return (
@@ -930,7 +930,7 @@ function ZeroState() {
         </h3>
         <p className="m-0 mx-auto max-w-[420px] text-[13.5px] leading-relaxed text-white/55">
           Candidates record answers to your questions on their own time. You
-          watch when it suits you — no diaries, no time zones, no no-shows.
+          watch when it suits you - no diaries, no time zones, no no-shows.
         </p>
       </div>
 

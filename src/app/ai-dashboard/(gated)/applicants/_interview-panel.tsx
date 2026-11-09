@@ -176,7 +176,7 @@ const PROVIDER_LABELS: Record<string, string> = { google: "Google Meet" };
 
 const STATE: Record<string, { label: string; cls: string; icon: typeof Check }> = {
   invited: {
-    label: "Sent — not started",
+    label: "Sent - not started",
     cls: "bg-[var(--ai-sky-tint)] text-[var(--ai-sky-ink)]",
     icon: Send,
   },
@@ -290,7 +290,7 @@ function ResultStrip({
 
         <div className="min-w-0">
           <h3 className="m-0 font-heading text-[17px] font-bold leading-[1.3] tracking-[-0.025em] text-[var(--ai-t1)]">
-            {session.verdict ?? "Recorded — not scored yet."}
+            {session.verdict ?? "Recorded - not scored yet."}
           </h3>
           {session.summary && (
             <p className="m-0 mt-2 max-w-[600px] text-[12.5px] leading-[1.7] text-[var(--ai-t2)]">
@@ -317,7 +317,7 @@ function ResultStrip({
       </div>
       <p className="m-0 mt-1 border-t border-[var(--ai-line-soft)] px-6 pb-[18px] pt-3 text-[11px] leading-[1.6] text-[var(--ai-t3)]">
         Scored from the transcript only. Remotiv AI does not analyse face, voice, accent, eye
-        contact or background. Per-question scores are advisory — a person decides.
+        contact or background. Per-question scores are advisory - a person decides.
       </p>
     </div>
   );
@@ -409,7 +409,7 @@ function AsyncSection({
        * catch was not.
        */
       console.error("[applicants] sendInterviewInvite threw:", err);
-      result = { success: false, error: "Couldn't send — please try again." };
+      result = { success: false, error: "Couldn't send - please try again." };
     }
     setBusy(false);
     // Closed either way. On failure the reason renders below, and leaving the
@@ -528,7 +528,7 @@ function AsyncSection({
                 <>
                   Sends a fresh invitation by email, and queues a WhatsApp message as well. The link
                   {fmt(session.sentAt) ? ` from ${fmt(session.sentAt)}` : " they already have"}{" "}
-                  stops working straight away — they haven&apos;t started, so nothing is lost.
+                  stops working straight away - they haven&apos;t started, so nothing is lost.
                 </>
               )}
             </p>
