@@ -2137,6 +2137,9 @@ function TechCheck({
                   ? "Fix the item above, then try again."
                   : "Hold your phone upright. Find a quiet spot with light on your face."}
       </p>
+      <p className="m-0 mt-[11px] text-center text-[12.5px] leading-relaxed text-[var(--t3)]">
+        Stay on this screen while you record. Switching tabs or apps stops the recording.
+      </p>
     </div>
   );
 }
