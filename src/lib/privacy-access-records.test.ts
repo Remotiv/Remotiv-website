@@ -51,9 +51,11 @@ test("the new copy uses plain hyphens only", () => {
 test("the promise is backed: the purge is scheduled daily, and the notice version moved with it", () => {
   assert.match(queue, /\{ type: JOB_TYPES\.ACCESS_LOG_PURGE, intervalMs: PURGE_INTERVAL_MS \}/);
   // The version moves with every published change to the notice: 047 took it
-  // to 25 October 2026, and #72A's section 3 paragraph on the by-hand clearing
-  // of message records took it to 6 November 2026. The pin follows the
-  // latest, so the page and the stored version can never disagree.
-  assert.match(page, /const LAST_UPDATED = "6 November 2026";/);
-  assert.match(version, /export const PRIVACY_NOTICE_VERSION = "2026-11-06";/);
+  // to 25 October 2026, #72A's section 3 paragraph on the by-hand clearing of
+  // message records took it to 6 November 2026, and #99's rewording of the CV
+  // access item (served through the dashboard, no link) took it to 10 November
+  // 2026. The pin follows the latest, so the page and the stored version can
+  // never disagree.
+  assert.match(page, /const LAST_UPDATED = "10 November 2026";/);
+  assert.match(version, /export const PRIVACY_NOTICE_VERSION = "2026-11-10";/);
 });

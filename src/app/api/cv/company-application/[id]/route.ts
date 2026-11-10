@@ -6,18 +6,32 @@ import { deriveCvPathFromUrl } from "@/lib/cv-path";
 import { createServiceClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
+// No maxDuration export and no vercel.json entry, on purpose: this route
+// inherits the project-level Function Max Duration rather than capping itself
+// lower. A file download is the one case that should be allowed to run long;
+// the lower caps in vercel.json are for routes that must not. The project
+// setting Waleed reported is 300 s (nothing in this repo proves it; check the
+// deployment). That is still a limit: a download slower than it is cut off
+// mid-stream, and a 5 MB CV needs roughly 136 kbps to finish inside it.
 
 // Company-side CV open. A ROUTE, not a server action, because the browser
-// navigates to it directly from an <a target="_blank"> — signing server-side
-// and 302-redirecting avoids the popup blocker that trips on a JS-after-await
-// window.open.
+// navigates to it directly from an <a target="_blank">.
 //
-// Self-contained by design: bucket, TTL and the signed_url_logs shape MUST
-// match the admin route (src/app/api/cv/admin-application/[id]/route.ts), but
-// the two products never import each other's guards or helpers.
+// The document is SERVED THROUGH THIS ORIGIN (#99): after the checks below the
+// route streams the object's bytes itself. No signed storage URL is ever
+// minted, so there is no bearer link to copy, no history entry that opens the
+// file without a session, and nothing that outlives a revoked permission: every
+// request repeats the company and job checks. What this cannot do is recall a
+// document already delivered; see DEPLOYMENT LIMITATIONS in #99.
+//
+// Self-contained by design: bucket and the signed_url_logs shape MUST match the
+// admin route (src/app/api/cv/admin-application/[id]/route.ts), but the two
+// products never import each other's guards or helpers. The admin route still
+// signs and redirects; that is deferred, not forgotten.
 
 const CV_BUCKET = "cvs";
-const CV_SIGNED_URL_TTL_SECONDS = 60 * 60; // 1 hour — matches the admin route
+// A FIXED filename. The applicant's name never rides in a header.
+const CV_FILENAME = "cv.pdf";
 
 function htmlError(status: number, title: string, body: string): NextResponse {
   const html = `<!doctype html><meta charset="utf-8"><title>${title}</title><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:40px;color:#333;max-width:480px;margin:0 auto"><h2 style="margin:0 0 8px;font-weight:600">${title}</h2><p style="margin:0;color:#666">${body}</p></body>`;
@@ -129,39 +143,92 @@ export async function GET(request: Request, routeCtx: { params: Promise<{ id: st
       : htmlError(404, "CV not found", "This application doesn't have a CV file attached.");
   }
 
-  // 4. ?download=1 forces Content-Disposition: attachment.
-  const url = new URL(request.url);
-  const downloadMode = url.searchParams.get("download") === "1";
+  // 4. ?download=1 forces Content-Disposition: attachment. Nothing in the
+  //    dashboard appends it today; the branch exists for a future button.
+  const downloadMode = new URL(request.url).searchParams.get("download") === "1";
+  const bucket = service.storage.from(CV_BUCKET);
 
-  const { data: signed, error: signErr } = await service.storage
-    .from(CV_BUCKET)
-    .createSignedUrl(
-      cvPath,
-      CV_SIGNED_URL_TTL_SECONDS,
-      downloadMode ? { download: true } : undefined,
-    );
-  if (signErr || !signed?.signedUrl) {
+  // 5. The object's size, for Content-Length. A PDF with no length is the case
+  //    browser viewers handle worst, so it is read from storage.info, which
+  //    describes exactly this path. The path is immutable: every writer uploads
+  //    to a fresh <folder>/<uuid>.pdf with upsert false (apply route, attach
+  //    action, direct add, import script) and a replace re-points the row to a
+  //    new object, so the size read here and the stream in step 7 describe the
+  //    same bytes. A missing or malformed size means NO header, never a guess.
+  //    The size is a nicety and can never fail the request: an error return and
+  //    a THROW (dropped connection, DNS, abort) are both "no size". Nothing of
+  //    the thrown object is logged; a storage error is the one place a path or
+  //    URL could still reach the logs.
+  let contentLength: string | null = null;
+  try {
+    const { data: info, error: infoErr } = await bucket.info(cvPath);
+    const size = infoErr ? undefined : info?.size;
+    if (typeof size === "number" && Number.isSafeInteger(size) && size > 0) {
+      contentLength = String(size);
+    } else {
+      console.error("[cv-company-application] size unavailable; serving without Content-Length");
+    }
+  } catch {
+    console.error("[cv-company-application] size read threw; serving without Content-Length");
+  }
+
+  // 6. The access log, AWAITED and FAIL-CLOSED (#99; the #71A defect class).
+  //    Once the response is a stream the function returns at once, and a
+  //    fire-and-forget insert still in flight can be killed with the row
+  //    silently lost. So the insert completes before any byte is served, and a
+  //    failed insert serves nothing: the same database answered the application
+  //    lookup two steps ago, so a failure here is a real fault, not a blip, and
+  //    an unlogged view is the one outcome the privacy page rules out. The row
+  //    holds who, which application and when (was_admin false, as the admin
+  //    route writes true); never a path, URL, token or credential.
+  //    Do not move this after the stream and do not drop the await.
+  const { error: logErr } = await service.from("signed_url_logs").insert({
+    user_id: ctx.user.id,
+    candidate_id: id,
+    source_table: "job_applications",
+    was_admin: false,
+  });
+  if (logErr) {
+    console.error("[cv-company-application] access log insert failed:", logErr.code ?? "error");
     return htmlError(
       500,
       "Could not open CV",
-      "Something went wrong generating the secure link. Please try again.",
+      "Something went wrong opening this document. Please try again.",
     );
   }
 
-  // 5. Audit log — fire-and-forget; a logging failure must not block the grant.
-  //    Same shape as the admin route, with was_admin false so the two can be
-  //    told apart in analytics.
-  service
-    .from("signed_url_logs")
-    .insert({
-      user_id: ctx.user.id,
-      candidate_id: id,
-      source_table: "job_applications",
-      was_admin: false,
-    })
-    .then(({ error }) => {
-      if (error) console.error("[signed_url_logs insert]", error);
-    });
+  // 7. The bytes, streamed through this origin. asStream forwards the storage
+  //    response body chunk by chunk, so the function never holds the file and
+  //    the platform's cap on non-streamed response bodies does not apply. No
+  //    Accept-Ranges header: byte ranges are not served and must not be
+  //    advertised. An error return and a THROW (dropped connection, DNS, abort)
+  //    land on the same page below: one path, not two. The error page names no
+  //    path, URL or token, and neither does the log line; the thrown object is
+  //    never logged.
+  let stream: ReadableStream | null = null;
+  try {
+    const { data, error: streamErr } = await bucket.download(cvPath).asStream();
+    if (!streamErr && data) stream = data;
+  } catch {
+    // Handled below, exactly as an error return.
+  }
+  if (!stream) {
+    console.error("[cv-company-application] storage read failed");
+    return htmlError(
+      502,
+      "Could not open CV",
+      "Something went wrong opening this document. Please try again.",
+    );
+  }
 
-  return NextResponse.redirect(signed.signedUrl, 302);
+  const headers = new Headers({
+    "content-type": "application/pdf",
+    "content-disposition": `${downloadMode ? "attachment" : "inline"}; filename="${CV_FILENAME}"`,
+    // Never cached by a shared cache or the browser's disk: a private document
+    // served to one session.
+    "cache-control": "private, no-store",
+    "x-content-type-options": "nosniff",
+  });
+  if (contentLength) headers.set("content-length", contentLength);
+  return new Response(stream, { status: 200, headers });
 }

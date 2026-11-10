@@ -16,5 +16,11 @@
  * nowhere, so nobody is re-prompted and no interview in progress is affected.
  * INTERVIEW_CONSENT_VERSION and LIVE_INTERVIEW_CONSENT_VERSION are separate
  * and untouched.
+ *
+ * 2026-11-10: section 1's "CVs and interview recordings" item changed from
+ * "each view generates a short-lived link" to "served through the dashboard
+ * for that one view only" (#99: the company CV route streams the document and
+ * mints no signed URL). Same rule, same safety: written once at insert, read
+ * nowhere.
  */
-export const PRIVACY_NOTICE_VERSION = "2026-11-06";
+export const PRIVACY_NOTICE_VERSION = "2026-11-10";

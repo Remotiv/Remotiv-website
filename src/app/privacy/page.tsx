@@ -128,7 +128,7 @@ export const metadata: Metadata = {
 };
 
 /** Shown at the top. Update whenever the substance below changes. */
-const LAST_UPDATED = "6 November 2026";
+const LAST_UPDATED = "10 November 2026";
 
 const CONTACT = "talent@remotiv.work";
 
@@ -307,10 +307,12 @@ export default function PrivacyPage() {
             <li>
               <strong className="font-semibold text-[#111]">CVs and interview recordings</strong>{" "}
               are held in private storage. They have no public web address and cannot be opened by
-              anyone who has not been authorised. Each view generates a short-lived link for that
-              one view only. When a company or Remotiv staff open a CV or a recording, we record who
-              opened which document, and when. These access records are kept for 24 months, then
-              deleted. Opening your own CV from your own profile is not logged.
+              anyone who has not been authorised. When a company opens a CV it is served through the
+              dashboard for that one view only - there is no link to copy or share, and the viewer's
+              permission is checked again every time. When a company or Remotiv staff open a CV or a
+              recording, we record who opened which document, and when. These access records are
+              kept for 24 months, then deleted. Opening your own CV from your own profile is not
+              logged.
             </li>
             <li>
               <strong className="font-semibold text-[#111]">Profile photos</strong>, if you add one
@@ -369,13 +371,12 @@ export default function PrivacyPage() {
           <P>
             Video recordings and their transcripts are deleted six months after the interview is
             issued. As with CVs, the record of the interview survives the media: the questions you
-            were asked, how long you spoke and when, but not the recording or the transcript.
-            Where an interview was scored, the scores are kept with the application after the
-            recording goes, with the AI&apos;s one-line verdict and whether each of the
-            employer&apos;s interview criteria was shown. The AI&apos;s written explanations and
-            summary, and the short quotes from your answers that it cited as evidence, are deleted
-            at the same time as the recording. Notes the hiring team wrote when adjusting a score
-            are kept with it.
+            were asked, how long you spoke and when, but not the recording or the transcript. Where
+            an interview was scored, the scores are kept with the application after the recording
+            goes, with the AI&apos;s one-line verdict and whether each of the employer&apos;s
+            interview criteria was shown. The AI&apos;s written explanations and summary, and the
+            short quotes from your answers that it cited as evidence, are deleted at the same time
+            as the recording. Notes the hiring team wrote when adjusting a score are kept with it.
           </P>
 
           <H3>Final interview recordings: 3 months</H3>
@@ -526,12 +527,12 @@ export default function PrivacyPage() {
               storage and login system. Holds everything described above.
             </li>
             <li>
-              <strong className="font-semibold text-[#111]">OpenAI</strong> — receives the
-              recording of your video interview answers, video and audio together, in order to
-              transcribe them. It may also receive the text of your CV, your screening answers, the
-              details you gave on the application form, the transcripts of your interview answers
-              and the requirements of the role, in order to produce the scores and summaries
-              described in section 7.
+              <strong className="font-semibold text-[#111]">OpenAI</strong> — receives the recording
+              of your video interview answers, video and audio together, in order to transcribe
+              them. It may also receive the text of your CV, your screening answers, the details you
+              gave on the application form, the transcripts of your interview answers and the
+              requirements of the role, in order to produce the scores and summaries described in
+              section 7.
             </li>
             <li>
               <strong className="font-semibold text-[#111]">Anthropic</strong> — may receive the
