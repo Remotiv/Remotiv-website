@@ -71,23 +71,28 @@ const WHOLE_FILES = [
   "../../../lib/email/candidate/interview-reminder.ts",
 ];
 
-/** [file, start marker, end marker]: only the copy between them is async. */
-const SECTIONS: Array<[string, string, string]> = [
+/** [file, start marker, end marker, fewest strings]: only the copy between the markers is async. */
+const SECTIONS: Array<[string, string, string, number]> = [
   [
     "../../ai-dashboard/(gated)/applicants/_interview-panel.tsx",
     "const STATE: Record<",
     "export function liveRestartText(",
+    11,
   ],
   [
     "../../ai-dashboard/(gated)/jobs/new/_wizard-client.tsx",
     "{step === 5 && (",
     "<TeamCallFields state={state} set={set} />",
+    11,
   ],
   [
     "../../ai-dashboard/(gated)/applicants/_applicants-client.tsx",
     "{addOpen && (",
     "{deleteTarget && (",
+    11,
   ],
+  // The recruiter notification when a deadline passes. The rest of expiry.ts is job-log text.
+  ["../../../lib/interviews/expiry.ts", "const recorded = answered ?? 0;", "} catch (err) {", 4],
 ];
 
 function dashed(found: Found[], rel: string): string[] {
@@ -104,13 +109,13 @@ test("hyphens only: no em or en dash in any async interview string a person can 
     checked += found.length;
     bad.push(...dashed(found, rel));
   }
-  for (const [rel, startMarker, endMarker] of SECTIONS) {
+  for (const [rel, startMarker, endMarker, fewest] of SECTIONS) {
     const src = read(rel);
     const from = src.indexOf(startMarker);
     const to = src.indexOf(endMarker, from);
     assert.ok(from !== -1 && to > from, `${rel}: markers not found, re-point this section`);
     const found = copyIn(src, rel, from, to);
-    assert.ok(found.length > 10, `${rel}: only ${found.length} strings in the section`);
+    assert.ok(found.length >= fewest, `${rel}: only ${found.length} strings in the section`);
     checked += found.length;
     bad.push(...dashed(found, rel));
   }
@@ -138,6 +143,7 @@ test("the scan reads the strings it claims to: known async copy is found, with h
     "If you've already started, nothing is lost - every answer",
     "Required - the candidate can&apos;t submit without it",
     "phone, location, history - is read from it.",
+    "before the deadline - those are still on the interview.",
   ]) {
     assert.ok(
       all.some((s) => s.includes(phrase)),

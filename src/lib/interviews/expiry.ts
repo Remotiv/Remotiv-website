@@ -581,7 +581,7 @@ async function notifyRecruiters(
     const recorded = answered ?? 0;
     const progress =
       recorded > 0
-        ? `They recorded ${recorded} ${recorded === 1 ? "answer" : "answers"} before the deadline — those are still on the interview.`
+        ? `They recorded ${recorded} ${recorded === 1 ? "answer" : "answers"} before the deadline - those are still on the interview.`
         : "They didn't record any answers.";
 
     await notifyCompany({
