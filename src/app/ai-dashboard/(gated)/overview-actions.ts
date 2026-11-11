@@ -182,11 +182,19 @@ export async function fetchOverview(): Promise<OverviewData> {
         }
         return answered((data ?? []) as HistoryRow[]);
       }),
+    /*
+     * #67: pending invites live in company_invites, the same rule the Team
+     * page lists (team/actions.ts fetchTeamMembers): this company, status
+     * 'pending', not yet expired. A timed-out invite stays 'pending', so the
+     * expires_at filter is what keeps it out. Do not point this back at
+     * company_members - nothing writes 'invited' there.
+     */
     service
-      .from("company_members")
+      .from("company_invites")
       .select("id", { count: "exact", head: true })
       .eq("company_id", ctx.companyId)
-      .eq("status", "invited")
+      .eq("status", "pending")
+      .gt("expires_at", new Date(now).toISOString())
       .then(({ count, error }): Read<number> => {
         // Unknown, not zero. `pendingInvites > 0` gates the card, so a failed
         // read used to be indistinguishable from "nothing pending" — and an

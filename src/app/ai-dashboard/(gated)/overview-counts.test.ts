@@ -256,7 +256,25 @@ const HISTORY = [
   },
 ];
 
+/*
+ * #67: invites live in company_invites. Only the first two are pending for
+ * this company AND unexpired; every other row differs from them in exactly
+ * one respect, so dropping any one filter from the count lets that row in.
+ */
+const LATER = new Date(NOW + 3 * 86_400_000).toISOString();
+const INVITES = [
+  { id: "inv-1", company_id: CO, status: "pending", expires_at: LATER },
+  { id: "inv-2", company_id: CO, status: "pending", expires_at: LATER },
+  { id: "inv-3", company_id: CO, status: "pending", expires_at: ago(86_400_000) },
+  { id: "inv-4", company_id: CO, status: "revoked", expires_at: LATER },
+  { id: "inv-5", company_id: CO, status: "accepted", expires_at: LATER },
+  { id: "inv-6", company_id: CO, status: "expired", expires_at: LATER },
+  { id: "inv-7", company_id: OTHER_CO, status: "pending", expires_at: LATER },
+];
 const PENDING_INVITES = 2;
+
+/** What the old company_members count would claim; never the right answer. */
+const MEMBERS_INVITED_DECOY = 99;
 
 // ── The fake database ────────────────────────────────────────
 
@@ -265,7 +283,21 @@ function filters(calls) {
   const eqOn = (col) => calls.find((c) => c[0] === "eq" && c[1] === col)?.[2];
   const inOn = (col) => calls.find((c) => c[0] === "in" && c[1] === col)?.[2];
   const neqOn = (col) => calls.find((c) => c[0] === "neq" && c[1] === col)?.[2];
-  return { eqOn, inOn, neqOn };
+  const gtOn = (col) => calls.find((c) => c[0] === "gt" && c[1] === col)?.[2];
+  return { eqOn, inOn, neqOn, gtOn };
+}
+
+/**
+ * The invite count, answered from INVITES by whatever filters were sent. A
+ * missing filter answers widely, so the wrong rows are counted, not hidden.
+ */
+function inviteCount(calls) {
+  const { eqOn, gtOn } = filters(calls);
+  let rows = keep(INVITES, eqOn("company_id"), (i) => i.company_id);
+  rows = keep(rows, eqOn("status"), (i) => i.status);
+  const after = gtOn("expires_at");
+  if (after !== undefined) rows = rows.filter((i) => Date.parse(i.expires_at) > Date.parse(after));
+  return rows.length;
 }
 
 /** True for `.select(cols, { count: "exact", head: true })`. */
@@ -281,7 +313,7 @@ function keep(rows, value, pick) {
 
 // The role reaches the code under test through install()'s ctx, not through the
 // database: all the responder needs is which jobs the member is on the team of.
-function world({ teamJobs = [] } = {}) {
+function world({ teamJobs = [], inviteError = false } = {}) {
   return fakeService((table, calls) => {
     const { eqOn, inOn, neqOn } = filters(calls);
 
@@ -326,9 +358,15 @@ function world({ teamJobs = [] } = {}) {
       return { data: rows, error: null };
     }
 
+    if (table === "company_invites") {
+      if (inviteError) return { count: null, error: { message: "boom", code: "57014" } };
+      return { count: inviteCount(calls), error: null };
+    }
+
+    // The pre-#67 source. Answered rather than thrown, so a regression shows
+    // as a wrong number in an assertion, not as a crash.
     if (table === "company_members") {
-      const mine = eqOn("company_id") === CO && eqOn("status") === "invited";
-      return { count: mine ? PENDING_INVITES : 0, error: null };
+      return { count: MEMBERS_INVITED_DECOY, error: null };
     }
 
     throw new Error(`test: unexpected table ${table}`);
@@ -542,7 +580,8 @@ test("a company with nothing in it reports zero, and still carries the invite co
   const svc = fakeService((table, calls) => {
     const { eqOn } = filters(calls);
     if (table === "job_hiring_team") return { data: [], error: null };
-    if (table === "company_members") return { count: PENDING_INVITES, error: null };
+    if (table === "company_invites") return { count: inviteCount(calls), error: null };
+    if (table === "company_members") return { count: MEMBERS_INVITED_DECOY, error: null };
     if (isCountQuery(calls)) return { count: 0, error: null };
     assert.equal(eqOn("company_id") ?? eqOn("company_id_snapshot"), CO);
     return { data: [], error: null };
@@ -629,4 +668,55 @@ test("no .select() in the source names screening_answers", () => {
   }
   // It must still be here as a filter, or the count is not being scoped at all.
   assert.match(SOURCE, /\.neq\("screening_answers", "\[\]"\)/);
+});
+
+// ── #67: pending invites ─────────────────────────────────────
+
+test("a: the invite count is this company's pending, unexpired invites only", async () => {
+  const svc = world();
+  install(svc, "owner");
+  const data = await fetchOverview();
+  // inv-1 and inv-2. Not the expired, revoked, accepted, 'expired'-status or
+  // other-company rows, and not the company_members decoy.
+  assert.deepEqual(data.pendingInvites, { ok: true, value: 2 });
+});
+
+test("b: the invite query filters company, status = pending, and expires_at after now", async () => {
+  const svc = world();
+  install(svc, "owner");
+  const before = Date.now();
+  await fetchOverview();
+  const after = Date.now();
+  const q = svc.queries.find((x) => x.table === "company_invites");
+  assert.ok(q, `company_invites was not queried: ${svc.queries.map((x) => x.table).join(",")}`);
+  const { eqOn, gtOn } = filters(q.calls);
+  assert.equal(eqOn("company_id"), CO);
+  assert.equal(eqOn("status"), "pending");
+  const cut = Date.parse(gtOn("expires_at"));
+  assert.ok(!Number.isNaN(cut), "expires_at is compared against a timestamp");
+  assert.ok(cut >= before - 1000 && cut <= after + 1000, "and that timestamp is now");
+  assert.ok(isCountQuery(q.calls), "a head count, not a row read");
+});
+
+test("c: company_members is never queried for the invite count", async () => {
+  for (const role of ["owner", "admin", "recruiter"]) {
+    const svc = world({ teamJobs: [JOB_A] });
+    install(svc, role);
+    await fetchOverview();
+    const members = svc.queries.filter((x) => x.table === "company_members");
+    assert.equal(members.length, 0, `${role}: company_members was queried`);
+  }
+});
+
+test("d: a failed invite read stays unknown, not zero", async () => {
+  const saved = console.error;
+  console.error = () => {};
+  try {
+    const svc = world({ inviteError: true });
+    install(svc, "owner");
+    const data = await fetchOverview();
+    assert.deepEqual(data.pendingInvites, { ok: false });
+  } finally {
+    console.error = saved;
+  }
 });
