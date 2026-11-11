@@ -236,7 +236,17 @@ export async function deleteApplication(
 
   const { error } = await supabase.from("job_applications").delete().eq("id", target.id).or(scope);
 
-  if (error) return { success: false, error: error.message };
+  if (error) {
+    // The code only, never the message: no table, column or constraint name
+    // reaches the browser (#95, the same defect class as #100's third part).
+    // The files above are already gone when this fails, so a retry finds them
+    // gone and deletes the row; the string says so.
+    console.error(`[admin] delete applicant: row delete failed: ${error.code ?? "error"}`);
+    return {
+      success: false,
+      error: "Couldn't finish deleting this applicant. Refresh and try again.",
+    };
+  }
   revalidatePath("/admin/applications");
   return { success: true, data: undefined };
 }

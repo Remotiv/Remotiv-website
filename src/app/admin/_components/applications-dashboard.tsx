@@ -1249,12 +1249,36 @@ export function ApplicationsDashboard({
   async function handleDelete() {
     if (!deleteTarget) return;
     setDeleting(true);
-    const result = await deleteApplication(deleteTarget.id);
+    // Say so, on EVERY failure path (#95). The helper runs five steps, files
+    // before rows, so by the time a failure surfaces some or all of the
+    // recordings may already be gone from storage while the applicant is
+    // still listed; the recovery is the user clicking Delete again, and every
+    // step is safe to repeat. So the modal stays open (deleteTarget is kept)
+    // and the button is re-enabled in the finally, which runs whether the
+    // action returned { success: false } or REJECTED (a dropped connection, a
+    // killed function, a transport failure). Without the catch, a rejection
+    // would skip both and leave the button disabled for ever in silence.
+    // Shape copied from the company page, _applicants-client.tsx:5139-5145.
+    // Nothing of a thrown value is logged beyond a code, if it carries one.
+    let result: Awaited<ReturnType<typeof deleteApplication>>;
+    try {
+      result = await deleteApplication(deleteTarget.id);
+    } catch (err) {
+      console.error(
+        `[admin] delete applicant threw: ${(err as { code?: string } | null)?.code ?? "error"}`,
+      );
+      result = { success: false, error: "Couldn't delete - please try again." };
+    } finally {
+      setDeleting(false);
+    }
     if (result.success) {
       setApps((prev) => prev.filter((a) => a.id !== deleteTarget.id));
       setDeleteTarget(null);
+    } else {
+      // Every string the action returns is a fixed sentence (#95 fixed the
+      // one raw database message at its source), so nothing needs mapping.
+      setToast(`Delete failed: ${result.error}`);
     }
-    setDeleting(false);
   }
 
   // ── Status update ─────────────────────────────────────────
