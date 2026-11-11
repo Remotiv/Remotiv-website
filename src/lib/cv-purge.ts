@@ -45,7 +45,7 @@ import { createServiceClient } from "@/lib/supabase/server";
  * Both guards briefly came off, on the reasoning that applying to Remotiv is
  * not consent to be held indefinitely. That was reversed: Remotiv keeps its own
  * applicants' CVs and its talent-pool profiles until asked to delete them, and
- * the talent-retention jobs are built but NOT SCHEDULED (see jobs-queue.ts).
+ * the talent-pool retention jobs were removed on 11 Nov 2026 (#61).
  *
  * THIS job still runs, and the difference is whose data it is. A client
  * company's applicants are not Remotiv's to keep: that CV was collected for

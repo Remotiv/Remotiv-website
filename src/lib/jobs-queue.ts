@@ -22,7 +22,6 @@ import type { JobContext } from "@/lib/queue/job-context";
 import { planFailure, planReclaim, planYield } from "@/lib/queue/transitions";
 import { handleQueueSweep } from "@/lib/queue-sweep";
 import { createServiceClient } from "@/lib/supabase/server";
-import { handleTalentRetentionPurge, handleTalentRetentionWarn } from "@/lib/talent-retention-jobs";
 import { handleWhatsAppMessage } from "@/lib/whatsapp/dispatch";
 
 /**
@@ -192,21 +191,12 @@ export const JOB_TYPES = {
   CV_PURGE: "cv_purge",
   /** Retention — delete this table's own long-succeeded rows. */
   QUEUE_SWEEP: "queue_sweep",
-  /**
-   * Retention — warn talent 30 days before their profile expires.
-   *
-   * NOT SCHEDULED. See the note in RECURRING; profiles do not expire today.
-   *
-   * Separate from the purge on purpose: the warning must be able to run and
-   * succeed on a day the purge refuses (see PURGE_CEILING). One job doing both
-   * would couple them.
+  /*
+   * Retired types, kept only so JOB_TYPES matches the database CHECK
+   * constraint (migration 040). No handler is registered, and nothing
+   * enqueues or schedules them. Retired 11 Nov 2026 (#61).
    */
   TALENT_RETENTION_WARN: "talent_retention_warn",
-  /**
-   * Retention — delete talent profiles inactive 24 months, warned 30 days ago.
-   *
-   * NOT SCHEDULED. See the note in RECURRING.
-   */
   TALENT_RETENTION_PURGE: "talent_retention_purge",
   /*
    * Migration 040, in its order. FINAL_BOT_SYNC, FINAL_BOT_LOBBY_CHECK,
@@ -300,14 +290,6 @@ registerHandler(JOB_TYPES.CV_PURGE, handleCvPurge);
 registerHandler(JOB_TYPES.QUEUE_SWEEP, handleQueueSweep);
 registerHandler(JOB_TYPES.ACCESS_LOG_PURGE, handleAccessLogPurge);
 registerHandler(JOB_TYPES.INTERVIEW_ORPHAN_SWEEP, handleInterviewOrphanSweep);
-/*
- * Registered but NEVER SCHEDULED — see the note in RECURRING below, which is
- * the only place either type can be enqueued from. These two lines are what
- * keeps the mechanism referenced and buildable rather than drifting into dead
- * code; they enqueue nothing on their own.
- */
-registerHandler(JOB_TYPES.TALENT_RETENTION_WARN, handleTalentRetentionWarn);
-registerHandler(JOB_TYPES.TALENT_RETENTION_PURGE, handleTalentRetentionPurge);
 // Recording step 2. Sync, reconcile and migration 040's orphan delete all
 // arrive as this type, told apart by payload.action inside the handler.
 registerHandler(JOB_TYPES.FINAL_BOT_SYNC, handleFinalBotSync);
@@ -426,25 +408,13 @@ const RECURRING: readonly RecurringJob[] = [
   // stopped.
   { type: JOB_TYPES.QUEUE_SWEEP, intervalMs: PURGE_INTERVAL_MS },
   /*
-   * ══ TALENT RETENTION IS DELIBERATELY ABSENT ═══════════════
-   *
-   * `talent_retention_warn` and `talent_retention_purge` are built, tested,
-   * registered below and NOT SCHEDULED. That is a decision, not an oversight or
-   * an unfinished branch: Remotiv keeps talent-pool profiles and their CVs
-   * until the person asks for them to be deleted. Nothing expires them.
-   *
-   * This list is the ONLY thing that enqueues either type — there is no admin
-   * trigger and no other caller — so removing these two entries is what stops
-   * them. It is also all it takes to start them: add the two lines back, and
-   * the mechanism runs as designed. Everything else it needs is intact — the
-   * columns (last_active_at, retention_warned_at, retention_keep_token_hash),
-   * the constants and email copy in lib/talent-retention.ts, the two handlers
-   * in lib/talent-retention-jobs.ts, the /talent/keep one-click route, and the
-   * activity writes in lib/talent-activity.ts.
-   *
-   * If you add them back, src/app/privacy/page.tsx is part of that change. It
-   * currently states there is no automatic expiry, and a policy that
-   * misdescribes an enforced rule is worse than one that admits we keep things.
+   * No talent-profile retention job. Removed on 11 Nov 2026 (#61): talent-pool
+   * profiles are kept until the person asks (privacy page, section 3), and
+   * deleting profiles in bulk is against Waleed's standing rule. The removed
+   * warn and purge design is in git history (51d3f52, f6e9dc2, 8967b27). It
+   * never ran: the column its warning wrote does not exist in production.
+   * Re-adding it is not "two lines" - it needs a migration, tests and a
+   * privacy-page change.
    */
   /*
    * The interview-expiry safety net: every overdue session expires even if its

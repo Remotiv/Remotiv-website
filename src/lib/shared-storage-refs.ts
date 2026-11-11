@@ -24,20 +24,20 @@ import type { createServiceClient } from "@/lib/supabase/server";
  *
  * ── Why this is shared, and why it outlived its trigger ──────
  *
- * It was written for the talent-retention purge, which deletes profiles the
- * bridge created and so routinely holds a key some application still names.
+ * It was written for a talent-profile purge (removed on 11 Nov 2026, #61),
+ * which would have deleted profiles the bridge created and so routinely held a
+ * key some application still names.
  * cv-purge is safe by construction instead — its `company_id_snapshot` guard
  * means it only ever touches client-company rows, and nothing copies one of
  * those anywhere.
  *
- * Both call it anyway. That guard came off once, for a day, on a decision that
+ * Every caller uses it anyway. That guard came off once, for a day, on a decision that
  * was then reversed; the argument for cv-purge's safety is one line in a
  * comment and one clause in a selector, and this is a check. It costs an
  * indexed read per batch.
  *
  * One list of tables, therefore, not one per caller. A fifth table gaining a
- * `cv_path` must not be a thing only one purge learns about — including while
- * one of those purges is not currently scheduled.
+ * `cv_path` must not be a thing only one purge learns about.
  *
  * ── Why the column alone is the whole check ──────────────────
  *

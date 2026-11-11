@@ -51,10 +51,10 @@ export async function requireProfileOwner(
     /*
      * Every self-serve save passes through here — all 20 exported actions in
      * dashboard/edit/actions.ts call this before writing — so this is the one
-     * place that has to record "they updated their profile" for retention.
+     * place that has to record "they updated their profile" (last_active_at).
      *
-     * Fire-and-forget: touchLastActive never throws and never blocks, because a
-     * retention clock must not be able to fail somebody's save.
+     * Fire-and-forget: touchLastActive never throws and never blocks, because an
+     * activity timestamp must not be able to fail somebody's save.
      */
     void touchLastActive(profileId, sourceTable);
     return { userId: user.id, email: user.email };

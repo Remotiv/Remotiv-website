@@ -10,7 +10,7 @@ import { createHash, randomBytes } from "node:crypto";
  * talent_claim_tokens.token_hash held the RAW token for its whole history —
  * the column name was aspirational. Every other token in this codebase is
  * sha256-at-rest (interviews/tokens.ts, calendar/bookings.ts,
- * talent-retention.ts, team/actions.ts); this brings the fifth into line.
+ * team/actions.ts); this brings the fourth into line.
  * The two writers and three readers all go through these two functions so the
  * shape cannot drift again.
  *

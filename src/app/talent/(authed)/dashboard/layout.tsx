@@ -18,11 +18,11 @@ export default async function TalentDashboardLayout({
   }
 
   /*
-   * "Signed in" for retention purposes.
+   * "Signed in": records last_active_at. Nothing expires a profile (#61).
    *
    * Here rather than on verifyOtp because a returning visitor with a live
-   * session is active by any reading — requiring a fresh sign-in would let
-   * someone who uses the dashboard weekly still expire. Matched by user_id, so
+   * session is active by any reading - requiring a fresh sign-in would
+   * undercount someone who uses the dashboard weekly. Matched by user_id, so
    * it can only ever touch the caller's own row.
    *
    * Fire-and-forget; see touchLastActive.

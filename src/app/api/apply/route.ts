@@ -677,9 +677,9 @@ export async function POST(request: NextRequest) {
     // CV retention. Set ONLY for company applications — a null
     // company_id_snapshot is a Remotiv-owned row (talent pool, or an applicant
     // to Remotiv's own listing), and a null date means keep forever. Those are
-    // kept until the person asks us to delete them; nothing expires them, and
-    // the talent-retention jobs that once would have are built but not
-    // scheduled (see jobs-queue.ts).
+    // kept until the person asks us to delete them; nothing expires them. The
+    // talent-pool retention jobs that once would have were removed on
+    // 11 Nov 2026 (#61).
     //
     // This branch is also the first half of cv-purge's two-part scope guard: it
     // is why no Remotiv-owned row has a date for that job's second guard to

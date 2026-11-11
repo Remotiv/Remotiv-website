@@ -93,7 +93,7 @@ test("each check fails on a broken copy", () => {
         ...SOURCES,
         queue: SOURCES.queue.replace(
           "  { type: JOB_TYPES.ACCESS_LOG_PURGE, intervalMs: PURGE_INTERVAL_MS },\n",
-          "  { type: JOB_TYPES.ACCESS_LOG_PURGE, intervalMs: PURGE_INTERVAL_MS },\n  { type: JOB_TYPES.TALENT_RETENTION_PURGE, intervalMs: PURGE_INTERVAL_MS },\n",
+          "  { type: JOB_TYPES.ACCESS_LOG_PURGE, intervalMs: PURGE_INTERVAL_MS },\n  { type: JOB_TYPES.FINAL_RECORDING_IMPORT_WATCHDOG, intervalMs: PURGE_INTERVAL_MS },\n",
         ),
       },
     ],

@@ -5,39 +5,32 @@ import { createServiceClient } from "@/lib/supabase/server";
 /**
  * Record that a person did something with their own profile.
  *
- * ── What counts, and what deliberately does not ──────────────
+ * Writes `last_active_at` and nothing else. Signing in and changing anything
+ * on the profile count; a profile being matched, searched or viewed does not.
+ * Nothing reads the column for retention: talent-pool profiles are kept until
+ * the person asks (privacy page, section 3), and the retention jobs that once
+ * would have read it were removed on 11 Nov 2026 (#61).
  *
- * Signing in, and changing anything on the profile. That is the whole list. A
- * profile being matched, searched or viewed is NOT activity: the retention
- * basis is consent, and if our own use of a profile extended the period we may
- * hold it, the consent would renew itself without the person doing anything.
+ * ── Do not re-add the retention columns ──────────────────────
  *
- * See lib/talent-retention.ts for the rule this feeds — a rule that is NOT in
- * effect: nothing expires a profile today. This keeps writing anyway, because
- * `last_active_at` is worth having whether or not anything reads it for
- * retention, and because a clock that only starts recording the day it is
- * switched on would treat every existing profile as freshly active.
+ * This update used to set `retention_warned_at` and `retention_keep_token_hash`
+ * as well. retention_keep_token_hash does not exist in production, so every
+ * one of these writes failed whole and last_active_at was never recorded.
+ * Any column added back here needs its migration first.
  *
  * ── Never throws, never blocks ───────────────────────────────
  *
  * This runs on the dashboard's render path and inside every save. A failure
- * here must not fail the thing the person was actually doing — the cost of a
+ * here must not fail the thing the person was actually doing - the cost of a
  * missed touch is that the clock is a little behind, and any later visit or
  * save corrects it. So it swallows, logs, and returns.
- *
- * ── It also clears the warning ───────────────────────────────
- *
- * Coming back IS keeping the profile. Clearing retention_warned_at (and the
- * one-click token with it) makes the profile stop matching the purge selector
- * immediately, so someone who signs in after the warning email is safe without
- * having to find that email.
  */
 export async function touchLastActive(
   profileId: string,
   sourceTable: SourceTable = "talent_profiles",
 ): Promise<void> {
-  // hire_remote_profiles is a different pool with its own lifecycle; the
-  // 24-month rule was decided for the talent pool only.
+  // hire_remote_profiles is a different pool with its own lifecycle and has
+  // no last_active_at column.
   if (sourceTable !== "talent_profiles") return;
 
   try {
@@ -45,8 +38,6 @@ export async function touchLastActive(
       .from("talent_profiles")
       .update({
         last_active_at: new Date().toISOString(),
-        retention_warned_at: null,
-        retention_keep_token_hash: null,
       })
       .eq("id", profileId);
     if (error) console.error("[talent-activity] touch failed:", error.message);
@@ -68,8 +59,6 @@ export async function touchLastActiveForUser(userId: string): Promise<void> {
       .from("talent_profiles")
       .update({
         last_active_at: new Date().toISOString(),
-        retention_warned_at: null,
-        retention_keep_token_hash: null,
       })
       .eq("user_id", userId);
     if (error) console.error("[talent-activity] touch-by-user failed:", error.message);
