@@ -304,16 +304,90 @@ export async function removeMember(
   const subjectName =
     (target.name ?? "").trim() || (target.email ?? "").trim() || "A member";
 
-  // Soft removal: the status enum already carries "removed", so we keep the
-  // row for audit. The auth user is deliberately NOT deleted — that account
-  // may be in use elsewhere; we only sever this membership.
+  /*
+   * 1. Revoke this company's PENDING invitations for the member FIRST (#100).
+   *
+   * Acceptance now reactivates a removed member's row instead of colliding,
+   * so a pending invitation that outlived the removal would let the person
+   * walk straight back in. The two writes cannot share a transaction here
+   * (PostgREST autocommits; an atomic version would be a Postgres function,
+   * which is a migration), so the ORDER is the safety: revoke, then remove.
+   *
+   *   - revoke fails: nothing has changed, the member stays active, and the
+   *     removal reports failure. It must not report "removed" while an
+   *     invitation can still reactivate them, so this fails closed.
+   *   - revoke succeeds, removal fails: an active member has lost a pending
+   *     invitation they did not need (they are a member). Harmless; a retry
+   *     or a fresh invitation covers it.
+   *   - an acceptance races this removal: whichever UPDATE lands first wins.
+   *     Revoke first means a burn that comes later finds no pending row and
+   *     is refused, and the membership write that follows removes them; a
+   *     burn that came earlier and already reactivated them is followed by
+   *     the removal. With the opposite order a burn between the two writes
+   *     would leave them ACTIVE after a removal that reported success.
+   *
+   * ONE INTERLEAVING STAYS OPEN, and no ordering closes it (#100, the team
+   * test's known-failing case): the acceptance burns the token, THEN this
+   * removal runs in full (the revoke finds nothing pending, the row goes to
+   * 'removed'), THEN the acceptance resumes, reads the row, and reactivates
+   * it. The invitation is already consumed when the removal runs, so there
+   * is nothing to revoke; and the acceptance, reading 'removed' after the
+   * removal, cannot tell a stale invitation from the fresh one that is meant
+   * to bring the person back. Closing it needs a removed_at on the membership
+   * row and a reactivation that is refused, in one conditional UPDATE, when
+   * the invitation was created before it: a migration, not an ordering.
+   *
+   * Matched on the member's email, lowercased: company_invites carries no
+   * user_id, and inviteMember stores the address lowercased, so this is the
+   * key the two tables share. Scoped to THIS company: a pending invitation to
+   * another company is theirs to keep. 'revoked' is the status the accept
+   * page and the burn predicate already refuse; nothing new is invented.
+   *
+   * RESIDUAL, by design and not closed here: an invitation sent to a different
+   * address than this row holds is NOT revoked and survives the removal, and
+   * a row whose email is empty (the column is nullable in this code's types)
+   * skips the revoke entirely and is removed with every pending invitation
+   * intact. A second matching strategy would need a user_id on the invitation.
+   */
+  const memberEmail = (target.email ?? "").trim().toLowerCase();
+  if (memberEmail) {
+    const { error: revokeError } = await service
+      .from("company_invites")
+      .update({ status: "revoked" })
+      .eq("company_id", ctx.companyId)
+      .eq("email", memberEmail)
+      .eq("status", "pending");
+    if (revokeError) {
+      console.error(
+        `[team] remove member: revoking pending invitations failed: ${revokeError.code ?? "error"}`,
+      );
+      return { success: false, error: "Couldn't remove this member. Please try again." };
+    }
+  }
+
+  // 2. Soft removal: the status enum already carries "removed", so we keep
+  //    the row for audit. The auth user is deliberately NOT deleted — that
+  //    account may be in use elsewhere; we only sever this membership.
+  //
+  //    STATUS ONLY. removed_at (migration 057) is written by the database's
+  //    trigger inside this same UPDATE, from its own clock, and is NEVER sent
+  //    from here. If the app sent a value and the trigger were ever disabled,
+  //    the CHECK would be satisfied by a client clock and a wrong value stored
+  //    silently; with the column written only by the trigger, a disabled
+  //    trigger makes this UPDATE fail loudly against the CHECK instead. Fail
+  //    loud beats store wrong. Do not add the field.
   const { error } = await service
     .from("company_members")
     .update({ status: "removed" })
     .eq("id", memberId)
     .eq("company_id", ctx.companyId);
 
-  if (error) return { success: false, error: error.message };
+  if (error) {
+    // The code only, never the message: no table, column or constraint name
+    // reaches the browser (#100, third part).
+    console.error(`[team] remove member: membership write failed: ${error.code ?? "error"}`);
+    return { success: false, error: "Couldn't remove this member. Please try again." };
+  }
 
   await notifyCompany({
     companyId: ctx.companyId,
