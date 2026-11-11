@@ -123,7 +123,7 @@ test("updateApplicationStage reads the current stage, checks the rule, and only 
     [
       'requireCompanyRole("owner", "admin", "recruiter", "hiring_manager")',
       'select("id, company_id_snapshot, pipeline_stage, job_id',
-      "await canAccessJob(ctx, target.job_id",
+      "await roleAllowsJobAction(ctx, target.job_id",
       "const fromStage = (target.pipeline_stage as PipelineStage)",
       "if (!canChangeStage(ctx.role, fromStage, toStage))",
       "Only an owner, admin or recruiter can hire, reject, or change a hiring decision.",

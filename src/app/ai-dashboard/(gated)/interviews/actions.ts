@@ -4,9 +4,9 @@ import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import {
-  canAccessJob,
   getJobScope,
   isEmptyScope,
+  roleAllowsJobAction,
   scopeJobIds,
 } from "@/app/ai-dashboard/lib/job-scope";
 import { scoringEnabled } from "@/lib/ai/interview-scoring";
@@ -511,12 +511,12 @@ export async function deleteInterview(
 
   /*
    * Deleting is narrower than seeing. gateSession already proved company and
-   * hiring-team membership for a scoped role; canAccessJob is re-run because
+   * hiring-team membership for a scoped role; roleAllowsJobAction is re-run because
    * it is the exact predicate asked for — owner/admin pass on role, everyone
    * else must be on THIS job's team — and because the check belongs next to
    * the destructive act, not three calls upstream.
    */
-  if (!(await canAccessJob(ctx, session.job_id ?? ""))) {
+  if (!(await roleAllowsJobAction(ctx, session.job_id ?? ""))) {
     return { ok: false, error: CANNOT_DELETE };
   }
 
@@ -631,7 +631,7 @@ async function deleteRestartChain(
       const gate = await gateSession(attempt.id);
       if (!gate.ok) return gate;
     }
-    if (!(await canAccessJob(ctx, attempt.job_id ?? ""))) {
+    if (!(await roleAllowsJobAction(ctx, attempt.job_id ?? ""))) {
       return { ok: false, error: CANNOT_DELETE };
     }
   }

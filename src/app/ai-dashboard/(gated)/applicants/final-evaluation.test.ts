@@ -4,7 +4,7 @@
  *
  *   node --test "src/app/ai-dashboard/(gated)/applicants/final-evaluation.test.ts"
  *
- * canAccessJob is the real rule (owner and admin pass on role; a recruiter or
+ * roleAllowsJobAction is the real rule (owner and admin pass on role; a recruiter or
  * hiring manager needs a job_hiring_team row), applied to the fake's rows.
  */
 // @ts-nocheck - same reason as paging.test.ts: Node's `.ts` specifier vs this tsconfig.
@@ -55,7 +55,7 @@ const ctxAs = (memberId, companyId = CO) => ({
   company: { name: "Acme", contact_name: "Olive Owner" },
 });
 
-/** The real canAccessJob rule, on the fake's job_hiring_team rows. */
+/** The real roleAllowsJobAction rule, on the fake's job_hiring_team rows. */
 const jobAccess = (db) => (ctx, jobId) =>
   !(ctx.role === "recruiter" || ctx.role === "hiring_manager") ||
   db.job_hiring_team.some(

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
-import { canAccessJob } from "@/app/ai-dashboard/lib/job-scope";
+import { roleAllowsJobAction } from "@/app/ai-dashboard/lib/job-scope";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
 import { deriveCvPathFromUrl } from "@/lib/cv-path";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -108,14 +108,14 @@ export async function GET(request: Request, routeCtx: { params: Promise<{ id: st
   //     job_id is NULL for an application whose job was deleted
   //     (job_applications.job_id is ON DELETE SET NULL on production, read
   //     8 Nov 2026) and for a direct-add candidate. The empty string is
-  //     deliberate: canAccessJob answers true for owner and admin before it
+  //     deliberate: roleAllowsJobAction answers true for owner and admin before it
   //     reads the id, and false for a scoped role on a missing id. So a
   //     job-less application stays open to the roles that see every job and
   //     closed to the roles that are given jobs one at a time — the same answer
   //     the Applicants list already gives them (.in("job_id", scope)), since an
   //     application on no job is on no hiring team. Nothing here changes those
   //     rows; they stay out of dashboard scope.
-  if (!(await canAccessJob(ctx, application.job_id ?? ""))) {
+  if (!(await roleAllowsJobAction(ctx, application.job_id ?? ""))) {
     return notInWorkspace();
   }
 

@@ -10,7 +10,7 @@ import {
   type JobTeamRole,
   TEAM_ROLES,
 } from "@/app/ai-dashboard/lib/company-roles";
-import { canAccessJob, type HiringTeamMember } from "@/app/ai-dashboard/lib/job-scope";
+import { type HiringTeamMember, roleAllowsJobAction } from "@/app/ai-dashboard/lib/job-scope";
 import { notifyCompanyMember } from "@/lib/notifications/company";
 import { createServiceClient } from "@/lib/supabase/server";
 
@@ -51,7 +51,7 @@ async function assertCanManage(
   if (!job || job.company_id !== ctx.companyId) {
     return { ok: false, error: NOT_YOURS };
   }
-  if (!(await canAccessJob(ctx, jobId))) return { ok: false, error: NOT_YOURS };
+  if (!(await roleAllowsJobAction(ctx, jobId))) return { ok: false, error: NOT_YOURS };
 
   return { ok: true, ctx };
 }
@@ -82,7 +82,7 @@ export async function fetchHiringTeam(jobId: string): Promise<{
     .maybeSingle();
   const job = jobRow as { company_id: string | null } | null;
   if (!job || job.company_id !== ctx.companyId) return empty;
-  if (!(await canAccessJob(ctx, jobId))) return empty;
+  if (!(await roleAllowsJobAction(ctx, jobId))) return empty;
 
   const [{ data: teamRows }, { data: memberRows }] = await Promise.all([
     service

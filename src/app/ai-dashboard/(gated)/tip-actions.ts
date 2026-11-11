@@ -18,7 +18,7 @@ import { createServiceClient } from "@/lib/supabase/server";
  *
  * The member id is resolved here from the session, never accepted from the
  * client: a member id off the wire is not evidence of anything, the same reason
- * canAccessJob re-reads the assignment server-side.
+ * roleAllowsJobAction re-reads the assignment server-side.
  */
 export async function dismissTip(key: string): Promise<{ recorded: boolean }> {
   // Narrowed before it reaches a query, so an arbitrary string cannot become a

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import { type CompanyContext, canManageBookings } from "@/app/ai-dashboard/lib/company-roles";
-import { canAccessJob } from "@/app/ai-dashboard/lib/job-scope";
+import { roleAllowsJobAction } from "@/app/ai-dashboard/lib/job-scope";
 import {
   BOOKING_ROW_COLUMNS,
   type BookingRow,
@@ -69,7 +69,7 @@ import { createServiceClient } from "@/lib/supabase/server";
  * Final Human Interview: scheduling, from the recruiter's side.
  *
  * Every action resolves the company context first, then (for a write) the
- * account role through canManageBookings, then the job through canAccessJob,
+ * account role through canManageBookings, then the job through roleAllowsJobAction,
  * then validates its input, and only then touches anything. A hiring manager
  * can read what is scheduled and never create, resend or cancel it.
  *
@@ -143,7 +143,7 @@ async function gateApplication(
   const app = data as unknown as ApplicationRow | null;
   // Not-found and not-yours answer alike, so an id proves nothing.
   if (!app?.job_id) return { ok: false, error: NOT_YOURS };
-  if (!(await canAccessJob(ctx, app.job_id))) return { ok: false, error: NOT_YOURS };
+  if (!(await roleAllowsJobAction(ctx, app.job_id))) return { ok: false, error: NOT_YOURS };
   return { ok: true, app, jobId: app.job_id };
 }
 
@@ -161,7 +161,7 @@ async function gateFinalInterview(
     .maybeSingle();
   const fi = data as FinalInterviewRow | null;
   if (!fi) return { ok: false, error: NOT_FOUND };
-  if (!(await canAccessJob(ctx, fi.job_id))) return { ok: false, error: NOT_FOUND };
+  if (!(await roleAllowsJobAction(ctx, fi.job_id))) return { ok: false, error: NOT_FOUND };
   return { ok: true, fi };
 }
 
@@ -460,7 +460,7 @@ const NO_RECORDING = "Recording not found in your workspace.";
  * Every link is checked on the server, from the recording outwards:
  *
  *   recording      this company's, by id
- *   job access     canAccessJob on the recording's job, checked once here
+ *   job access     roleAllowsJobAction on the recording's job, checked once here
  *   interview      this company's, and on the same job and application
  *   application    this company's (company_id_snapshot), on the same job
  *   ready          status 'ready' with a storage path
@@ -500,7 +500,7 @@ export async function getFinalRecordingPlayback(
   } | null;
   if (!rec) return { success: false, error: NO_RECORDING };
 
-  if (!(await canAccessJob(ctx, rec.job_id))) return { success: false, error: NO_RECORDING };
+  if (!(await roleAllowsJobAction(ctx, rec.job_id))) return { success: false, error: NO_RECORDING };
 
   const [{ data: fiData }, { data: appData }] = await Promise.all([
     service

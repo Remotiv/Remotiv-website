@@ -24,7 +24,7 @@ register(new URL("../../../../test-support/interview-invite-test-hook.mjs", impo
 register(
   `data:text/javascript,${encodeURIComponent(`
 const STUBS = {
-  "@/app/ai-dashboard/lib/job-scope": "export async function canAccessJob(ctx, jobId) { const a = globalThis.__allowedJobs; return a ? a.includes(jobId) : true; }",
+  "@/app/ai-dashboard/lib/job-scope": "export async function roleAllowsJobAction(ctx, jobId) { const a = globalThis.__allowedJobs; return a ? a.includes(jobId) : true; } export const canAccessJob = roleAllowsJobAction;",
   "next/link": "export default function Link() { return null; }",
   "./booking-actions": "export async function fetchBookingPanel() {} export async function sendBookingLink() {} export async function cancelBookingAsRecruiter() {}",
   "./_final-interview-card": "export function FinalInterviewCard() { return null; }",

@@ -13,10 +13,10 @@ import {
   scoringInputsChanged,
 } from "@/app/ai-dashboard/lib/job-patch";
 import {
-  canAccessJob,
   getJobScope,
   isEmptyScope,
   readJobScope,
+  roleAllowsJobAction,
   scopeJobIds,
 } from "@/app/ai-dashboard/lib/job-scope";
 import {
@@ -896,7 +896,7 @@ export async function updateCompanyJob(
   // Assignment is re-checked server-side against the hiring team; the job id
   // came from the client and proves nothing. Same message as not-found, so a
   // probe cannot tell "exists but not yours" from "doesn't exist".
-  if (!(await canAccessJob(ctx, jobId))) {
+  if (!(await roleAllowsJobAction(ctx, jobId))) {
     return { success: false, error: "That job isn't in your workspace." };
   }
 
@@ -1118,7 +1118,7 @@ export async function estimateAutoshortlistReach(input: {
 /** A job's interview questions, for the wizard's edit-mode prefill. */
 export async function fetchInterviewQuestions(jobId: string): Promise<InterviewQuestionInput[]> {
   const ctx = await getCompanyContext();
-  if (!jobId || !(await canAccessJob(ctx, jobId))) return [];
+  if (!jobId || !(await roleAllowsJobAction(ctx, jobId))) return [];
 
   const { data } = await createServiceClient()
     .from("interview_questions")
@@ -1172,7 +1172,7 @@ export async function updateCompanyJobStatus(
   // Assignment is re-checked server-side against the hiring team; the job id
   // came from the client and proves nothing. Same message as not-found, so a
   // probe cannot tell "exists but not yours" from "doesn't exist".
-  if (!(await canAccessJob(ctx, jobId))) {
+  if (!(await roleAllowsJobAction(ctx, jobId))) {
     return { success: false, error: "That job isn't in your workspace." };
   }
 
@@ -1254,7 +1254,7 @@ export async function setCompanyJobArchived(
   // Assignment is re-checked server-side against the hiring team; the job id
   // came from the client and proves nothing. Same message as not-found, so a
   // probe cannot tell "exists but not yours" from "doesn't exist".
-  if (!(await canAccessJob(ctx, jobId))) {
+  if (!(await roleAllowsJobAction(ctx, jobId))) {
     return { success: false, error: "That job isn't in your workspace." };
   }
 
@@ -1295,7 +1295,7 @@ export async function deleteCompanyJob(jobId: string): Promise<MutationResult<un
   // Assignment is re-checked server-side against the hiring team; the job id
   // came from the client and proves nothing. Same message as not-found, so a
   // probe cannot tell "exists but not yours" from "doesn't exist".
-  if (!(await canAccessJob(ctx, jobId))) {
+  if (!(await roleAllowsJobAction(ctx, jobId))) {
     return { success: false, error: "That job isn't in your workspace." };
   }
 
@@ -1336,7 +1336,7 @@ export async function deleteCompanyJob(jobId: string): Promise<MutationResult<un
  * tombstones.
  *
  * Same gate as `deleteCompanyJob` on the reasoning that whoever can hide a job
- * can unhide it, and `canAccessJob` reads `job_hiring_team`, which a soft
+ * can unhide it, and `roleAllowsJobAction` reads `job_hiring_team`, which a soft
  * delete leaves intact — so a recruiter keeps access to a role they deleted.
  */
 export async function restoreCompanyJob(jobId: string): Promise<MutationResult<undefined>> {
@@ -1354,7 +1354,7 @@ export async function restoreCompanyJob(jobId: string): Promise<MutationResult<u
   if (!row || row.company_id !== ctx.companyId) {
     return { success: false, error: "That job isn't in your workspace." };
   }
-  if (!(await canAccessJob(ctx, jobId))) {
+  if (!(await roleAllowsJobAction(ctx, jobId))) {
     return { success: false, error: "That job isn't in your workspace." };
   }
 
@@ -1395,7 +1395,7 @@ export async function duplicateCompanyJob(jobId: string): Promise<MutationResult
   if (!source || source.company_id !== ctx.companyId) {
     return { success: false, error: "Job not found in your workspace." };
   }
-  if (!(await canAccessJob(ctx, jobId))) {
+  if (!(await roleAllowsJobAction(ctx, jobId))) {
     return { success: false, error: "Job not found in your workspace." };
   }
 

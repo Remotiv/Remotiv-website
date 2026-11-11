@@ -16,7 +16,7 @@
  * and no signed storage URL is ever minted, on any path.
  *
  * The context and the database are fakes (applicants-test-hook.mjs); job-scope
- * is NOT faked, so canAccessJob resolves the hiring team against the fake rows
+ * is NOT faked, so roleAllowsJobAction resolves the hiring team against the fake rows
  * for real, and what is tested is the actual role -> team -> refusal chain. The
  * storage client is a fake that records every call in order, which is how the
  * "log before bytes" and "never signed" assertions are made.
@@ -138,7 +138,7 @@ const eqMap = (calls) =>
 
 /**
  * One request as `role`, whose hiring team is `teamJobs`. The responder applies
- * the filters the route and canAccessJob actually send, so dropping either check
+ * the filters the route and roleAllowsJobAction actually send, so dropping either check
  * from the route changes an answer here. `events` records, in order, every
  * storage call and the moment the access-log insert resolved: that order is the
  * proof that the log is awaited before a byte is asked for.

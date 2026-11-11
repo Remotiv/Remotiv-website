@@ -31,7 +31,7 @@ const STUBS = {
     "export async function getJobScope() { return globalThis.__deleteScope; }",
     "export function isEmptyScope(s) { return s.scoped && s.jobIds.length === 0; }",
     "export function scopeJobIds(s) { return s.scoped ? s.jobIds : null; }",
-    "export async function canAccessJob(ctx, jobId) { const a = globalThis.__deleteTeam; return a ? a.includes(jobId) : true; }",
+    "export async function roleAllowsJobAction(ctx, jobId) { const a = globalThis.__deleteTeam; return a ? a.includes(jobId) : true; } export const canAccessJob = roleAllowsJobAction;",
   ].join("\\n"),
   "@/lib/ai/interview-scoring": "export function scoringEnabled() { return false; }",
   "@/lib/interviews/review": "export async function listInterviewSessions() {} export async function readNotes() {}",

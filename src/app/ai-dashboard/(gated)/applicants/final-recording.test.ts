@@ -105,7 +105,7 @@ const recording = (over = {}) => ({
 });
 
 /** One action as `role`, with storage signing recorded. */
-async function run(role, act, { db = makeDb(), canAccessJob, failing, signError } = {}) {
+async function run(role, act, { db = makeDb(), roleAllowsJobAction, failing, signError } = {}) {
   const service = finalInterviewWorld(db, { failing });
   const signs = [];
   service.storage = {
@@ -127,7 +127,7 @@ async function run(role, act, { db = makeDb(), canAccessJob, failing, signError 
   };
   globalThis.__fiServiceForTests = () => service;
   globalThis.__fiCtxForTests = ctxFor(role);
-  globalThis.__fiCanAccessJob = canAccessJob;
+  globalThis.__fiCanAccessJob = roleAllowsJobAction;
   const quiet = console.error;
   const logged = [];
   console.error = (...a) => logged.push(a.join(" "));
@@ -370,7 +370,7 @@ test("a viewer without access to the recording's job is refused before anything 
   const asked = [];
   const { result, signs } = await run("recruiter", () => getFinalRecordingPlayback("rec-1"), {
     db: withReady(),
-    canAccessJob: async (_ctx, jobId) => {
+    roleAllowsJobAction: async (_ctx, jobId) => {
       asked.push(jobId);
       return false;
     },

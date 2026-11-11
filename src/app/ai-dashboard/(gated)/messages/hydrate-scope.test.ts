@@ -48,7 +48,7 @@
  * other.
  *
  * `fetchMessages`, `fetchApplicationMessages`, `hydrate`, `getJobScope`,
- * `canSeeApplication` and `canAccessJob` all run as shipped. Only the session
+ * `canSeeApplication` and `roleAllowsJobAction` all run as shipped. Only the session
  * and the database are fakes, and the responder HONOURS the filters it is
  * handed — including the embedded ones — so an unfiltered read is
  * distinguishable from one that matched nothing.

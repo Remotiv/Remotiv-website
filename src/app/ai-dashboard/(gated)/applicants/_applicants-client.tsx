@@ -5211,7 +5211,7 @@ export function ApplicantsClient({
          * notification email names someone who may be on page 9, and keeping
          * this is the difference between opening their drawer and telling
          * their recruiter they "may have been deleted". The action already
-         * scopes it on company_id_snapshot AND canAccessJob, answering null
+         * scopes it on company_id_snapshot AND roleAllowsJobAction, answering null
          * for an applicant who is not the reader's, so holding the row grants
          * no access the drawer did not already have.
          */

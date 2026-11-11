@@ -150,7 +150,7 @@ const verifyAfterRead = (guardLine, note) =>
   `applicationId is the client-supplied server-action argument and proves nothing. The read ` +
   `selects company_id_snapshot and the row is rejected at line ${guardLine} — ` +
   `\`company_id_snapshot !== ctx.companyId\` — before any value is returned or any side effect ` +
-  `runs, with canAccessJob() applied to target.job_id immediately after. ${note}`;
+  `runs, with roleAllowsJobAction() applied to target.job_id immediately after. ${note}`;
 
 const ALLOWLIST = [
   /* ── fetch-then-verify, on the applicants surface ──────────── */
@@ -287,7 +287,7 @@ const ALLOWLIST = [
       'empty("phone")`. canSeeApplication (191-205) resolves the SAME id against ' +
       'job_applications with .eq("id", applicationId) at 199 AND ' +
       '.eq("company_id_snapshot", ctx.companyId) at 200, returns false at 203 when no row ' +
-      "matches, and additionally requires canAccessJob(ctx, row.job_id) at 204. That makes line " +
+      "matches, and additionally requires roleAllowsJobAction(ctx, row.job_id) at 204. That makes line " +
       "549 load-bearing: deleting it turns this into a cross-company phone-number read with no " +
       "other check in the way. Reported as a finding.",
   },
@@ -349,7 +349,7 @@ const ALLOWLIST = [
         "request touches storage not at all, writes no signed_url_logs row, and createSignedUrl " +
         "is never called on any path.",
       "Job scope. This file asserts the company filter only; the job check at 118 (#97, " +
-        "canAccessJob on the row's job_id, same 404) is asserted by the route's own test.",
+        "roleAllowsJobAction on the row's job_id, same 404) is asserted by the route's own test.",
     ],
     why:
       "An authenticated COMPANY request — ctx = await getCompanyContext() at 66, 403 on throw, " +

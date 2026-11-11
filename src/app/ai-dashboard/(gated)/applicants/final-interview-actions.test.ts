@@ -46,12 +46,12 @@ const ctxFor = (role) => ({
 async function run(
   role,
   act,
-  { db = makeDb(), deliver = undefined, canAccessJob = undefined } = {},
+  { db = makeDb(), deliver = undefined, roleAllowsJobAction = undefined } = {},
 ) {
   const service = finalInterviewWorld(db);
   globalThis.__fiServiceForTests = () => service;
   globalThis.__fiCtxForTests = ctxFor(role);
-  globalThis.__fiCanAccessJob = canAccessJob;
+  globalThis.__fiCanAccessJob = roleAllowsJobAction;
   globalThis.__fiDeliverResult = deliver;
   globalThis.__fiEmails = [];
   globalThis.__fiHostEmails = [];
@@ -169,7 +169,9 @@ test("an applicant outside the viewer's jobs is not found, for reads and writes 
     () => getFinalInterviewOptions(APP),
     () => listFinalInterviews(APP),
   ]) {
-    const { result, service } = await run("recruiter", act, { canAccessJob: async () => false });
+    const { result, service } = await run("recruiter", act, {
+      roleAllowsJobAction: async () => false,
+    });
     assert.deepEqual(result, { success: false, error: "Applicant not found in your workspace." });
     assert.equal(allWrites(service).length, 0);
   }

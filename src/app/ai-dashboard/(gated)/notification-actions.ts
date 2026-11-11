@@ -2,7 +2,7 @@
 
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
-import { canAccessJob } from "@/app/ai-dashboard/lib/job-scope";
+import { roleAllowsJobAction } from "@/app/ai-dashboard/lib/job-scope";
 import type { CompanyNotification } from "./notification-types";
 
 // NB: a "use server" module may only export async functions — every export is
@@ -72,7 +72,7 @@ export async function fetchNotifications(): Promise<{
   const jobIds = [...new Set(rows.map((r) => r.job_id).filter(Boolean))] as string[];
   const allowed = new Map<string, boolean>();
   for (const jobId of jobIds) {
-    allowed.set(jobId, await canAccessJob(ctx, jobId));
+    allowed.set(jobId, await roleAllowsJobAction(ctx, jobId));
   }
 
   const items: CompanyNotification[] = rows.map((r) => {

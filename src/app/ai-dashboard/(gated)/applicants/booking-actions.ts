@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import { canManageBookings } from "@/app/ai-dashboard/lib/company-roles";
-import { canAccessJob } from "@/app/ai-dashboard/lib/job-scope";
+import { roleAllowsJobAction } from "@/app/ai-dashboard/lib/job-scope";
 import { normaliseInterviewDuration } from "@/app/ai-dashboard/lib/job-types";
 import {
   BOOKING_EXPIRY_DAYS,
@@ -88,7 +88,7 @@ export async function sendBookingLink(
   if (!app || app.company_id_snapshot !== ctx.companyId) {
     return { success: false, error: NOT_YOURS };
   }
-  if (!(await canAccessJob(ctx, app.job_id))) {
+  if (!(await roleAllowsJobAction(ctx, app.job_id))) {
     return { success: false, error: NOT_YOURS };
   }
 
@@ -313,7 +313,7 @@ export async function fetchBookingPanel(applicationId: string): Promise<BookingP
 
   const row = data as BookingRow | null;
   if (!row) return null;
-  if (!(await canAccessJob(ctx, row.job_id))) return null;
+  if (!(await roleAllowsJobAction(ctx, row.job_id))) return null;
 
   return {
     status: row.status,
@@ -365,7 +365,7 @@ export async function cancelBookingAsRecruiter(
 
   const row = data as BookingRow | null;
   if (!row) return { success: false, error: "There's no booked interview to cancel." };
-  if (!(await canAccessJob(ctx, row.job_id))) return { success: false, error: NOT_YOURS };
+  if (!(await roleAllowsJobAction(ctx, row.job_id))) return { success: false, error: NOT_YOURS };
   if (!canCancel(row)) {
     return { success: false, error: "This interview has already started or passed." };
   }

@@ -13,7 +13,8 @@
  *                                            globalThis.__inviteServiceForTests()
  *   @/app/ai-dashboard/lib/company-guards -> getCompanyContext returning
  *                                            globalThis.__inviteCtxForTests
- *   @/app/ai-dashboard/lib/job-scope      -> canAccessJob returning true
+ *   @/app/ai-dashboard/lib/job-scope      -> roleAllowsJobAction returning true,
+ *                                            plus its deprecated alias canAccessJob
  *   @/lib/email/candidate/deliver         -> deliverEmail calling
  *                                            globalThis.__inviteDeliverForTests
  *   @/lib/jobs-queue                      -> enqueue calling
@@ -51,7 +52,8 @@ const STUBS = {
     "  return fake;",
     "}",
   ].join("\n"),
-  "@/app/ai-dashboard/lib/job-scope": "export async function canAccessJob() { return true; }",
+  "@/app/ai-dashboard/lib/job-scope":
+    "export async function roleAllowsJobAction() { return true; } export const canAccessJob = roleAllowsJobAction;",
   "@/lib/email/candidate/deliver": [
     "export function buildCandidateHtml(body) { return body; }",
     "export async function deliverEmail(service, input) {",

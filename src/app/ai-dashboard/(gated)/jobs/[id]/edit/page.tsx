@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import { canCreateJobs } from "@/app/ai-dashboard/lib/company-roles";
-import { canAccessJob } from "@/app/ai-dashboard/lib/job-scope";
+import { roleAllowsJobAction } from "@/app/ai-dashboard/lib/job-scope";
 import {
   type AutoshortlistSource,
   type CompanyJobInput,
@@ -98,7 +98,7 @@ export default async function EditJobPage({ params }: { params: Promise<{ id: st
 
   // A recruiter may only open a job they're on the hiring team for. Same
   // redirect as not-found, so the URL confirms nothing either way.
-  if (!(await canAccessJob(ctx, job.id))) {
+  if (!(await roleAllowsJobAction(ctx, job.id))) {
     redirect("/ai-dashboard/jobs");
   }
 

@@ -34,10 +34,10 @@ import {
 import { getCompanyContext, requireCompanyRole } from "@/app/ai-dashboard/lib/company-guards";
 import { type CompanyContext, canChangeStage } from "@/app/ai-dashboard/lib/company-roles";
 import {
-  canAccessJob,
   getJobScope,
   type JobScope,
   readJobScope,
+  roleAllowsJobAction,
 } from "@/app/ai-dashboard/lib/job-scope";
 import { searchTokens } from "@/app/ai-dashboard/lib/search-query";
 import { requestCvScore } from "@/lib/ai/cv-score-request";
@@ -1085,7 +1085,7 @@ export async function fetchCompanyApplicant(
 
   // The drawer is a read of one applicant, so the list's .in() never ran.
   // Checked here against the job they applied to.
-  if (!(await canAccessJob(ctx, row.job_id ?? ""))) return answered(null);
+  if (!(await roleAllowsJobAction(ctx, row.job_id ?? ""))) return answered(null);
 
   // History is scoped by company_id too, not just application_id — the tenant
   // boundary shouldn't rest on the id lookup alone.
@@ -1352,7 +1352,7 @@ export async function updateApplicationStage(
   if (!target || target.company_id_snapshot !== ctx.companyId) {
     return { success: false, error: "Applicant not found in your workspace." };
   }
-  if (!(await canAccessJob(ctx, target.job_id ?? ""))) {
+  if (!(await roleAllowsJobAction(ctx, target.job_id ?? ""))) {
     return { success: false, error: "Applicant not found in your workspace." };
   }
 
@@ -1475,7 +1475,7 @@ async function assertAdjustableScore(
   }
   // Same message again: a scoped member probing another team's applicant id
   // learns nothing it didn't already know.
-  if (!(await canAccessJob(ctx, target.job_id ?? ""))) {
+  if (!(await roleAllowsJobAction(ctx, target.job_id ?? ""))) {
     return { ok: false, error: "Applicant not found in your workspace." };
   }
 
@@ -1661,7 +1661,7 @@ export async function dismissShortlistFlagAction(
 
   const target = data as { id: string; job_id: string | null } | null;
   // Missing and not-yours are deliberately the same message.
-  if (!target || !(await canAccessJob(ctx, target.job_id ?? ""))) {
+  if (!target || !(await roleAllowsJobAction(ctx, target.job_id ?? ""))) {
     return { success: false, error: "Applicant not found in your workspace." };
   }
 
@@ -1710,7 +1710,7 @@ export async function rescoreApplication(
   if (!target || target.company_id_snapshot !== ctx.companyId) {
     return { success: false, error: "Applicant not found in your workspace." };
   }
-  if (!(await canAccessJob(ctx, target.job_id ?? ""))) {
+  if (!(await roleAllowsJobAction(ctx, target.job_id ?? ""))) {
     return { success: false, error: "Applicant not found in your workspace." };
   }
   if (!target.job_id) {
@@ -1825,7 +1825,7 @@ export async function attachApplicationCv(
   if (!target || target.company_id_snapshot !== ctx.companyId) {
     return { success: false, error: "Applicant not found in your workspace." };
   }
-  if (!(await canAccessJob(ctx, target.job_id ?? ""))) {
+  if (!(await roleAllowsJobAction(ctx, target.job_id ?? ""))) {
     return { success: false, error: "Applicant not found in your workspace." };
   }
 
@@ -2115,7 +2115,7 @@ export async function addCompanyApplicant(form: FormData): Promise<AddApplicantR
   const job = jobData as { id: string; title: string | null } | null;
   // Not-found and not-yours share one message, the rule every action here
   // follows, so a job id cannot be confirmed by probing.
-  if (!job || !(await canAccessJob(ctx, jobId))) {
+  if (!job || !(await roleAllowsJobAction(ctx, jobId))) {
     return { success: false, error: "That role isn't in your workspace." };
   }
 
@@ -2366,7 +2366,7 @@ export async function rescoreJob(
   if (!job || job.company_id !== ctx.companyId) {
     return { success: false, error: "Job not found in your workspace." };
   }
-  if (!(await canAccessJob(ctx, jobId))) {
+  if (!(await roleAllowsJobAction(ctx, jobId))) {
     return { success: false, error: "Job not found in your workspace." };
   }
 
@@ -2470,7 +2470,7 @@ export async function deleteApplication(applicationId: string): Promise<Mutation
   if (!target || target.company_id_snapshot !== ctx.companyId) {
     return { success: false, error: "Applicant not found in your workspace." };
   }
-  if (!(await canAccessJob(ctx, target.job_id ?? ""))) {
+  if (!(await roleAllowsJobAction(ctx, target.job_id ?? ""))) {
     return { success: false, error: "Applicant not found in your workspace." };
   }
 
@@ -2603,7 +2603,7 @@ async function gateApplication(
 
   const row = data as { id: string; job_id: string | null } | null;
   if (!row) return { ok: false, error: "Applicant not found in your workspace." };
-  if (!(await canAccessJob(ctx, row.job_id ?? ""))) {
+  if (!(await roleAllowsJobAction(ctx, row.job_id ?? ""))) {
     return { ok: false, error: "Applicant not found in your workspace." };
   }
   return { ok: true, ctx };

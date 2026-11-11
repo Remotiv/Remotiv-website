@@ -7,9 +7,9 @@ import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import {
-  canAccessJob,
   getJobScope,
   isEmptyScope,
+  roleAllowsJobAction,
   scopeJobIds,
 } from "@/app/ai-dashboard/lib/job-scope";
 import { buildCandidateHtml, deliverEmail } from "@/lib/email/candidate/deliver";
@@ -228,7 +228,7 @@ async function canSeeApplication(
     .maybeSingle();
   const row = data as { job_id: string | null } | null;
   if (!row) return false;
-  return canAccessJob(ctx, row.job_id ?? "");
+  return roleAllowsJobAction(ctx, row.job_id ?? "");
 }
 
 /**
@@ -1065,7 +1065,7 @@ export async function sendManualMessage(input: {
   const app = appData as unknown as (AppLite & { company_id_snapshot: string }) | null;
   if (!app) return { success: false, error: "That applicant isn't in your workspace." };
   // Same message for not-yours as for not-found, as everywhere else.
-  if (!(await canAccessJob(ctx, app.job_id ?? ""))) {
+  if (!(await roleAllowsJobAction(ctx, app.job_id ?? ""))) {
     return { success: false, error: "That applicant isn't in your workspace." };
   }
 

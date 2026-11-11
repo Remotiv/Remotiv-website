@@ -150,8 +150,12 @@ export function scopeJobIds(scope: JobScope): string[] | null {
  *
  * Re-fetches the assignment server-side; a job id from the client is never
  * evidence of anything. Owner and admin pass on role alone.
+ *
+ * This is a ROLE and JOB-ASSIGNMENT check, not a tenancy guard: owner and
+ * admin pass without reading anything, so the company boundary must be
+ * enforced by the caller.
  */
-export async function canAccessJob(
+export async function roleAllowsJobAction(
   ctx: CompanyContext,
   jobId: string,
 ): Promise<boolean> {
@@ -169,6 +173,14 @@ export async function canAccessJob(
 
   return Boolean(data);
 }
+
+/**
+ * @deprecated Misleading name: this is NOT a tenancy guard. Use
+ * roleAllowsJobAction. Kept only because src/lib/interviews/review.ts still
+ * imports this name and that directory belongs to another session. Delete
+ * this alias when that file is released. Do not add new callers. (#76)
+ */
+export const canAccessJob = roleAllowsJobAction;
 
 /**
  * The application ids a viewer may see, or null when unrestricted.
