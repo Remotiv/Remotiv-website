@@ -18,19 +18,26 @@ export default async function AdminWhatsAppPage() {
   const userId = user.id;
   const userEmail = user.email ?? "";
 
+  // The same rule as fetchInboundMessages: a failed lookup, or a paused or
+  // archived row, refuses even an allowlisted email (the layout skips the
+  // status check for the allowlist); an allowlisted email with no row passes.
+  const { data: roleRow, error: roleError } = await service
+    .from("admin_users")
+    .select("role, status")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const row = roleRow as { role: UserRole | null; status: string | null } | null;
+  const refused = Boolean(roleError) || Boolean(row?.status && row.status !== "active");
+
   let userRole: UserRole = "viewer";
-  if (isSuperAdminEmail(userEmail)) {
-    userRole = "super_admin";
-  } else {
-    const { data: roleRow } = await service
-      .from("admin_users")
-      .select("role")
-      .eq("user_id", userId)
-      .maybeSingle();
-    if (roleRow?.role) userRole = roleRow.role as UserRole;
+  if (!refused) {
+    if (isSuperAdminEmail(userEmail)) userRole = "super_admin";
+    else if (row?.role) userRole = row.role;
   }
 
-  if (userRole !== "super_admin" && userRole !== "admin") {
+  // Super admins only (#66). fetchInboundMessages enforces the same rule on
+  // its own; this redirect only spares everyone else a thrown error.
+  if (userRole !== "super_admin") {
     redirect("/admin");
   }
 

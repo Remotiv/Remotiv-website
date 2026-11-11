@@ -9,9 +9,9 @@ import { LoadFailed } from "./load-failed";
 import { PaginationControls, paginate } from "./pagination-controls";
 import { TopNav } from "./top-nav";
 
-type Filter = "All" | "Unattached" | "Attached" | "Identifier changes";
+type Filter = "All" | "Identifier changes";
 
-const FILTERS: ReadonlyArray<Filter> = ["All", "Unattached", "Attached", "Identifier changes"];
+const FILTERS: ReadonlyArray<Filter> = ["All", "Identifier changes"];
 
 function senderOf(row: InboundRow): { primary: string; secondary: string | null } {
   if (row.profileName) {
@@ -27,7 +27,7 @@ function senderOf(row: InboundRow): { primary: string; secondary: string | null 
 }
 
 function fmtReceived(iso: string): string {
-  if (!iso) return "—";
+  if (!iso) return "-";
   return new Date(iso).toLocaleString("en-GB", {
     day: "2-digit",
     month: "short",
@@ -36,9 +36,6 @@ function fmtReceived(iso: string): string {
     minute: "2-digit",
   });
 }
-
-const UNATTACHED_BADGE =
-  "inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-[10px] font-semibold text-amber-700";
 
 function MessageBody({ row, clamped }: { row: InboundRow; clamped: boolean }) {
   if (row.body) {
@@ -56,29 +53,10 @@ function MessageBody({ row, clamped }: { row: InboundRow; clamped: boolean }) {
   );
 }
 
-function AttachedCell({ row }: { row: InboundRow }) {
-  if (!row.applicationId) {
-    return <span className={UNATTACHED_BADGE}>No matching candidate</span>;
-  }
-  // It matched, but the name lookup failed. Saying "no matching candidate"
-  // here would report our failure as a fact about the message.
-  if (!row.applicant) {
-    return <span className="text-xs text-gray-400">Matched — name unavailable</span>;
-  }
-  return (
-    <>
-      <span className="font-medium text-gray-800">{row.applicant.name || "Unnamed applicant"}</span>
-      {row.applicant.jobTitle && (
-        <span className="block text-xs text-gray-400">{row.applicant.jobTitle}</span>
-      )}
-    </>
-  );
-}
-
 /**
  * An identifier change is not something a person typed, so it must not be
  * dressed as a message. It is the only durable record that a candidate's
- * WhatsApp id changed — hiding it would make that invisible to the only people
+ * WhatsApp id changed; hiding it would make that invisible to the only people
  * who can see this table.
  */
 function IdentifierChangeNotice({ row }: { row: InboundRow }) {
@@ -117,12 +95,10 @@ export function WhatsAppDashboard({
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
-      if (filter === "Unattached" && r.applicationId) return false;
-      if (filter === "Attached" && !r.applicationId) return false;
       if (filter === "Identifier changes" && r.kind !== "identifier-change") return false;
       if (q) {
         const blob =
-          `${r.profileName ?? ""} ${r.phone ?? ""} ${r.bsuid ?? ""} ${r.body ?? ""} ${r.applicant?.name ?? ""}`.toLowerCase();
+          `${r.profileName ?? ""} ${r.phone ?? ""} ${r.bsuid ?? ""} ${r.body ?? ""}`.toLowerCase();
         if (!blob.includes(q)) return false;
       }
       return true;
@@ -130,7 +106,6 @@ export function WhatsAppDashboard({
   }, [rows, search, filter]);
 
   const pageItems = paginate(filtered, page);
-  const unattachedCount = rows.filter((r) => !r.applicationId).length;
 
   const emptyCopy =
     rows.length === 0
@@ -148,9 +123,7 @@ export function WhatsAppDashboard({
         <div className="mb-6">
           <p className="text-xs text-gray-400">Platform</p>
           <h1 className="font-heading text-2xl font-bold text-gray-900">WhatsApp inbox</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            {rows.length} received · {unattachedCount} with no matching candidate
-          </p>
+          <p className="mt-1 text-sm text-gray-500">{rows.length} with no matching candidate</p>
           <p className="mt-2 max-w-2xl text-xs text-gray-400">
             Read-only. Replies are not sent from here, and media is not downloaded.
           </p>
@@ -237,9 +210,6 @@ export function WhatsAppDashboard({
                     <div className="text-sm">
                       <MessageBody row={row} clamped={false} />
                     </div>
-                    <div className="mt-3 border-t border-gray-100 pt-2 text-xs">
-                      <AttachedCell row={row} />
-                    </div>
                   </article>
                 ),
               )}
@@ -250,7 +220,7 @@ export function WhatsAppDashboard({
               <table className="w-full text-sm">
                 <thead className="border-b border-gray-100 bg-gray-50/60">
                   <tr>
-                    {["From", "Message", "Attached to", "Received"].map((h) => (
+                    {["From", "Message", "Received"].map((h) => (
                       <th
                         key={h}
                         className="whitespace-nowrap px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400"
@@ -264,7 +234,7 @@ export function WhatsAppDashboard({
                   {pageItems.map((row) =>
                     row.kind === "identifier-change" ? (
                       <tr key={row.id} className="border-b border-gray-50 bg-gray-50/70">
-                        <td colSpan={3} className="px-4 py-3">
+                        <td colSpan={2} className="px-4 py-3">
                           <IdentifierChangeNotice row={row} />
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 align-top text-gray-400">
@@ -285,9 +255,6 @@ export function WhatsAppDashboard({
                         </td>
                         <td className="max-w-md px-4 py-3">
                           <MessageBody row={row} clamped />
-                        </td>
-                        <td className="px-4 py-3">
-                          <AttachedCell row={row} />
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-gray-400">
                           {fmtReceived(row.receivedAt)}

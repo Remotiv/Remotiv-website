@@ -6,22 +6,41 @@ import { createClient as createAuthClient, createServiceClient } from "@/lib/sup
 import { isIdentifierChange } from "@/lib/whatsapp/inbound-display";
 
 /**
- * Inbound WhatsApp, read-only.
+ * Inbound WhatsApp that attached to nobody. Read-only, super admins only.
  *
- * ── Why this is an admin surface and not a dashboard one ─────
+ * ── What this shows ──────────────────────────────────────────
  *
- * Every company-scoped page filters on `company_id`, and `company_id` is null
- * on every row this table has ever held — as is `application_id`. A tenant
- * filter written today would not narrow the list, it would empty it. The
- * dashboard's own /messages page already encodes that: it reads
- * `.not("application_id", "is", null)`, so the rows below are exactly the ones
- * it is built to hide.
+ * Only rows with `application_id IS NULL`: messages the webhook could not
+ * match to an application. Two reasons a message attaches to nobody, and
+ * neither is transient: the sender's number matches several applications and
+ * the matcher refuses to guess, or the number cannot be normalised at all. So
+ * "unattached" is a permanent population, not a backlog, and this page is
+ * where it lives. A reply that DID attach is read in the applicant drawer, by
+ * the company it belongs to, and has no business here.
  *
- * Two reasons an inbound message attaches to nobody, and neither is transient:
- * the sender's number matches several applications and the matcher refuses to
- * guess, or the number is not Pakistani and `toWhatsAppDigits` cannot normalise
- * it at all. So "unattached" is a permanent population, not a backlog, and this
- * page is where it lives.
+ * ── Why it is this narrow (#66, 11 Nov 2026) ─────────────────
+ *
+ * Until #66 this read had no filter: every inbound row reached the browser,
+ * attached or not, with the matched applicant's name and job title, and any
+ * active `admin` could open it. The "Unattached" tab only filtered in the
+ * browser, after the data had already been sent. Now:
+ *
+ *   - the guard admits super_admin only (allowlist email, or an
+ *     admin_users row with role super_admin), and refuses a paused or
+ *     archived row even for an allowlisted email; admin and viewer get the
+ *     same refusal, before whatsapp_inbound is read;
+ *   - the query itself carries `.is("application_id", null)`;
+ *   - no applicant name or job title is looked up or returned.
+ *
+ * Do NOT "tidy" either of the first two away. The page gate does not protect
+ * this function: an exported "use server" function is a POST endpoint anyone
+ * signed in can call, so the guard here is the real one. And a filter moved to
+ * the browser is a filter on data that has already leaked.
+ *
+ * ── Not built yet ────────────────────────────────────────────
+ *
+ * Reads are NOT logged. admin_access_logs (migration 046) cannot hold a
+ * WhatsApp read, so logging needs its own migration. Separate follow-up.
  */
 
 export type InboundKind = "message" | "identifier-change";
@@ -31,46 +50,57 @@ export type InboundRow = {
   /** Meta's profile name. Absent when the sender has no profile name set. */
   profileName: string | null;
   phone: string | null;
-  /** Business-scoped user id — the only identifier a username-only sender has. */
+  /** Business-scoped user id, the only identifier a username-only sender has. */
   bsuid: string | null;
   body: string | null;
   messageType: string;
   kind: InboundKind;
   /** Our insert time, not Meta's send time. Labelled "Received" in the UI. */
   receivedAt: string;
-  applicationId: string | null;
-  /** The applicant this attached to, when it attached to one. */
-  applicant: { name: string; jobTitle: string | null } | null;
 };
 
+/**
+ * Who is asking. super_admin is the email allowlist, or an admin_users row
+ * with role super_admin; either way the row's status is read first:
+ *
+ *   - lookup failed            -> refused. A failed read is not "no row".
+ *   - row paused or archived   -> refused, allowlisted or not. The admin
+ *                                 layout skips the status check for an
+ *                                 allowlisted email, so this is the only place
+ *                                 a paused allowlisted account is stopped.
+ *   - allowlisted, no row      -> super_admin, as before.
+ *   - otherwise                -> the row's role, if any.
+ */
 async function getAdminRole(): Promise<UserRole | null> {
   const auth = await createAuthClient();
   const {
     data: { user },
   } = await auth.auth.getUser();
   if (!user) return null;
-  if (isSuperAdminEmail(user.email)) return "super_admin";
 
   const supabase = createServiceClient();
-  const { data: roleRow } = await supabase
+  const { data: roleRow, error } = await supabase
     .from("admin_users")
     .select("role, status")
     .eq("user_id", user.id)
     .maybeSingle();
+  if (error) {
+    console.error(`[whatsapp_inbound] admin lookup failed: ${error.code ?? "error"}`);
+    return null;
+  }
 
   type AdminRow = { role: UserRole | null; status: string | null };
   const r = roleRow as AdminRow | null;
-  if (!r?.role) return null;
-  if (r.status && r.status !== "active") return null;
-  return r.role;
+  if (r?.status && r.status !== "active") return null;
+  if (isSuperAdminEmail(user.email)) return "super_admin";
+  return r?.role ?? null;
 }
 
-async function requireAdmin(): Promise<UserRole> {
+async function requireSuperAdmin(): Promise<void> {
   const role = await getAdminRole();
-  if (!role || (role !== "super_admin" && role !== "admin")) {
+  if (role !== "super_admin") {
     throw new Error("Forbidden");
   }
-  return role;
 }
 
 /**
@@ -85,17 +115,18 @@ function kindOf(messageType: string): InboundKind {
 }
 
 export async function fetchInboundMessages(): Promise<Read<InboundRow[]>> {
-  await requireAdmin();
+  await requireSuperAdmin();
   const supabase = createServiceClient();
 
-  // Ordered by `received_at` — our insert time. Meta's send time sits in
+  // Ordered by `received_at`, our insert time. Meta's send time sits in
   // `raw.timestamp`, but it cannot be sorted on: the seed row carries a 2017
   // stamp and would pin itself below every real message for good. Measured
   // skew between the two on real traffic is a few seconds, so arrival order
   // and send order are the same list.
   const { data, error } = await supabase
     .from("whatsapp_inbound")
-    .select("id, from_phone, bsuid, profile_name, body, message_type, application_id, received_at")
+    .select("id, from_phone, bsuid, profile_name, body, message_type, received_at")
+    .is("application_id", null)
     .order("received_at", { ascending: false });
 
   if (error) {
@@ -110,12 +141,9 @@ export async function fetchInboundMessages(): Promise<Read<InboundRow[]>> {
     profile_name: string | null;
     body: string | null;
     message_type: string | null;
-    application_id: string | null;
     received_at: string | null;
   };
   const rows = (data ?? []) as Row[];
-
-  const applicantById = await fetchApplicants(rows.map((r) => r.application_id));
 
   return answered(
     rows.map((r) => {
@@ -129,45 +157,7 @@ export async function fetchInboundMessages(): Promise<Read<InboundRow[]>> {
         messageType,
         kind: kindOf(messageType),
         receivedAt: r.received_at ?? "",
-        applicationId: r.application_id,
-        applicant: (r.application_id && applicantById.get(r.application_id)) || null,
       };
     }),
   );
-}
-
-/**
- * Names for the rows that did attach. A failure here is not worth failing the
- * whole read over: an unnamed but visible message is a far better outcome than
- * no inbox, and the identifiers on the row still say who sent it.
- */
-async function fetchApplicants(
-  ids: ReadonlyArray<string | null>,
-): Promise<Map<string, { name: string; jobTitle: string | null }>> {
-  const unique = [...new Set(ids.filter((id): id is string => Boolean(id)))];
-  const found = new Map<string, { name: string; jobTitle: string | null }>();
-  if (unique.length === 0) return found;
-
-  const supabase = createServiceClient();
-  const { data, error } = await supabase
-    .from("job_applications")
-    .select("id, first_name, last_name, job_title_snapshot")
-    .in("id", unique);
-
-  if (error) {
-    console.error("[whatsapp_inbound] applicant hydration failed:", error);
-    return found;
-  }
-
-  type AppRow = {
-    id: string;
-    first_name: string | null;
-    last_name: string | null;
-    job_title_snapshot: string | null;
-  };
-  for (const row of (data ?? []) as AppRow[]) {
-    const name = `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim();
-    found.set(row.id, { name, jobTitle: row.job_title_snapshot || null });
-  }
-  return found;
 }

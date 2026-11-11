@@ -124,7 +124,7 @@ const NAV_GROUPS: ReadonlyArray<NavGroup> = [
     heading: "Platform",
     items: [
       { label: "Contacts", href: "/admin/contacts", icon: MessageSquare },
-      { label: "WhatsApp", href: "/admin/whatsapp", icon: MessageCircle },
+      { label: "WhatsApp", href: "/admin/whatsapp", icon: MessageCircle, superAdminOnly: true },
       // /admin/bookings is a real, working page that the old flat bar never
       // linked — reachable only from a dead sidebar component.
       { label: "Bookings", href: "/admin/bookings", icon: CalendarDays },
