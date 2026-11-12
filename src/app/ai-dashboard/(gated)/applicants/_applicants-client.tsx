@@ -3530,7 +3530,19 @@ export function ApplicantsClient({
   // `request` has to be stable or the fetch effect below re-reads every render.
   const paramString = searchParams.toString();
   const urlState = useMemo(() => decodeListUrl(new URLSearchParams(paramString)), [paramString]);
-  const request = urlState.request;
+  /*
+   * The request, stable for as long as its VALUE is.
+   *
+   * `paramString` also carries ?applicant= and ?tab=, which are not part of
+   * the request (decodeListUrl ignores them). Keyed on the string alone, every
+   * applicant opened, selected or stepped to rebuilt `request` with the same
+   * six values, and the fetch effect below re-read the list for nothing.
+   * listKey is every field that reaches the server, so two requests with
+   * equal keys ask for the same rows.
+   */
+  const requestKey = listKey(urlState.request);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the request's value (listKey) - see above
+  const request = useMemo(() => urlState.request, [requestKey]);
   const topOnly = urlState.topOnly;
   const tab: "all" | PipelineStage = request.stage ?? "all";
   const jobFilter = request.jobId ?? "all";
