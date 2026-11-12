@@ -107,8 +107,13 @@ export function SplitListItem({
       </span>
 
       <span className="block min-w-0">
-        <span className="flex min-w-0 items-center gap-2 text-[14.5px] font-bold leading-tight tracking-[-0.01em] text-[var(--ai-t1)]">
-          <span className="min-w-0 truncate">{fullName(row)}</span>
+        {/* The name keeps at least 8ch before its "…" (commit 5e). Its
+            flex-basis is 8ch, so the chips stay on this line only while 8ch
+            of name fits beside them, and otherwise wrap below it. It grows
+            back to its own width (max-w-max) whenever there is room, so a
+            name that fits is shown whole with the chips right after it. */}
+        <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[14.5px] font-bold leading-tight tracking-[-0.01em] text-[var(--ai-t1)]">
+          <span className="min-w-0 max-w-max grow basis-[8ch] truncate">{fullName(row)}</span>
           {isTop && (
             <span className="shrink-0 rounded-[5px] bg-remotiv-lime px-[7px] py-0.5 text-[9.5px] font-extrabold uppercase tracking-[0.06em] text-[#2F3A00]">
               Top match

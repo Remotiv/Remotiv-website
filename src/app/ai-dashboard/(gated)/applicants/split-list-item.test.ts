@@ -188,3 +188,42 @@ test("the client renders the Split item only with the flag on, and keeps today's
   assert.match(rest, /data-twin-narrow/);
   assert.match(rest, /data-twin-wide/);
 });
+
+test("a long name keeps at least 8ch before its ellipsis; the chips wrap below it instead (commit 5e)", () => {
+  const html = render(
+    row({
+      first_name: "Alexandrina-Maximiliana",
+      last_name: "Featherstonehaugh-Vanderbilt",
+      score: { ...scored("x"), adjusted: true },
+      shortlist: { flaggedAt: "2026-11-02T00:00:00.000Z", reason: "r" },
+    }),
+    { isTop: true },
+  );
+  const line = html.match(/<span class="([^"]*)"><span class="([^"]*)">Alexandrina/);
+  assert.ok(line, "name line not found");
+  const [, lineCls, nameCls] = line;
+  assert.match(lineCls, /(^|\s)flex-wrap(\s|$)/, "the chips must be able to wrap to a second line");
+  assert.match(nameCls, /(^|\s)basis-\[8ch\](\s|$)/, "8ch is what the chips must leave the name");
+  assert.match(nameCls, /(^|\s)grow(\s|$)/);
+  assert.match(
+    nameCls,
+    /(^|\s)max-w-max(\s|$)/,
+    "a name that fits is shown whole, chips right after it",
+  );
+  assert.match(
+    nameCls,
+    /(^|\s)truncate(\s|$)/,
+    "a name longer than the column still ends in an ellipsis",
+  );
+  assert.match(html, /Top match/);
+  assert.match(html, /Worth a look/i);
+});
+
+test("the shared row parts the live table and cards use are not part of this fix", () => {
+  const parts = readFileSync(new URL("./_list-row-parts.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(
+    parts,
+    /basis-\[8ch\]|flex-wrap/,
+    "the 5e change lives in the Split item only",
+  );
+});
