@@ -77,6 +77,9 @@ async function loadApplications(
       .select("id, job_id, source_detail, pipeline_stage, created_at")
       .eq("company_id_snapshot", companyId)
       .order("created_at", { ascending: false })
+      // id is a unique final term, so rows sharing a created_at cannot
+      // straddle a page boundary and come back twice or not at all (#54).
+      .order("id", { ascending: false })
       .range(from, from + PAGE - 1);
     if (jobIds) q = q.in("job_id", jobIds);
     if (since) q = q.gte("created_at", since);

@@ -56,7 +56,10 @@ register(new URL("../../../test-support/node-resolve.mjs", import.meta.url));
 register(new URL("../../../test-support/messages-test-hook.mjs", import.meta.url));
 
 const { call, fakeService } = await import("../../../test-support/fake-postgrest.mjs");
+const { fakeListDb } = await import("../../../test-support/fake-list-db.mjs");
 const { fetchOverview } = await import("./overview-actions.ts");
+const { fetchAnalytics } = await import("./analytics/actions.ts");
+const { fetchWeekReport } = await import("./weekly-report/actions.ts");
 
 const CO = "c0000000-0000-0000-0000-000000000001";
 const OTHER_CO = "c0000000-0000-0000-0000-000000000002";
@@ -719,4 +722,144 @@ test("d: a failed invite read stays unknown, not zero", async () => {
   } finally {
     console.error = saved;
   }
+});
+
+/* ── #54: a created_at tie cannot straddle a page boundary ────── */
+
+/*
+ * The three job_applications drains that order on created_at (#54): the
+ * Analytics page, the Overview page and the Weekly report. Each runs AS
+ * SHIPPED against fake-list-db.mjs, which applies every .order() term the
+ * action sends, pages by .range(), and permutes rows that tie on every order
+ * term differently on every request, as Postgres may. The seed is 1,200
+ * rows, more than one 1,000-row page, with 40 rows sharing one created_at
+ * placed so the block straddles the boundary between page 1 and page 2.
+ * Without a unique final order term the two pages are two independent sorts
+ * of that block: a row comes back twice and another never comes back. The
+ * assertion is by ID SET over the whole drain, because the counts cancel.
+ *
+ * This proves the tiebreaker and only that. A row inserted or deleted
+ * between two pages still shifts the offset; nothing here claims otherwise.
+ *
+ * The fake answers job_applications and job_hiring_team; every other table
+ * these actions read answers empty: a company with no history, scores,
+ * jobs or invites. It applies eq/in/gte but not .lt(), so the Weekly
+ * report's created_at upper bound is not enforced here; the seed sits inside
+ * last week's window regardless, so every row qualifies for the real filter.
+ */
+
+const DRAIN_ROWS = 1200;
+const TIE_ROWS = 40;
+/** The 1,000-row page both pageAll and analytics' own loop use. */
+const DRAIN_PAGE = 1000;
+
+const padId = (n) => `app-${String(n).padStart(5, "0")}`;
+
+/** Monday 00:00 UTC of the last complete week: the window fetchWeekReport(0) reads. */
+function lastWeekWindow() {
+  const now = new Date();
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const monday = today - ((new Date(today).getUTCDay() + 6) % 7) * 86_400_000;
+  return { start: monday - WEEK_MS, end: monday };
+}
+
+/**
+ * 1,200 applications in this company. Rows 0..979 have distinct created_at
+ * values, newest first; rows 980..1019 share ONE created_at; rows 1020..1199
+ * are older still. Under created_at DESC the tie block therefore occupies
+ * positions 980..1019 of the sorted population, so page 1 (0..999) takes its
+ * first 20 rows and page 2 the other 20. `newest` is the latest timestamp;
+ * every row lies within 25 minutes before it.
+ */
+function tieSeed(newest) {
+  const at = (i) => {
+    if (i >= 980 && i < 980 + TIE_ROWS) return new Date(newest - 1000 * 1000).toISOString();
+    return new Date(newest - (i < 980 ? i : i + 100) * 1000).toISOString();
+  };
+  return Array.from({ length: DRAIN_ROWS }, (_, i) => ({
+    id: padId(i),
+    company_id_snapshot: CO,
+    job_id: JOB_A,
+    first_name: "Row",
+    last_name: String(i),
+    email: `row${i}@example.test`,
+    job_title_snapshot: "Engineer",
+    source_detail: null,
+    pipeline_stage: "applied",
+    screening_answers: [],
+    created_at: at(i),
+  }));
+}
+
+/**
+ * The database for one drain: job_applications and job_hiring_team through
+ * fake-list-db (ORDER BY, RANGE, hostile ties), everything else empty.
+ * `drained` collects every row a non-head job_applications read returned, in
+ * the order the action received them: the drain the action then aggregates.
+ */
+function tieWorld(apps) {
+  const listDb = fakeListDb({ apps, scores: [], jobs: [], team: [] });
+  const drained = [];
+  const service = fakeService((table, calls) => {
+    if (table === "job_applications" || table === "job_hiring_team") {
+      const answer = listDb(table, calls);
+      if (table === "job_applications" && Array.isArray(answer.data)) {
+        drained.push(...answer.data.map((r) => r.id));
+      }
+      return answer;
+    }
+    return { data: [], count: 0, error: null };
+  });
+  return { service, drained };
+}
+
+/** Every seeded id exactly once across the drain, which crossed a page boundary. */
+function assertDrainComplete(drained, seed, service, site) {
+  const pages = service.queries.filter(
+    (q) => q.table === "job_applications" && call(q.calls, "range"),
+  ).length;
+  assert.equal(
+    pages,
+    Math.ceil(seed.length / DRAIN_PAGE),
+    `${site}: the drain did not cross a page boundary`,
+  );
+  const seen = new Map();
+  for (const id of drained) seen.set(id, (seen.get(id) ?? 0) + 1);
+  const repeated = [...seen].filter(([, n]) => n > 1).map(([id]) => id);
+  const missing = seed.map((r) => r.id).filter((id) => !seen.has(id));
+  assert.deepEqual(
+    { repeated, missing },
+    { repeated: [], missing: [] },
+    `${site}: rows repeated or lost across the page boundary`,
+  );
+  assert.equal(drained.length, seed.length, `${site}: the drained total`);
+}
+
+test("#54 analytics: a created_at tie across the page boundary is drained once each, and the funnel counts the whole seed", async () => {
+  const seed = tieSeed(NOW - 3600_000);
+  const { service, drained } = tieWorld(seed);
+  install(service, "owner");
+  const result = await fetchAnalytics("90d");
+  assertDrainComplete(drained, seed, service, "analytics");
+  const applied = result.funnel.find((f) => f.stage === "applied");
+  assert.equal(applied?.count, DRAIN_ROWS, "the funnel's Applied count is every seeded row");
+});
+
+test("#54 overview: a created_at tie across the page boundary is drained once each, and totalApplicants is the whole seed", async () => {
+  const seed = tieSeed(NOW - 3600_000);
+  const { service, drained } = tieWorld(seed);
+  install(service, "owner");
+  const result = await fetchOverview();
+  assertDrainComplete(drained, seed, service, "overview");
+  assert.equal(result.totalApplicants, DRAIN_ROWS, "totalApplicants is every seeded row");
+});
+
+test("#54 weekly report: a created_at tie across the page boundary is drained once each, and applied is the whole seed", async () => {
+  const { end } = lastWeekWindow();
+  const seed = tieSeed(end - 3600_000);
+  const { service, drained } = tieWorld(seed);
+  install(service, "owner");
+  const result = await fetchWeekReport(0);
+  assertDrainComplete(drained, seed, service, "weekly report");
+  assert.equal(result.applied, DRAIN_ROWS, "applied is every seeded row");
 });

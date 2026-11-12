@@ -216,6 +216,9 @@ export async function fetchWeekReport(offset: number): Promise<WeekReport> {
             .lt("created_at", end.toISOString());
           return (scope.scoped ? q.in("job_id", scope.jobIds) : q)
             .order("created_at", { ascending: false })
+            // id is a unique final term, so rows sharing a created_at cannot
+            // straddle a page boundary and come back twice or not at all (#54).
+            .order("id", { ascending: false })
             .range(from, to);
         }, { scope: "weekly-report", label: "applications" });
 
