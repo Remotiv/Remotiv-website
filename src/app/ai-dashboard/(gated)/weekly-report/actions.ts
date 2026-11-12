@@ -229,6 +229,9 @@ export async function fetchWeekReport(offset: number): Promise<WeekReport> {
       .eq("company_id", ctx.companyId)
       .lt("created_at", end.toISOString())
       .order("created_at", { ascending: false })
+      // id is a unique final term, so moves sharing a created_at cannot
+      // straddle a page boundary and come back twice or not at all (#54).
+      .order("id", { ascending: false })
       .range(from, to),
     { scope: "weekly-report", label: "stage history" },
   );

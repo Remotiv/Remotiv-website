@@ -149,6 +149,9 @@ export async function fetchOverview(): Promise<OverviewData> {
         // would return nothing for an owner.
         return (scope.scoped ? q.in("id", scope.jobIds) : q)
           .order("created_at", { ascending: false })
+          // id is a unique final term, so jobs sharing a created_at cannot
+          // straddle a page boundary and come back twice or not at all (#54).
+          .order("id", { ascending: false })
           .range(from, to);
       },
       { scope: "overview", label: "jobs" },

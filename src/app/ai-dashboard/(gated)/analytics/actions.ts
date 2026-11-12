@@ -359,6 +359,10 @@ async function loadStageHistory(
         .eq("company_id", companyId)
         .order("application_id", { ascending: true })
         .order("created_at", { ascending: true })
+        // id is a unique final term, so moves sharing an application and a
+        // created_at cannot straddle a page boundary and come back twice or
+        // not at all (#54).
+        .order("id", { ascending: true })
         .range(from, from + PAGE - 1);
       if (ids) q = q.in("application_id", ids);
       if (since) q = q.gte("created_at", since);
@@ -793,6 +797,10 @@ async function buildAgreement(
       .select("overall_score, human_adjusted_score, adjusted_at")
       .eq("company_id", companyId)
       .eq("status", "scored")
+      // A paged read with no ORDER BY has no defined row order between two
+      // requests. id is unique, so this is a total order and the pages
+      // cannot overlap or skip (#54). The aggregate below is order-free.
+      .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
     if (jobIds) q = q.in("job_id", jobIds);
     const { data, error } = await q;

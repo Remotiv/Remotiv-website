@@ -474,6 +474,9 @@ export async function fetchCompanyJobs(): Promise<Read<CompanyJobRow[]>> {
     if (scope.scoped) q = q.in("id", scope.jobIds);
     const { data, error } = await q
       .order("created_at", { ascending: false })
+      // id is a unique final term, so jobs sharing a created_at cannot
+      // straddle a page boundary and come back twice or not at all (#54).
+      .order("id", { ascending: false })
       .range(from, from + PAGE - 1);
 
     if (error) {

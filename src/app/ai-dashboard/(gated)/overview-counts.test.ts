@@ -53,13 +53,16 @@ import { register } from "node:module";
 import { test } from "node:test";
 
 register(new URL("../../../test-support/node-resolve.mjs", import.meta.url));
-register(new URL("../../../test-support/messages-test-hook.mjs", import.meta.url));
+// The applicants hook, not the messages one: the same four stubs, plus the
+// requireCompanyRole export that jobs/actions.ts imports from company-guards.
+register(new URL("../../../test-support/applicants-test-hook.mjs", import.meta.url));
 
 const { call, fakeService } = await import("../../../test-support/fake-postgrest.mjs");
 const { fakeListDb } = await import("../../../test-support/fake-list-db.mjs");
 const { fetchOverview } = await import("./overview-actions.ts");
 const { fetchAnalytics } = await import("./analytics/actions.ts");
 const { fetchWeekReport } = await import("./weekly-report/actions.ts");
+const { fetchCompanyJobs } = await import("./jobs/actions.ts");
 
 const CO = "c0000000-0000-0000-0000-000000000001";
 const OTHER_CO = "c0000000-0000-0000-0000-000000000002";
@@ -377,8 +380,8 @@ function world({ teamJobs = [], inviteError = false } = {}) {
 }
 
 function install(service, role) {
-  globalThis.__messagesServiceForTests = () => service;
-  globalThis.__messagesCtxForTests = {
+  globalThis.__applicantsServiceForTests = () => service;
+  globalThis.__applicantsCtxForTests = {
     companyId: CO,
     memberId: MEMBER,
     role,
@@ -814,10 +817,8 @@ function tieWorld(apps) {
 }
 
 /** Every seeded id exactly once across the drain, which crossed a page boundary. */
-function assertDrainComplete(drained, seed, service, site) {
-  const pages = service.queries.filter(
-    (q) => q.table === "job_applications" && call(q.calls, "range"),
-  ).length;
+function assertDrainComplete(drained, seed, service, site, table = "job_applications") {
+  const pages = service.queries.filter((q) => q.table === table && call(q.calls, "range")).length;
   assert.equal(
     pages,
     Math.ceil(seed.length / DRAIN_PAGE),
@@ -862,4 +863,204 @@ test("#54 weekly report: a created_at tie across the page boundary is drained on
   const result = await fetchWeekReport(0);
   assertDrainComplete(drained, seed, service, "weekly report");
   assert.equal(result.applied, DRAIN_ROWS, "applied is every seeded row");
+});
+
+/* ── #54, group 2: the jobs, stage-history and score drains ────── */
+
+/*
+ * The five remaining in-reach paged reads (#54): the jobs drains on Overview
+ * and the Jobs page, the stage-history drains on the Weekly report and on
+ * Analytics, and the Analytics score-agreement drain, which had no ORDER BY
+ * at all. Same harness as the three tests above. fake-list-db's evaluator is
+ * reached for each table by answering that table's reads through its
+ * job_applications branch, which is generic over the parts that matter:
+ * eq/in/gte filters, every .order() term in sequence, .range(), and ties
+ * rotated differently on every request. Each fixture is 1,200 rows with a
+ * 40-row block tying on every order term, placed to straddle the 1,000-row
+ * page boundary. For the formerly unordered scores read every row is one
+ * tie, so without an order the two pages are two unrelated permutations.
+ * Preventive: production holds 7 stage-history rows today, so none of these
+ * can page yet.
+ *
+ * Not applied by the fake: .is() and .lt(). Every fixture satisfies them
+ * anyway (deleted_at null, created_at before the week's end).
+ */
+
+/** DRAIN_ROWS rows built by `build(i, tie)`; `tie` is true for rows 980..1019. */
+function tieBlockSeed(build) {
+  return Array.from({ length: DRAIN_ROWS }, (_, i) => build(i, i >= 980 && i < 980 + TIE_ROWS));
+}
+
+/** created_at for row i under a DESC order: newest first, the tie block on one value. */
+function tieStampDesc(newest, i, tie) {
+  if (tie) return new Date(newest - 1000 * 1000).toISOString();
+  return new Date(newest - (i < 980 ? i : i + 100) * 1000).toISOString();
+}
+
+const jobId = (n) => `job-${String(n).padStart(5, "0")}`;
+const moveId = (n) => `move-${String(n).padStart(5, "0")}`;
+const scoreId = (n) => `score-${String(n).padStart(5, "0")}`;
+
+/** 1,200 open jobs in this company; rows 980..1019 share one created_at. */
+function jobSeed(newest) {
+  return tieBlockSeed((i, tie) => ({
+    id: jobId(i),
+    company_id: CO,
+    title: `Role ${i}`,
+    location: "Remote",
+    category: "Eng",
+    experience_level: "mid",
+    contract_type: "full_time",
+    work_type: "remote",
+    status: "open",
+    slug: `role-${i}`,
+    salary_min: null,
+    salary_max: null,
+    salary_currency: null,
+    positions: 1,
+    created_at: tieStampDesc(newest, i, tie),
+    archived_at: null,
+    deleted_at: null,
+  }));
+}
+
+/**
+ * A database where each table in `tables` answers through the evaluator and
+ * every other table answers empty. `drained[table]` collects every row a
+ * .range() read on that table returned, in the order the action received
+ * them: the drain the action then aggregates.
+ */
+function tableWorld(tables) {
+  const evaluators = Object.fromEntries(
+    Object.entries(tables).map(([table, rows]) => [
+      table,
+      fakeListDb({ apps: rows, scores: [], jobs: [], team: [] }),
+    ]),
+  );
+  const drained = Object.fromEntries(Object.keys(tables).map((table) => [table, []]));
+  const service = fakeService((table, calls) => {
+    const evaluate = evaluators[table];
+    if (!evaluate) return { data: [], count: 0, error: null };
+    const answer = evaluate("job_applications", calls);
+    if (call(calls, "range") && Array.isArray(answer.data)) {
+      drained[table].push(...answer.data.map((r) => r.id));
+    }
+    return answer;
+  });
+  return { service, drained };
+}
+
+/** Three applications, so Analytics' head count is non-zero and the page is built. */
+function fewApps() {
+  return [0, 1, 2].map((i) => ({
+    id: padId(i),
+    company_id_snapshot: CO,
+    job_id: JOB_A,
+    source_detail: null,
+    pipeline_stage: "applied",
+    created_at: new Date(NOW - 7200_000).toISOString(),
+  }));
+}
+
+test("#54 overview jobs: a created_at tie across the page boundary is drained once each, and publishedJobs is the whole seed", async () => {
+  const jobs = jobSeed(NOW - 3600_000);
+  const { service, drained } = tableWorld({ jobs });
+  install(service, "owner");
+  const result = await fetchOverview();
+  assertDrainComplete(drained.jobs, jobs, service, "overview jobs", "jobs");
+  assert.equal(result.publishedJobs, DRAIN_ROWS, "publishedJobs is every seeded open role");
+});
+
+test("#54 jobs page: a created_at tie across the page boundary is drained once each, and the list carries every role once", async () => {
+  const jobs = jobSeed(NOW - 3600_000);
+  const { service, drained } = tableWorld({ jobs });
+  install(service, "owner");
+  const result = await fetchCompanyJobs();
+  assert.ok(result.ok, "the read answered");
+  assertDrainComplete(drained.jobs, jobs, service, "jobs page", "jobs");
+  const listed = result.value.map((j) => j.id);
+  assert.deepEqual(
+    [...listed].sort(),
+    jobs.map((j) => j.id).sort(),
+    "the returned list is exactly the seeded roles, once each",
+  );
+});
+
+test("#54 weekly report history: a created_at tie across the page boundary is drained once each, and forward counts every move", async () => {
+  const { end } = lastWeekWindow();
+  const history = tieBlockSeed((i, tie) => ({
+    id: moveId(i),
+    company_id: CO,
+    application_id: padId(i),
+    from_stage: "applied",
+    to_stage: "screening",
+    created_at: tieStampDesc(end - 3600_000, i, tie),
+  }));
+  const { service, drained } = tableWorld({ application_stage_history: history });
+  install(service, "owner");
+  const result = await fetchWeekReport(0);
+  assertDrainComplete(
+    drained.application_stage_history,
+    history,
+    service,
+    "weekly report history",
+    "application_stage_history",
+  );
+  assert.equal(result.forward, DRAIN_ROWS, "forward counts every distinct application moved");
+});
+
+test("#54 analytics history: a tie on application_id and created_at across the page boundary is drained once each", async () => {
+  // ASC on application_id then created_at: rows 980..1019 share both, so
+  // under that order they sit at positions 980..1019 of the population.
+  const base = NOW - 7200_000;
+  const history = tieBlockSeed((i, tie) => ({
+    id: moveId(i),
+    company_id: CO,
+    application_id: tie ? padId(980) : padId(i),
+    from_stage: "applied",
+    to_stage: "screening",
+    created_at: new Date(base + (tie ? 980 : i) * 1000).toISOString(),
+  }));
+  const { service, drained } = tableWorld({
+    job_applications: fewApps(),
+    application_stage_history: history,
+  });
+  install(service, "owner");
+  const result = await fetchAnalytics("90d");
+  assertDrainComplete(
+    drained.application_stage_history,
+    history,
+    service,
+    "analytics history",
+    "application_stage_history",
+  );
+  const screening = result.funnel.find((f) => f.stage === "screening");
+  assert.equal(screening?.count, 3, "the three applications with a move reached screening");
+});
+
+test("#54 analytics agreement: the scores drain, which had no order, reads every scored row once and counts them all", async () => {
+  const scores = tieBlockSeed((i) => ({
+    id: scoreId(i),
+    application_id: padId(i),
+    company_id: CO,
+    job_id: JOB_A,
+    status: "scored",
+    overall_score: 50,
+    human_adjusted_score: null,
+    adjusted_at: null,
+  }));
+  const { service, drained } = tableWorld({
+    job_applications: fewApps(),
+    application_scores: scores,
+  });
+  install(service, "owner");
+  const result = await fetchAnalytics("90d");
+  assertDrainComplete(
+    drained.application_scores,
+    scores,
+    service,
+    "analytics agreement",
+    "application_scores",
+  );
+  assert.equal(result.agreement?.scored, DRAIN_ROWS, "scored is every seeded row");
 });
