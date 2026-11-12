@@ -4202,10 +4202,23 @@ export function ApplicantsClient({
     () =>
       (topScored ?? []).map((r) => {
         const score = scoreOverrides[r.id] ?? r.score;
-        return score === r.score ? r : { ...r, score };
+        const stage = stageOverrides[r.id] ?? r.pipeline_stage;
+        return score === r.score && stage === r.pipeline_stage
+          ? r
+          : { ...r, score, pipeline_stage: stage };
       }),
-    [topScored, scoreOverrides],
+    [topScored, scoreOverrides, stageOverrides],
   );
+
+  /**
+   * A row from outside the current page (a deep link's own read, or the Split
+   * panel's), with the same stage override the page rows get, so a stage just
+   * saved for that applicant shows in the drawer and the panel too.
+   */
+  const withStageOverride = (r: CompanyApplicantRow | null): CompanyApplicantRow | null =>
+    r && stageOverrides[r.id] && stageOverrides[r.id] !== r.pipeline_stage
+      ? { ...r, pipeline_stage: stageOverrides[r.id] }
+      : r;
 
   /**
    * The ids wearing a "Top match" chip: scored >= 90, best first, capped.
@@ -4251,7 +4264,7 @@ export function ApplicantsClient({
   const openRow = openId
     ? (rows.find((r) => r.id === openId) ??
       topRows.find((r) => r.id === openId) ??
-      (offPageRow?.id === openId ? offPageRow : null))
+      withStageOverride(offPageRow?.id === openId ? offPageRow : null))
     : null;
 
   /*
@@ -4314,7 +4327,7 @@ export function ApplicantsClient({
     splitWide && splitId
       ? (rows.find((r) => r.id === splitId) ??
         topRows.find((r) => r.id === splitId) ??
-        (splitRead?.id === splitId ? splitRead.applicant : null))
+        withStageOverride(splitRead?.id === splitId ? splitRead.applicant : null))
       : null;
   const splitDetail = splitRow && splitRead?.id === splitRow.id ? splitRead.scoreDetail : null;
 
@@ -4670,9 +4683,27 @@ export function ApplicantsClient({
    * the row back exactly where it was — the previous value is captured before
    * the optimistic paint, so a revert can't resurrect a stale override.
    */
-  async function handleStageChange(id: string, next: PipelineStage) {
-    const current = rows.find((r) => r.id === id);
-    if (!current || current.pipeline_stage === next) return;
+  /**
+   * `shown` is the row the caller is displaying (the drawer's or the Split
+   * panel's). The page's own rows are checked first, but a deep-linked
+   * applicant, a Review-top-10 row or the panel's applicant can be off this
+   * page, and that used to make the change a silent no-op (commit 6a).
+   */
+  async function handleStageChange(
+    id: string,
+    next: PipelineStage,
+    shown: CompanyApplicantRow | null,
+  ) {
+    const current = rows.find((r) => r.id === id) ?? (shown?.id === id ? shown : null);
+    if (!current) {
+      setToast({
+        message:
+          "Couldn't change the stage - this applicant isn't loaded. Reload the page and try again.",
+        tone: "error",
+      });
+      return;
+    }
+    if (current.pipeline_stage === next) return;
     const previous = current.pipeline_stage;
 
     setStageOverrides((prev) => ({ ...prev, [id]: next }));
@@ -5076,7 +5107,7 @@ export function ApplicantsClient({
           viewerRole={viewerRole}
           saving={savingId === splitRow.id}
           onStageChange={(next) => {
-            void handleStageChange(splitRow.id, next);
+            void handleStageChange(splitRow.id, next, splitRow);
           }}
           stageSelectId="split-applicant-stage"
         />
@@ -5679,7 +5710,7 @@ export function ApplicantsClient({
           onToast={setToast}
           onClose={closePanel}
           onStageChange={(next) => {
-            void handleStageChange(openRow.id, next);
+            void handleStageChange(openRow.id, next, openRow);
           }}
           onAdjustScore={(score, feedback) => {
             void handleAdjustScore(openRow.id, score, feedback);
