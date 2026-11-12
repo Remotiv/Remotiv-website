@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Applicants Split v9</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&family=Sora:wght@600;700;800&display=swap">
+<style>
+:root{--board-bg:#E6E1DC;--board-t1:#17131F;--board-t2:#4A4550}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--board-bg:#2A2630;--board-t1:#F4EFEA;--board-t2:#D6D1DC}}
+:root[data-theme="dark"]{--board-bg:#2A2630;--board-t1:#F4EFEA;--board-t2:#D6D1DC}
+
+/* ===== Live tokens (ai-dashboard.css:41-77). Drawn at CSS size - no zoom. ===== */
+.ai-shell{
+  --ai-sidebar:#141020; --ai-page:#F4EFEA; --ai-surface:#FFFFFF; --ai-inset:#F7F3EF;
+  --ai-line:rgba(20,16,32,.09); --ai-line-soft:rgba(20,16,32,.06); --ai-line-strong:rgba(20,16,32,.16);
+  --ai-t1:#17131F; --ai-t2:#4A4550;
+  --ai-t3:#625C6A; --ai-t4:#6E6876; /* CHANGE (this page): AA contrast */
+  --purple:#7E47FF; --purple-hover:#6D38EC; --green:#49D7A7; --lime:#D9F972;
+  --purple-tint:#EEEDFE; --purple-ink:#2E2470; --mint-tint:#E1F5EE; --mint-ink:#04342C;
+  --amber-tint:#FBEBCF; --amber-ink:#7A4E05; --red-tint:#FBEAE8; --red-ink:#B02A24;
+  font-family:'DM Sans',sans-serif; color:var(--ai-t1); -webkit-font-smoothing:antialiased;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--board-bg);font-family:'DM Sans',sans-serif}
+button{font-family:inherit;cursor:pointer;color:inherit}
+p{margin:0}
+.num{font-variant-numeric:tabular-nums}
+.trunc{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+
+/* board chrome */
+.board{padding:48px 48px 120px}
+.bt{font-family:'Sora',sans-serif;font-size:28px;font-weight:800;letter-spacing:-.03em;margin:0 0 6px;color:var(--board-t1)}
+.bs{font-size:14px;color:var(--board-t2);margin:0 0 20px;max-width:860px;line-height:1.55}
+.frame-l{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--board-t2);margin:44px 0 12px}
+.frame-l span{font-weight:500;text-transform:none;letter-spacing:0;margin-left:8px}
+.frame{background:var(--ai-page);border-radius:14px;overflow:hidden;box-shadow:0 20px 50px rgba(20,16,32,.12)}
+.cap{font-size:12.5px;color:var(--board-t2);margin:10px 0 0;line-height:1.5;max-width:1000px}
+
+/* shell */
+.shell{display:grid;grid-template-columns:236px 1fr;min-height:1180px}
+.side{background:var(--ai-sidebar);color:#fff;padding:22px 16px}
+.brand{font-family:'Sora';font-weight:800;font-size:21px;padding:4px 8px 22px}
+.brand i{font-style:normal;color:var(--green)}
+.wsc{display:flex;gap:10px;align-items:center;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);border-radius:12px;padding:10px;margin-bottom:18px}
+.wsc .ic{width:30px;height:30px;border-radius:8px;background:var(--purple)}
+.wsc b{display:block;font-size:13px}.wsc small{font-size:11px;color:rgba(255,255,255,.6)}
+.nl{display:flex;align-items:center;gap:11px;padding:10px;border-radius:10px;font-size:14px;color:rgba(255,255,255,.7)}
+.nl.on{background:var(--purple);color:#fff;font-weight:600}
+.nl .ct{margin-left:auto;font-size:11px;background:rgba(255,255,255,.14);border-radius:999px;padding:1px 7px}
+.nl svg{width:18px;height:18px}
+.nlab{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.45);padding:16px 10px 6px}
+.topbar{height:64px;display:flex;align-items:center;gap:12px;padding:0 32px;border-bottom:1px solid var(--ai-line);background:rgba(244,239,234,.86)}
+.crumb{font-size:13px;color:var(--ai-t3)}.crumb b{color:var(--ai-t1);font-weight:600}
+.me{margin-left:auto;width:34px;height:34px;border-radius:50%;background:var(--green);color:#04342C;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.container{max-width:1560px;margin:0 auto;padding:30px 32px 64px}
+
+/* job header (Split) */
+.jobhead{display:flex;align-items:center;gap:16px;margin-bottom:20px}
+.logo{width:48px;height:48px;border-radius:12px;background:var(--ai-sidebar);color:#fff;display:flex;align-items:center;justify-content:center;font-family:'Sora';font-weight:800;font-size:16px;flex-shrink:0}
+.logo i{font-style:normal;color:var(--green)}
+.jobhead h1{font-family:'Sora';font-size:32px;font-weight:800;letter-spacing:-.035em;margin:0 0 6px;line-height:1}
+.jobhead .meta{font-size:13.5px;color:var(--ai-t3)}
+.jobhead .meta b{color:var(--mint-ink);font-weight:700}
+.hbtns{margin-left:auto;display:flex;gap:9px;flex-shrink:0}
+.b-out{display:inline-flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--ai-line-strong);border-radius:12px;padding:11px 16px;font-size:13.5px;font-weight:600;color:var(--ai-t2)}
+.b-dark{display:inline-flex;align-items:center;gap:8px;background:var(--ai-sidebar);color:#fff;border:1px solid var(--ai-sidebar);border-radius:12px;padding:11px 17px;font-size:13.5px;font-weight:600}
+.b-pri{display:inline-flex;align-items:center;gap:8px;background:var(--purple);color:#fff;border:1px solid var(--purple);border-radius:12px;padding:11px 17px;font-size:13.5px;font-weight:600}
+.b-icon{width:42px;justify-content:center;padding:11px 0}
+.b-out svg,.b-dark svg,.b-pri svg{width:15px;height:15px}
+
+/* toolbar (live controls) */
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:16px}
+.tabs{display:flex;flex-wrap:wrap;gap:2px;background:var(--ai-inset);border:1px solid var(--ai-line);border-radius:11px;padding:3px}
+.tab{border:none;background:none;border-radius:8px;padding:7px 14px;font-size:12.5px;font-weight:600;color:var(--ai-t3);display:inline-flex;align-items:center;gap:7px}
+.tab .c{font-size:10.5px;font-weight:700;background:rgba(20,16,32,.07);border-radius:999px;padding:1px 7px}
+.tab[aria-pressed="true"]{background:var(--ai-sidebar);color:#fff;font-weight:700;box-shadow:0 3px 10px rgba(20,16,32,.2)}
+.tab[aria-pressed="true"] .c{background:rgba(255,255,255,.18)}
+.flag{border:1px solid var(--ai-line-strong);background:#fff;border-radius:999px;padding:7px 13px;font-size:12.5px;font-weight:600;color:var(--ai-t2);display:inline-flex;align-items:center;gap:7px}
+.flag .c{font-size:10.5px;font-weight:700;background:var(--purple);color:#fff;border-radius:999px;padding:1px 7px}
+.ctrls{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap}
+.sel{font-family:inherit;font-size:12.5px;font-weight:600;color:var(--ai-t2);border:1px solid var(--ai-line);border-radius:10px;padding:8px 30px 8px 12px;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%23625C6A' stroke-width='1.5' fill='none'/%3E%3C/svg%3E") no-repeat right 11px center;appearance:none}
+.srch{display:flex;align-items:center;gap:8px;width:210px;border:1px solid var(--ai-line);border-radius:10px;padding:7px 12px;background:#fff;color:var(--ai-t3);font-size:13px}
+.srch svg{width:15px;height:15px}
+.add{display:inline-flex;align-items:center;gap:6px;background:var(--purple);color:#fff;border:none;border-radius:10px;padding:8px 13px;font-size:13px;font-weight:700}
+.add svg{width:14px;height:14px}
+
+/* split */
+.split{display:grid;grid-template-columns:400px minmax(0,1fr);gap:18px;align-items:start}
+.panel{background:var(--ai-surface);border:1px solid var(--ai-line);border-radius:20px;overflow:hidden;box-shadow:0 6px 30px rgba(20,16,32,.06)}
+.lh{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--ai-line);background:var(--ai-inset)}
+.lh b{font-size:14.5px;font-weight:700}.lh span{font-size:12.5px;color:var(--ai-t3)}
+
+/* list item */
+.item{position:relative;display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:12px;width:100%;text-align:left;border:none;background:#fff;border-bottom:1px solid var(--ai-line-soft);padding:13px 20px;transition:background .15s,box-shadow .15s}
+.item:last-child{border-bottom:none}
+.item:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--purple);opacity:0;transition:opacity .15s}
+.item:hover,.item.is-hover{background:#FCFBFA;box-shadow:0 6px 22px rgba(20,16,32,.07);z-index:2}
+.item:hover:before,.item.is-hover:before{opacity:1}
+.item.is-sel{background:var(--purple-tint)}.item.is-sel:before{opacity:1}
+.item.is-flag{background:rgba(126,71,255,.035)}.item.is-flag:before{opacity:1}
+.item:focus-visible,.item.is-focus{outline:2px solid var(--purple);outline-offset:-2px}
+.av{border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0;box-shadow:0 0 0 2px #fff,0 0 0 3.5px rgba(20,16,32,.07)}
+.item .av{width:40px;height:40px;font-size:13px}
+.top .av{box-shadow:0 0 0 2px #fff,0 0 0 3.5px var(--green)}
+.nmline{display:flex;align-items:center;gap:8px;min-width:0}
+.nm{font-size:14.5px;font-weight:700;letter-spacing:-.01em;line-height:1.25}
+.newdot{width:7px;height:7px;border-radius:50%;background:var(--ai-sidebar);flex-shrink:0}
+.em2{display:block;font-size:12.5px;color:var(--ai-t3);margin-top:2px}
+.item{align-items:center}
+.hl2{font-size:12.5px;color:var(--ai-t2);line-height:1.45;margin:3px 0 2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.loc{font-size:12.5px;color:var(--ai-t3)}
+.ft{font-size:11.5px;color:var(--ai-t3);margin-top:7px}
+.ft .abt{display:inline-block;vertical-align:middle;margin:3px 0}
+.ft b{color:var(--ai-t3);font-weight:600} /* self-reported: never green */
+.flag-r{font-size:12.5px;color:var(--purple);font-weight:500;margin-top:3px}
+.chip-top{flex-shrink:0;background:var(--lime);color:#2F3A00;border-radius:5px;padding:2px 7px;font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.06em}
+.chip-wal{flex-shrink:0;border:1px solid rgba(126,71,255,.45);background:rgba(126,71,255,.06);color:var(--purple);border-radius:999px;padding:1px 8px;font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.06em}
+.abt{flex-shrink:0;background:#EDEBF0;color:#4A4550;border-radius:8px;padding:5px 8px;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+
+/* score ring (live) */
+.scw{display:flex;flex-direction:column;align-items:center;gap:4px}
+.ring{position:relative;width:38px;height:38px;flex-shrink:0}
+.ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+.ring b{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Sora';font-weight:800;font-size:12.5px;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.adj{font-size:10px;font-weight:700;text-transform:uppercase;color:var(--ai-t3)}
+.nos{width:38px;height:38px;border-radius:50%;border:1.5px dashed var(--ai-line-strong);display:flex;align-items:center;justify-content:center;color:var(--ai-t4)}
+.nos.solid{border-style:solid;border-color:var(--ai-line);background:var(--ai-inset)}
+.nos svg{width:15px;height:15px}
+.nosl{font-size:12px;font-weight:600;color:var(--ai-t4);white-space:nowrap}
+.pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:5px 12px;font-size:12px;font-weight:700;white-space:nowrap}
+.pill i{width:5px;height:5px;border-radius:50%}
+
+.lfoot{background:var(--ai-inset);border-top:1px solid var(--ai-line);padding:13px 20px;display:flex;flex-direction:column;gap:8px}
+.lfoot p{font-size:12.5px;color:var(--ai-t3)}
+.pager{display:flex;align-items:center;justify-content:space-between;font-size:12.5px;font-weight:600;color:var(--ai-t2)}
+.pager .r b{color:var(--purple)}
+.pgb{display:flex;gap:8px;align-items:center}
+.pg{width:32px;height:32px;border-radius:8px;border:1px solid var(--ai-line);background:#fff;display:flex;align-items:center;justify-content:center}
+.pg svg{width:14px;height:14px}
+
+/* detail */
+.detail{display:flex;flex-direction:column;gap:14px}
+/* ---- Drawer-aligned panel (DESIGN-AUDIT-APPLICANTS-DRAWER.md) ---- */
+.ai-shell{--ai-slate-tint:#EDEBF0;--ai-danger:#C4362F;--ai-danger-tint:#FBEAE8}
+.pnl{background:var(--ai-surface);border:1px solid var(--ai-line);border-radius:20px;overflow:hidden;box-shadow:0 6px 30px rgba(20,16,32,.06);display:flex;flex-direction:column}
+/* In the app: .detail{position:sticky;top:80px} and .pnl{height:calc(var(--vh-full) - 64px - 32px)}; header fixed, body scrolls. Board: a 1440x900 window = 1097 CSS px tall -> 1001px */
+#desk .detail{position:sticky;top:16px;align-self:start}
+#desk .pnl{height:1001px}
+#desk .pnl-b{flex:1;overflow-y:auto;overscroll-behavior:contain}
+.pnl-h{background:#fff;border-bottom:1px solid var(--ai-line);padding:16px 22px 0;flex-shrink:0}
+.pnl-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
+.pnl-acts{display:flex;gap:8px}
+.rbtn{display:inline-flex;align-items:center;gap:7px;border-radius:11px;padding:8px 14px;font-size:13.5px;font-weight:700;background:#fff;border:1px solid var(--ai-line-strong);color:var(--ai-t1)}
+.rbtn svg{width:15px;height:15px}
+.rbtn.dark{background:var(--ai-sidebar);border-color:var(--ai-sidebar);color:#fff}
+.rbtn[aria-busy="true"]{opacity:.7;cursor:wait}
+.spin{width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.stg .ro{font-size:13px;font-weight:700;color:var(--ai-t1);background:var(--ai-inset);border:1px solid var(--ai-line);border-radius:11px;padding:9px 14px 9px 30px;position:relative}
+.stg .ro:before{content:"";position:absolute;left:13px;top:50%;width:7px;height:7px;margin-top:-3.5px;border-radius:50%;background:var(--ai-t3)}
+.stg .rn{font-size:11px;color:var(--ai-t3);max-width:200px;line-height:1.4}
+.ftoast{position:absolute;left:50%;bottom:28px;transform:translateX(-50%);display:flex;align-items:center;gap:10px;background:var(--ai-sidebar);color:#fff;font-size:13.5px;font-weight:600;padding:11px 16px;border-radius:12px;box-shadow:0 12px 30px rgba(20,16,32,.3);z-index:30}
+.ftoast.err{background:#fff;color:var(--ai-t1);border:1px solid var(--ai-line);border-left:4px solid var(--ai-danger)}
+.ftoast svg{width:16px;height:16px}
+.ftoast button{background:none;border:none;color:inherit;font-weight:700;text-decoration:underline;padding:0;font-size:13px}
+.pager2{display:flex;align-items:center;gap:8px}
+.ibtn{width:30px;height:30px;border-radius:11px;border:1px solid var(--ai-line);background:#fff;color:var(--ai-t3);display:flex;align-items:center;justify-content:center}
+.ibtn svg{width:14px;height:14px}.ibtn:disabled{opacity:.4;cursor:default}
+.ctr{font-size:11.5px;font-weight:600;color:var(--ai-t3);font-variant-numeric:tabular-nums}
+.idrow{display:flex;align-items:center;gap:15px;padding-bottom:16px}
+.idrow .av54{width:54px;height:54px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'Sora';font-weight:800;font-size:18px;flex-shrink:0;box-shadow:0 0 0 3px rgba(126,71,255,.1)}
+.idrow h2{font-family:'Sora';font-weight:800;font-size:21px;line-height:1.15;letter-spacing:-.03em;color:var(--ai-t1);margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.idline{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:500;color:var(--ai-t3);margin-top:5px;min-width:0;white-space:nowrap}
+.idline b{font-weight:700;color:var(--ai-t2);overflow:hidden;text-overflow:ellipsis;min-width:0}
+.iddot{width:3px;height:3px;border-radius:50%;background:var(--ai-t4);flex-shrink:0}
+.idright{margin-left:auto;display:flex;align-items:center;gap:16px;flex-shrink:0}
+.mring{display:flex;align-items:center;gap:10px}
+.mring .rw{position:relative;width:42px;height:42px}
+.mring svg{width:42px;height:42px;transform:rotate(-90deg)}
+.mring .rw b{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Sora';font-weight:800;font-size:14px;color:var(--ai-t1);font-variant-numeric:tabular-nums}
+.mring .bl{font-size:12.5px;font-weight:700;color:var(--ai-t1)}
+.mring .aj{display:block;font-size:11px;font-weight:600;color:var(--ai-t3)}
+.vdiv{width:1px;height:36px;background:var(--ai-line)}
+.stg{display:flex;flex-direction:column;gap:5px}
+.stg label{font-size:11.5px;font-weight:700;color:var(--ai-t3)}
+.stg .sw{position:relative}
+.stg .sw:before{content:"";position:absolute;left:13px;top:50%;width:7px;height:7px;margin-top:-3.5px;border-radius:50%;background:var(--ai-t3);pointer-events:none}
+.stg select{appearance:none;font-family:inherit;font-size:13px;font-weight:700;color:var(--ai-t1);background:var(--ai-inset) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%23625C6A' stroke-width='1.5' fill='none'/%3E%3C/svg%3E") no-repeat right 12px center;border:1px solid var(--ai-line);border-radius:11px;padding:9px 34px 9px 30px}
+.stg select:focus{outline:none;border-color:var(--purple);box-shadow:0 0 0 3px rgba(126,71,255,.16)}
+.pnl-b{background:var(--ai-inset);padding:18px 22px 28px;display:flex;flex-direction:column;gap:16px}
+.pc{background:#fff;border:1px solid var(--ai-line);border-radius:20px;box-shadow:0 6px 30px rgba(20,16,32,.06);padding:20px 22px}
+.pc-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:14px}
+.pc-h h3{font-family:'Sora';font-weight:700;font-size:15px;letter-spacing:-.02em;color:var(--ai-t1);margin:0}
+.pc-h small{font-size:11px;font-weight:500;color:var(--ai-t3)}
+.sum{font-size:13px;line-height:1.72;color:var(--ai-t2);margin:0}
+.subh{display:flex;align-items:center;gap:12px;margin:6px 0 -2px}
+.subh h3{font-family:'Sora';font-weight:700;font-size:15px;letter-spacing:-.02em;margin:0;white-space:nowrap}
+.subh i{flex:1;height:1px;background:var(--ai-line)}
+.dim{display:grid;grid-template-columns:200px minmax(0,1fr) auto;gap:6px 16px;align-items:center;padding:14px 0;border-top:1px solid var(--ai-line-soft)}
+.dim:first-child{border-top:none;padding-top:0}.dim:last-child{padding-bottom:0}
+.dim .dn{font-size:13px;font-weight:700;color:var(--ai-t1)}
+.dim .dt{height:8px;border-radius:4px;background:var(--ai-slate-tint);overflow:hidden}.dim .dt i{display:block;height:100%;border-radius:4px}
+.dim .ds{font-family:'Sora';font-weight:800;font-size:25px;line-height:1;font-variant-numeric:tabular-nums}
+.dim .ds small{font-family:'DM Sans';font-size:12px;font-weight:500;color:var(--ai-t3)}
+.dim p{grid-column:2/4;font-size:12.5px;line-height:1.55;color:var(--ai-t2);margin:0}
+.dim.ph{grid-template-columns:minmax(0,1fr) auto}.dim.ph .dt{grid-column:1/3;grid-row:2}.dim.ph p{grid-column:1/3}
+.g2p{display:grid;grid-template-columns:minmax(0,1.32fr) minmax(0,1fr);gap:20px;align-items:start}
+.g2p>div{display:flex;flex-direction:column;gap:16px}
+.intro{font-size:11.5px;line-height:1.55;color:var(--ai-t3);margin:0 0 12px}
+.sq{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;align-items:center;border:1px solid var(--ai-line);border-radius:12px;padding:11px 13px;margin-top:8px}
+.sq:hover{background:var(--ai-inset)}
+.sq .q{font-size:12px;color:var(--ai-t3);display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.sq .a{font-size:14px;font-weight:700;color:var(--ai-t1)}
+.ess{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;background:var(--purple-tint);color:var(--purple-ink);border-radius:999px;padding:2px 7px}
+.thr{grid-column:2;grid-row:1/3;font-size:10.5px;font-weight:600;border-radius:999px;padding:3px 9px;white-space:nowrap}
+.thr.ok{background:var(--ai-slate-tint);color:#4A4550}.thr.lo{background:var(--amber-tint);color:var(--amber-ink)}
+.ev{display:flex;gap:10px;padding:9px 0;border-top:1px solid var(--ai-line-soft);font-size:12.5px;line-height:1.5;color:var(--ai-t2)}
+.ev:first-of-type{border-top:none;padding-top:0}
+.ev .ei{width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px}
+.ev .ei svg{width:10px;height:10px}
+.evh{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.evp{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;background:var(--purple-tint);color:var(--purple-ink);border-radius:999px;padding:4px 10px}
+.evc{font-size:11px;font-weight:700;color:var(--ai-t3);font-variant-numeric:tabular-nums}
+.ev .ei.y{background:var(--purple-tint);color:var(--purple-ink)}.ev .ei.n{background:var(--ai-slate-tint);color:var(--ai-t4)}
+.ev .eb{flex:1;min-width:0}.ev.no .et{color:var(--ai-t3)}
+.ev .vb{display:inline-block;margin-top:3px;background:none;border:none;padding:0;font-size:12px;font-weight:700;color:var(--purple)}
+.ev q{display:block;margin-top:6px;padding-left:10px;border-left:2px solid var(--ai-line-strong);font-style:italic;color:var(--ai-t2)}
+.ev q:before,.ev q:after{content:none}
+.ev q[hidden]{display:none}
+.ev .nf{font-size:11px;font-weight:600;color:var(--ai-t3);white-space:nowrap}
+.app-l{font-size:13px;color:var(--ai-t3);margin:0}.app-l b{color:var(--ai-t1)}
+.manual{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--ai-t3)}
+.app-btns{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px;padding-top:14px;border-top:1px solid var(--ai-line-soft)}
+.cvb,.emb{display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:12px;padding:11px 12px;font-size:13px;font-weight:700;text-decoration:none}
+.cvb svg,.emb svg{width:15px;height:15px}
+.cvb{background:var(--purple);color:#fff;box-shadow:0 6px 16px rgba(126,71,255,.3)}
+.emb{background:#fff;border:1px solid var(--ai-line-strong);color:var(--ai-t1)}
+.emb:hover{background:var(--ai-sidebar);border-color:var(--ai-sidebar);color:#fff}
+.drow{display:flex;justify-content:space-between;gap:12px;font-size:13.5px;padding:9px 0;border-top:1px solid var(--ai-line-soft)}
+.drow:first-of-type{border-top:none;padding-top:0}.drow:last-child{padding-bottom:0}
+.drow span{color:var(--ai-t3)}.drow b{color:var(--ai-t1);font-weight:700;text-align:right}
+.wal{display:flex;align-items:center;gap:12px;background:var(--lime);border-radius:16px;padding:13px 16px;color:#2F3A00}
+.wal .fd{width:30px;height:30px;border-radius:50%;background:rgba(47,58,0,.12);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.wal .fd svg{width:15px;height:15px}
+.wal b{display:block;font-family:'Sora';font-weight:700;font-size:13px}
+.wal p{font-size:12px;opacity:.7;margin:1px 0 0}
+.wal button{margin-left:auto;width:26px;height:26px;border-radius:8px;border:none;background:transparent;color:#2F3A00;display:flex;align-items:center;justify-content:center}
+.wal button svg{width:14px;height:14px}
+.unsc{text-align:center;border:1.5px dashed var(--ai-line-strong);padding:30px 22px}
+.unsc h3{font-family:'Sora';font-weight:700;font-size:15px;margin:0 0 6px}
+.unsc p{font-size:13px;line-height:1.6;color:var(--ai-t2);max-width:420px;margin:0 auto}
+.card{background:var(--ai-surface);border:1px solid var(--ai-line);border-radius:20px;padding:24px 26px;box-shadow:0 6px 30px rgba(20,16,32,.06)}
+.hero{display:grid;grid-template-columns:72px minmax(0,1fr) auto;gap:18px;align-items:start}
+.hero .av{width:72px;height:72px;font-size:22px}
+.hero h2{font-family:'Sora';font-size:24px;font-weight:800;letter-spacing:-.03em;margin:0 0 5px}
+.hero .hl{font-size:14.5px;color:var(--ai-t2);line-height:1.5}
+.facts{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:10px;font-size:13px;color:var(--ai-t3)}
+.facts span{display:inline-flex;align-items:center;gap:6px}
+.facts svg{width:14px;height:14px}
+.scorebox{text-align:center;padding:12px 16px;border-radius:14px;min-width:96px}
+.scorebox .v{font-family:'Sora';font-size:30px;font-weight:800;line-height:1}
+.scorebox .k{font-size:11px;font-weight:700;margin-top:5px}
+.actions{display:flex;gap:10px;align-items:center;margin-top:20px;padding-top:20px;border-top:1px solid var(--ai-line-soft)}
+.actions .pill{margin-left:auto}
+.sec-h{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px;gap:12px}
+.sec-h h3{font-size:16px;font-weight:700;margin:0}
+.sec-h small{font-size:12.5px;color:var(--ai-t3)}
+.ai{font-size:14px;line-height:1.6;color:var(--ai-t2);margin-bottom:18px}
+.ai b{color:var(--ai-t1)}
+.bars{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+.mh{border-top:1px solid var(--ai-line-soft);font-size:13.5px}
+.mh:first-of-type{border-top:none}
+.mh:not(details),.mh summary{display:flex;align-items:center;gap:12px;padding:11px 0}
+.mh summary{cursor:pointer;list-style:none}.mh summary::-webkit-details-marker{display:none}
+.mh summary:focus-visible{outline:2px solid var(--purple);outline-offset:2px;border-radius:6px}
+.mi{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.mi svg{width:12px;height:12px}
+.mi.yes{background:var(--mint-tint);color:var(--mint-ink)}.mi.no{background:var(--ai-inset);color:var(--ai-t4);border:1px solid var(--ai-line)}
+.mn{flex:1;color:var(--ai-t1)}.mh:not(.ok) .mn{color:var(--ai-t3)}
+.ms{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;color:var(--ai-t3)}
+.mh.ok .ms{color:var(--mint-ink)}
+.chev svg{width:13px;height:13px;transition:transform .15s}
+details[open] .chev svg{transform:rotate(90deg)}
+.mh blockquote{margin:0 0 12px 32px;padding:10px 12px;background:var(--mint-tint);border-radius:10px;font-size:13px;line-height:1.55;color:var(--mint-ink)}
+.mh blockquote cite{display:block;font-style:normal;font-size:11.5px;font-weight:600;margin-top:4px;opacity:.8}
+.jmenu{width:380px;background:#fff;border:1px solid var(--ai-line);border-radius:14px;box-shadow:0 18px 46px rgba(20,16,32,.16);overflow:hidden}
+.jmenu .jf{padding:10px;border-bottom:1px solid var(--ai-line-soft)}
+.jmenu ul{list-style:none;margin:0;padding:6px;max-height:340px;overflow:auto}
+.jmenu li{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:9px;font-size:13px}
+.jmenu li:hover,.jmenu li.hov{background:var(--ai-inset)}
+.jmenu li[aria-selected="true"]{background:var(--purple-tint)}
+.jmenu .jt{flex:1;min-width:0;font-weight:600;color:var(--ai-t1)}
+.jmenu .jm{font-size:11.5px;color:var(--ai-t3);white-space:nowrap}
+.jmenu .ck{width:16px;color:var(--purple)}.jmenu .ck svg{width:15px;height:15px}
+.jmenu .grp{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ai-t3);padding:10px 10px 4px}
+.bar .k{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;color:var(--ai-t3);margin-bottom:7px}
+.bar .k b{color:var(--ai-t1);font-family:'Sora';font-weight:800}
+.bar .tr{height:5px;border-radius:3px;background:rgba(20,16,32,.08);overflow:hidden}
+.bar .tr i{display:block;height:100%;border-radius:3px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.exp{display:grid;grid-template-columns:40px 1fr;gap:14px;padding:12px 0;border-top:1px solid var(--ai-line-soft)}
+.exp:first-of-type{border-top:none;padding-top:0}
+.exp .lg{width:40px;height:40px;border-radius:10px;background:var(--ai-inset);border:1px solid var(--ai-line);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--ai-t2)}
+.exp .r{font-size:14px;font-weight:600}.exp .c{font-size:13px;color:var(--ai-t2)}.exp .d{font-size:12px;color:var(--ai-t3);margin-top:2px}
+.qa{display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--ai-line-soft);font-size:13.5px}
+.qa:first-of-type{border-top:none;padding-top:0}
+.qa .q{flex:1;color:var(--ai-t2)}.qa .a{font-weight:700}
+.qa .m{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.qa .m svg{width:12px;height:12px}
+.qa .y{background:var(--mint-tint);color:var(--mint-ink)}.qa .n{background:var(--amber-tint);color:var(--amber-ink)}
+.skills{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+.skill{font-size:12.5px;font-weight:600;padding:5px 11px;border-radius:999px;background:var(--ai-inset);border:1px solid var(--ai-line-soft);color:var(--ai-t2)}
+.skill.match{background:var(--mint-tint);border-color:transparent;color:var(--mint-ink)}
+.dtabs{display:flex;gap:26px;margin:20px -26px -24px;padding:0 26px;border-top:1px solid var(--ai-line-soft);overflow-x:auto}
+.dtab{border:none;background:none;padding:15px 0 13px;font-size:14px;font-weight:600;color:var(--ai-t3);border-bottom:2.5px solid transparent;white-space:nowrap}
+.dtab[aria-selected="true"]{color:var(--ai-t1);font-weight:700;border-bottom-color:var(--ai-t1)}
+.dtab .c{font-size:10.5px;font-weight:700;background:rgba(20,16,32,.07);border-radius:999px;padding:1px 6px;margin-left:5px}
+.lrow{display:flex;align-items:center;gap:12px;padding:13px 0;border-top:1px solid var(--ai-line-soft);font-size:13.5px}
+.lrow:first-of-type{border-top:none;padding-top:0}
+.lrow .ico{width:34px;height:34px;border-radius:10px;background:var(--ai-inset);border:1px solid var(--ai-line);display:flex;align-items:center;justify-content:center;color:var(--ai-t2);flex-shrink:0}
+.lrow .ico svg{width:15px;height:15px}
+.lrow .t{flex:1;min-width:0}.lrow .t b{display:block;font-weight:600;color:var(--ai-t1)}.lrow .t small{font-size:12px;color:var(--ai-t3)}
+.lrow .w{font-size:12px;color:var(--ai-t3);white-space:nowrap}
+.ty{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:3px 7px;border-radius:6px;background:#EDEBF0;color:#4A4550}
+.tl{position:relative;padding-left:22px}
+.tl:before{content:"";position:absolute;left:5px;top:6px;bottom:6px;width:2px;background:var(--ai-line)}
+.tli{position:relative;padding:0 0 18px}
+.tli:before{content:"";position:absolute;left:-21px;top:5px;width:10px;height:10px;border-radius:50%;background:#fff;border:2px solid var(--purple)}
+.tli b{font-size:13.5px;font-weight:600}.tli p{font-size:12px;color:var(--ai-t3);margin-top:2px}
+.cm{display:flex;gap:12px;padding:14px 0;border-top:1px solid var(--ai-line-soft)}
+.cm:first-of-type{border-top:none;padding-top:0}
+.cm .av{width:32px;height:32px;font-size:11px}
+.cm b{font-size:13.5px}.cm small{font-size:12px;color:var(--ai-t3);margin-left:6px}.cm p{font-size:13.5px;color:var(--ai-t2);line-height:1.55;margin-top:3px}
+.ta{width:100%;min-height:84px;font-family:inherit;font-size:13.5px;border:1px solid var(--ai-line-strong);border-radius:11px;padding:11px 13px;resize:vertical;color:var(--ai-t1)}
+.livebadge{font-size:11px;font-weight:600;color:var(--ai-t3);background:var(--ai-inset);border:1px solid var(--ai-line-soft);border-radius:999px;padding:3px 9px}
+.frame{position:relative}
+.scrim{position:absolute;inset:0;background:rgba(20,16,32,.38);opacity:0;pointer-events:none;transition:opacity .25s;z-index:20}
+.scrim.open{opacity:1;pointer-events:auto}
+.drawer{position:absolute;top:0;right:0;bottom:0;width:780px;background:var(--ai-page);z-index:21;transform:translateX(100%);transition:transform .3s cubic-bezier(.4,0,.2,1);box-shadow:-24px 0 70px rgba(20,16,32,.24);overflow:auto}
+.drawer.open{transform:none}
+.dtop{display:flex;align-items:center;justify-content:space-between;padding:22px 30px 0}
+.back{background:none;border:none;font-size:14px;font-weight:600;color:var(--ai-t2);display:inline-flex;align-items:center;gap:8px;padding:0}
+.back svg{width:16px;height:16px}
+.dpager{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--ai-t2)}
+.circ{width:36px;height:36px;border-radius:50%;border:1px solid var(--ai-line-strong);background:#fff;display:flex;align-items:center;justify-content:center}
+.circ svg{width:15px;height:15px}.circ:disabled{opacity:.4}
+.dhead{display:flex;align-items:center;gap:16px;padding:20px 30px 0}
+.dhead .av{width:64px;height:64px;font-size:20px}
+.dhead h2{font-family:'Sora';font-size:24px;font-weight:800;letter-spacing:-.03em;margin:0 0 4px}
+.dhead .sub{font-size:13.5px;color:var(--ai-t2)}.dhead .sub span{color:var(--ai-t3)}
+.dright{margin-left:auto;display:flex;align-items:center;gap:16px}
+.mlab{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:700;padding-right:16px;border-right:1px solid var(--ai-line)}
+.stsel{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ai-t3)}
+.dtabs2{display:flex;gap:28px;padding:20px 30px 0;border-bottom:1px solid var(--ai-line)}
+.dt2{border:none;background:none;padding:0 0 12px;font-size:14.5px;font-weight:600;color:var(--ai-t3);border-bottom:2.5px solid transparent;margin-bottom:-1px}
+.dt2[aria-selected="true"]{color:var(--ai-t1);font-weight:700;border-bottom-color:var(--ai-t1)}
+.dbody{padding:22px 30px 40px}
+.g2{display:grid;grid-template-columns:1.6fr 1fr;gap:18px;align-items:start}
+.tg{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;background:#EDEBF0;color:#4A4550;padding:5px 9px;border-radius:7px}
+.b-danger{width:100%;justify-content:center;display:inline-flex;align-items:center;gap:8px;background:var(--red-tint);color:var(--red-ink);border:none;border-radius:12px;padding:12px 16px;font-size:13.5px;font-weight:700}
+.b-danger svg{width:15px;height:15px}
+.dnote{position:absolute;left:24px;bottom:24px;z-index:22;background:var(--ai-sidebar);color:#fff;font-size:12.5px;padding:9px 13px;border-radius:10px;opacity:0;transition:opacity .2s}
+.dnote.open{opacity:1}
+.exist{display:flex;align-items:center;justify-content:center;gap:8px;border:1.5px dashed var(--ai-line-strong);border-radius:12px;color:var(--ai-t3);font-size:12.5px;font-weight:600;background:rgba(255,255,255,.5);text-align:center}
+.note{font-size:12px;color:var(--ai-t3);margin-top:12px}
+
+/* states */
+.mini{background:var(--ai-page);padding:24px;border-radius:14px}
+.mini h4{font-size:13px;font-weight:700;margin:0 0 4px;color:#17131F}
+.mini .d{font-size:12.5px;color:#4A4550;margin:0 0 14px;line-height:1.5}
+.empty{text-align:center;padding:60px 24px 64px}
+.empty .tile{width:66px;height:66px;border-radius:20px;background:var(--purple-tint);color:var(--purple);display:flex;align-items:center;justify-content:center;margin:0 auto 18px}
+.empty .tile svg{width:28px;height:28px}
+.empty h3{font-family:'Sora';font-weight:800;font-size:19px;margin:0 0 8px}
+.empty p{font-size:13.5px;color:var(--ai-t3);max-width:340px;margin:0 auto;line-height:1.55}
+.sk{background:var(--ai-line-soft);border-radius:6px;animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.5}}
+.changes{background:#fff;border-radius:14px;padding:28px 32px;font-size:14px;line-height:1.6;color:#4A4550}
+.changes h3{font-family:'Sora';font-size:18px;color:#17131F;margin:0 0 12px}
+.changes table{width:100%;border-collapse:collapse;font-size:13px}
+.changes td,.changes th{text-align:left;padding:8px 10px;border-bottom:1px solid rgba(20,16,32,.08);vertical-align:top}
+.changes th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#625C6A}
+.changes code{font-size:12px;background:#F7F3EF;padding:1px 5px;border-radius:4px}
+.tag{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:5px}
+.tag.prod{background:#FBEBCF;color:#7A4E05}.tag.vis{background:#E4EEFB;color:#123B6E}
+</style>
+</head>
+<body>
+<div class="board ai-shell">
+  <h1 class="bt">Applicants - Split design v9</h1>
+  <p class="bs">The Split design we agreed (list left, details right), restyled with the live tokens, fonts, sizes, score ring and stage pills. Drawn at <b>CSS size</b> - the app shows it at 82%. Desktop is a 1440 px window, drawn 1756 CSS px wide (1440 / 0.82); phone is a 375 px window (457 CSS px). Click any applicant in the desktop frame to switch the details, and click <b>Details</b> (after View CV) to open your existing side drawer. Dashed boxes mark existing parts that stay as they are (not redesigned).</p>
+  <p class="bs" style="margin-top:-8px"><b>v9:</b> Shortlist button states; exact breakpoints (no table at any width); mint wording fixed in the tables. <b>v8:</b> the most common real row (unscored, no location/years, no screening) is shown first in States, with email as its second line; unscored panel with only Notice period. <b>v7:</b> screening line neutral grey; must-haves in the live purple "Must-haves met" style; card title "Summary"; panel scrolls on its own; first row auto-selected; breakpoint shown in section 2; no --ai-t4 small notes. <b>v6:</b> right panel rebuilt from the live drawer's components and sizes (DESIGN-AUDIT-APPLICANTS-DRAWER.md) - see "Right panel vs the live drawer" in section 4. <b>v5:</b> Job select is the live native select with Open / Closed groups (filter box moved to "possible later"). <b>v4:</b> list rows and details use only data that exists (AI verdict, location/years when filled, screening, 4 AI dimensions, must-haves); new states for the Job select and for viewers with no jobs. <b>v3:</b> desktop frame redrawn at 1756 CSS px so the panel shows its true size. <b>v2 audit fixes:</b> list item padding 13/20 · "Added by team" 10.5px, 5px 8px · no-score label 12px · footer padding 13/20, text 12.5px · applied line 11.5px · page title Sora 32px, -0.035em · location 12.5px · score number 12.5px. The right panel is not aligned yet - waiting for the drawer spec.</p>
+
+  <p class="frame-l">1 · Desktop <span>1440 px window = 1756 CSS px (1440 / 0.82) · interactive</span></p>
+  <div class="frame" style="width:1756px"><div class="shell" id="desk"></div><div class="scrim" id="scrim" data-close></div><aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-label="Applicant details" aria-hidden="true"></aside></div>
+
+  <p class="frame-l">2 · Below 1100 px real width <span>list only (Split list item, full width - no table) · a row opens the details full screen · shown at a 375 px phone (457 CSS px); a 1024 px example is in States → Breakpoints</span></p>
+  <div style="display:flex;gap:32px;align-items:flex-start">
+    <div><div class="frame" style="width:457px" id="phoneList"></div><p class="cap">List only (no panel). Tap a person to open their details. Same at any real width below about 1100 px.</p></div>
+    <div><div class="frame" style="width:457px" id="phoneDetail"></div><p class="cap">Details full screen, with "Back to applicants". This is the live drawer's overlay mode, kept for narrow widths (drawer audit §10.6).</p></div>
+  </div>
+
+  <p class="frame-l">3 · States</p>
+  <div id="states" style="width:1440px;display:grid;gap:24px"></div>
+
+  <p class="frame-l">4 · Changes vs live</p>
+  <div class="changes" style="width:1440px" id="changes"></div>
+</div>
+
+<script>
+var IC={
+  dl:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',bolt:'<path d="m13 2-9 12h7l-1 8 9-12h-7l1-8Z"/>',
+  search:'<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',plus:'<path d="M12 5v14M5 12h14"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',minus:'<path d="M6 12h12"/>',
+  people:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/>',
+  l:'<path d="m15 18-6-6 6-6"/>',r:'<path d="m9 18 6-6-6-6"/>',menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',
+  grid:'<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
+  brief:'<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+  mail:'<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 6 10-6"/>',video:'<path d="m22 8-6 4 6 4V8Z"/><rect x="2" y="6" width="14" height="12" rx="2"/>',
+  chart:'<path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>',user:'<path d="M18 21a6 6 0 0 0-12 0"/><circle cx="12" cy="8" r="4"/>',
+  cog:'<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="9"/>',help:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.7M12 17h.01"/>',
+  pin:'<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+  cash:'<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/>',
+  cal:'<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',x:'<path d="M18 6 6 18M6 6l12 12"/>',
+  star:'<path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1Z"/>',
+  msg:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  file:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/>',
+  panel:'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/>',trash:'<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>',dots:'<circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>'
+};
+function ic(k,w){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="'+(w||1.8)+'" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+IC[k]+'</svg>'}
+var TINT={purple:['#EEEDFE','#2E2470'],mint:['#E1F5EE','#04342C'],peach:['#FAECE7','#7A3618'],sky:['#E4EEFB','#123B6E'],amber:['#FBEBCF','#7A4E05'],slate:['#EDEBF0','#4A4550']};
+var STAGE={Applied:['#EDEBF0','#4A4550','#B0AAB8'],Screening:['#FBEBCF','#7A4E05','#E0A020'],Shortlisted:['#E1F5EE','#04342C','#49D7A7'],Interview:['#E4EEFB','#123B6E','#4C8DD9'],Offer:['#EEEDFE','#2E2470','#7E47FF'],Hired:['#49D7A7','#04342C','#04342C'],Rejected:['#FBEAE8','#B02A24','#E0524B']};
+function band(s){return s>=80?['#49D7A7','#04342C','#E1F5EE']:s>=60?['#F5A524','#7A4E05','#FBEBCF']:['#E0524B','#B02A24','#FBEAE8']}
+function ini(n){return n.split(' ').map(function(w){return w[0]}).join('').slice(0,2).toUpperCase()}
+function av(d){var t=TINT[d.t];return '<span class="av" style="background:'+t[0]+';color:'+t[1]+'">'+ini(d.n)+'</span>'}
+function pill(st){var p=STAGE[st];return '<span class="pill" style="background:'+p[0]+';color:'+p[1]+'"><i style="background:'+p[2]+'"></i>'+st+'</span>'}
+function ring(s,size){size=size||38;var b=band(s),c=100.53;
+  return '<span class="ring" style="width:'+size+'px;height:'+size+'px"><svg viewBox="0 0 38 38" aria-hidden="true"><circle cx="19" cy="19" r="16" fill="none" stroke="rgba(20,16,32,.08)" stroke-width="3.5"/><circle cx="19" cy="19" r="16" fill="none" stroke="'+b[0]+'" stroke-width="3.5" stroke-linecap="round" stroke-dasharray="'+c+'" stroke-dashoffset="'+(c*(1-s/100)).toFixed(2)+'"/></svg><b style="color:'+b[1]+';font-size:'+(size===38?12.5:+(size*0.33).toFixed(1))+'px">'+s+'</b></span>'}
+function score(d){
+  if(d.ns){var solid=d.ns==='Scoring off'||d.ns==='Limit reached';
+    return '<span class="scw"><span class="nos'+(solid?' solid':'')+'">'+ic(solid?'minus':'clock',2)+'</span><span class="nosl">'+d.ns+'</span></span>'}
+  return '<span class="scw">'+ring(d.s)+(d.adj?'<span class="adj">Adjusted</span>':'')+'</span>'}
+
+var DIM=['Requirements match','Experience depth','Domain relevance','Responsibilities fit'];
+var D=[
+ {n:'Fatima Khan',e:'fatima.khan@email.com',v:'Strong React lead with design-system depth; notice period is the only gap',loc:'Lahore, Pakistan',exp:'6 years',notice:'2 months',s:92,brk:[94,90,88,92],st:'Shortlisted',ago:'2d ago',t:'purple',q:[3,4],
+  sum:'Strong match. <b>6 years of React and TypeScript</b>, led a design-system rebuild at Arbisoft, and has worked with US clients across a 4-hour overlap. Only gap: a 2-month notice period.',
+  qa:[['5+ years with React?','Yes',1],['Years of TypeScript','6',1],['Comfortable with US time overlap?','Yes',1],['Available within 30 days?','No',0]],
+  mh:[['5+ years of React',1,'"Six years building React apps, three as a senior engineer at Arbisoft."'],['TypeScript in production',1,'"Migrated a 200k-line codebase from JavaScript to TypeScript."'],['Design-system ownership',1,'"Led the rebuild of our shared component library used by 4 product teams."'],['Automated testing (Jest or similar)',0,'']]},
+ {n:'Ayesha Noor',e:'ayesha.n@email.com',v:'Senior frontend lead who can start now; rate above the role budget',loc:'Islamabad, Pakistan',exp:'8 years',notice:'Immediate',s:90,brk:[92,93,86,88],st:'Hired',ago:'12d ago',t:'peach',q:[4,4],
+  sum:'Excellent fit. <b>8 years in frontend</b> with team-lead experience and can start immediately. Rate is slightly above the role budget.',
+  qa:[['5+ years with React?','Yes',1],['Years of TypeScript','8',1],['Comfortable with US time overlap?','Yes',1],['Available within 30 days?','Yes',1]],
+  mh:[['5+ years of React',1,'"Eight years of frontend work, the last four leading a React team of five."'],['TypeScript in production',1,'"All new services written in TypeScript since 2020."'],['Design-system ownership',0,''],['Automated testing (Jest or similar)',1,'"Introduced Jest and Playwright; coverage went from 20% to 75%."']]},
+ {n:'Ammar Ijaz',e:'ammar@email.com',v:'Solid React dashboards builder; lighter on TypeScript than the brief asks',loc:'Lahore, Pakistan',exp:'5 years',notice:'6 weeks',s:84,brk:[82,80,88,85],st:'Interview',ago:'3d ago',t:'mint',q:[3,4],
+  sum:'Good match. <b>Solid React dashboards work</b> at Motive. Lighter on TypeScript (4 years) than the brief asks for.',
+  qa:[['5+ years with React?','Yes',1],['Years of TypeScript','4',0],['Comfortable with US time overlap?','Yes',1],['Available within 30 days?','Yes',1]],
+  mh:[['5+ years of React',1,'"Five years of React, mostly real-time fleet dashboards."'],['TypeScript in production',1,'"Typed our charting layer in TypeScript."'],['Design-system ownership',0,''],['Automated testing (Jest or similar)',0,'']]},
+ {n:'Usman Ghani',e:'usman.g@email.com',v:'Deep web-performance experience; little design-system work on the CV',loc:'',exp:'5 years',notice:'1 month',s:76,brk:[74,78,72,76],st:'Screening',ago:'1d ago',t:'sky',q:[3,4],flag:'Met your auto-shortlist mark.',
+  sum:'Moderate match. <b>Deep performance work</b> on a high-traffic site. Less exposure to design systems.',
+  qa:[['5+ years with React?','Yes',1],['Years of TypeScript','3',0],['Comfortable with US time overlap?','Yes',1],['Available within 30 days?','Yes',1]],
+  mh:[['5+ years of React',1,'"Five years of React and Next.js on a site with 10M monthly visits."'],['TypeScript in production',0,''],['Design-system ownership',0,''],['Automated testing (Jest or similar)',1,'"Wrote the Jest suite for our checkout flow."']]},
+ {n:'Hira Javed',e:'hira.j@email.com',v:'Accessibility specialist with good React; below the experience bar',loc:'Karachi, Pakistan',exp:'',notice:'',s:66,brk:[64,58,70,68],st:'Applied',ago:'4d ago',t:'amber',adj:1,team:1,q:[2,4],
+  sum:'Partial match. <b>Strong accessibility background</b>, below the experience bar.',
+  qa:[['5+ years with React?','No',0],['Years of TypeScript','3',0],['Comfortable with US time overlap?','Yes',1],['Available within 30 days?','Yes',1]],
+  mh:[['5+ years of React',0,''],['TypeScript in production',1,'"Component library written in TypeScript with full type coverage."'],['Design-system ownership',1,'"Maintained the accessible component library for 3 apps."'],['Automated testing (Jest or similar)',0,'']]},
+ {n:'Talha Rauf',e:'talha.r@email.com',v:'Junior web developer; not enough React for a senior role',loc:'',exp:'',notice:'Immediate',s:48,brk:[42,35,55,50],st:'Rejected',ago:'8d ago',t:'slate',q:[1,4],
+  sum:'Not a fit for a senior role. <b>2 years of experience</b>, little React in production.',
+  qa:[['5+ years with React?','No',0],['Years of TypeScript','0',0],['Comfortable with US time overlap?','No',0],['Available within 30 days?','Yes',1]],
+  mh:[['5+ years of React',0,''],['TypeScript in production',0,''],['Design-system ownership',0,''],['Automated testing (Jest or similar)',0,'']]},
+ {n:'Nida Ayub',e:'nida@email.com',loc:'Lahore, Pakistan',exp:'3 years',notice:'1 month',s:null,ns:'Pending',st:'Applied',ago:'Today',t:'peach',q:[2,4],
+  qa:[['5+ years with React?','No',0],['Years of TypeScript','3',0],['Comfortable with US time overlap?','Yes',1],['Available within 30 days?','Yes',1]]},
+ {n:'Bilal Ahmed',e:'bilal.ahmed@email.com',loc:'',exp:'',notice:'',s:null,ns:'Pending',st:'Applied',ago:'Today',t:'sky',q:null,common:1},
+ {n:'Sana Iqbal',e:'sana.iqbal@email.com',loc:'',exp:'',notice:'1 month',s:null,ns:'Pending',st:'Applied',ago:'1d ago',t:'mint',q:null,common:1},
+ {n:'Zain Malik',e:'zain.malik@email.com',loc:'',exp:'',notice:'',s:null,ns:'No CV text',st:'Applied',ago:'2d ago',t:'amber',q:null,common:1}
+];
+var DATE={'2d ago':'9 Nov 2026','12d ago':'30 Oct 2026','3d ago':'8 Nov 2026','1d ago':'10 Nov 2026','4d ago':'7 Nov 2026','8d ago':'3 Nov 2026','Today':'11 Nov 2026'};
+var REASON={'Requirements match':['Every listed requirement is evidenced in the CV.','Most requirements are evidenced; one or two are thin.','Several core requirements are not shown in the CV.'],
+ 'Experience depth':['Years and seniority match the role, with leadership shown.','Relevant years, but less senior scope than the role asks.','Experience is shorter or more junior than the role needs.'],
+ 'Domain relevance':['Recent work is in the same kind of product and stack.','Adjacent domain; the stack overlaps but the product differs.','Little overlap with this role\'s product or stack.'],
+ 'Responsibilities fit':['Has done the day-to-day work this role describes.','Has done parts of the role; some duties are new.','Few of the role\'s duties appear in past work.']};
+function metaLine(d){return [d.loc,d.exp].filter(Boolean).join(' · ')}
+
+function item(d,i,extra){
+  var m=metaLine(d);
+  return '<button class="item'+(d.top?' top':'')+(d.flag?' is-flag':'')+(extra||'')+'" data-i="'+i+'" aria-pressed="'+((extra||'').indexOf('is-sel')>-1)+'">'+av(d)+
+   '<span style="min-width:0"><span class="nmline"><span class="nm trunc">'+d.n+'</span>'+(d.top?'<span class="chip-top">Top match</span>':'')+(d.flag?'<span class="chip-wal">Worth a look</span>':'')+'</span>'+
+   (d.flag?'<p class="flag-r trunc">'+d.flag+'</p>':'')+
+   (d.s!=null&&d.v?'<span class="hl2">'+d.v+'</span>':(d.flag?'':'<span class="em2 trunc">'+d.e+'</span>'))+
+   (m?'<span class="loc">'+m+'</span>':'')+
+   '<p class="ft">Applied '+d.ago+(d.q?' · <b>Screening '+d.q[0]+'/'+d.q[1]+' met</b>':'')+(d.team?' · <span class="abt">Added by team</span>':'')+'</p></span>'+score(d)+'</button>'}
+var TABS=[['All',57],['Applied',21],['Screening',12],['Shortlisted',9],['Interview',6],['Offer',2],['Hired',3],['Rejected',4]];
+function tabs(a){return '<div class="tabs" role="group" aria-label="Stage">'+TABS.map(function(t){return '<button class="tab" aria-pressed="'+(t[0]===(a||'All'))+'">'+t[0]+' <span class="c num">'+t[1]+'</span></button>'}).join('')+'</div><button class="flag" aria-pressed="false">Flagged <span class="c num">2</span></button>'}
+function controls(narrow){return '<div class="exist" style="'+(narrow?'width:100%;':'margin-left:auto;')+'padding:10px 16px">Existing controls - Sort, Job, Search, Add candidate (unchanged)</div>'}
+function lfoot(sort){return '<div class="lfoot"><p>'+(sort==='new'?"Newest first. Scores don't affect this order.":'Ranked by AI score. Anything without a score sits at the end.')+'</p><div class="pager"><span class="r"><b class="num">1–20</b> of 57</span><span class="pgb"><button class="pg" aria-label="Previous page">'+ic('l',2)+'</button><span class="num">1 / 3</span><button class="pg" aria-label="Next page">'+ic('r',2)+'</button></span></div></div>'}
+
+function miniRing(s){var r=18,c=2*Math.PI*r,b=band(s);
+  return '<span class="rw"><svg viewBox="0 0 42 42" aria-hidden="true"><circle cx="21" cy="21" r="'+r+'" fill="none" stroke="#EDEBF0" stroke-width="4"/><circle cx="21" cy="21" r="'+r+'" fill="none" stroke="'+b[0]+'" stroke-width="4" stroke-linecap="round" stroke-dasharray="'+c.toFixed(2)+'" stroke-dashoffset="'+(c*(1-s/100)).toFixed(2)+'"/></svg><b>'+s+'</b></span>'}
+function bandLabel(s){return s>=80?'Strong match':s>=60?'Moderate match':'Needs review'}
+var LATER=['Shortlisted','Interview','Offer','Hired'];
+function slBtn(d,o){o=o||{};
+  if(LATER.indexOf(d.st)>-1)return '';
+  if(o.hm&&(d.st==='Hired'||d.st==='Rejected'))return '';
+  if(o.saving)return '<button class="rbtn dark" aria-busy="true" aria-disabled="true"><span class="spin" aria-hidden="true"></span>Shortlisting…</button>';
+  return '<button class="rbtn dark" data-shortlist>'+ic('star',1.9)+'Shortlist</button>'}
+function stageSel(d,id,o){o=o||{};
+  if(o.hm&&(d.st==='Hired'||d.st==='Rejected'))return '<div class="stg"><span style="font-size:11.5px;font-weight:700;color:var(--ai-t3)">Stage</span><span class="ro">'+d.st+'</span><span class="rn">Only an owner, admin or recruiter can change this.</span></div>';
+  return '<div class="stg"><label for="'+id+'">Stage</label><span class="sw"><select id="'+id+'">'+Object.keys(STAGE).filter(function(x){return !(o.hm&&(x==='Hired'||x==='Rejected'))}).map(function(x){return '<option'+(x===d.st?' selected':'')+'>'+x+'</option>'}).join('')+'</select></span></div>'}
+function screeningCard(d){if(!d.qa)return '';
+  return '<div class="pc"><div class="pc-h"><h3>Screening questions</h3></div><p class="intro">Answered by the candidate at apply time and checked against the thresholds you set. Self-reported - not verified by Remotiv.</p>'+
+   d.qa.map(function(q,k){return '<div class="sq"><span class="q">'+q[0]+(k===0?'<span class="ess">Essential</span>':'')+'</span><span class="a">'+(q[1]||'-')+'</span><span class="thr '+(q[2]?'ok':'lo')+'">'+(q[2]?'Meets threshold':'Below threshold')+'</span></div>'}).join('')+'</div>'}
+function mustCard(d,openFirst){
+  var found=d.mh.filter(function(m){return m[1]}).length,first=true;
+  return '<div class="pc" aria-label="Must-haves met"><div class="evh"><span class="evp">Must-haves met</span><span class="evc">'+found+'/'+d.mh.length+'</span></div>'+
+   d.mh.map(function(m){
+     if(!m[1])return '<div class="ev no"><span class="ei n">'+ic('minus',3)+'</span><span class="eb"><span class="et">'+m[0]+'</span></span><span class="nf">Not found</span></div>';
+     var o=openFirst&&first;first=false;
+     return '<div class="ev"><span class="ei y">'+ic('check',3)+'</span><span class="eb"><span class="et">'+m[0]+'</span><br><button class="vb" aria-expanded="'+o+'" onclick="var q=this.nextElementSibling;q.hidden=!q.hidden;this.setAttribute(\'aria-expanded\',!q.hidden);this.textContent=q.hidden?\'View evidence\':\'Hide evidence\'">'+(o?'Hide evidence':'View evidence')+'</button><q'+(o?'':' hidden')+'>'+m[2].replace(/^"|"$/g,'')+'</q></span></div>'}).join('')+'</div>'}
+function appCard(d){return '<div class="pc"><div class="pc-h"><h3>Application</h3></div><p class="app-l">'+(d.team?'Added to':'Applied to')+' <b>Senior Frontend Engineer</b> · '+d.ago+'</p>'+
+  (d.team?'<div class="manual"><span class="abt">Added by team</span>Not emailed - they didn\'t apply through the job board.</div>':'')+
+  '<div class="app-btns"><a class="cvb" href="#" target="_blank" rel="noopener">'+ic('file',1.9)+'Open CV</a><button class="emb">'+ic('mail',1.9)+'Email</button></div></div>'}
+function detailsCard(d){var r=[];if(d.loc)r.push(['Location',d.loc]);if(d.exp)r.push(['Experience',d.exp]);if(d.notice)r.push(['Notice period',d.notice]);
+  return r.length?'<div class="pc"><div class="pc-h"><h3>Details</h3></div>'+r.map(function(x){return '<div class="drow"><span>'+x[0]+'</span><b>'+x[1]+'</b></div>'}).join('')+'</div>':''}
+function detail(d,phone,opts){
+  opts=opts||{};var i=D.findIndex(function(x){return x.n===d.n}),id='stage-'+(phone?'p':'d')+i+(opts.noScreening?'n':'');
+  var idl=['<b>'+d.e+'</b>'];if(d.loc)idl.push(d.loc);idl.push('Applied '+(DATE[d.ago]||d.ago));
+  var head='<div class="pnl-h"><div class="pnl-top"><div class="pnl-acts">'+slBtn(d,opts)+'<button class="rbtn" data-details aria-haspopup="dialog">'+ic('panel',1.9)+'Details</button></div>'+
+   '<div class="pager2"><button class="ibtn" data-prev aria-label="Previous applicant"'+(i<=0?' disabled':'')+'>'+ic('l',2)+'</button><span class="ctr">'+(i+1)+' of 57</span><button class="ibtn" data-next aria-label="Next applicant">'+ic('r',2)+'</button></div></div>'+
+   '<div class="idrow"'+(phone?' style="flex-wrap:wrap"':'')+'><span class="av54" style="background:'+TINT[d.t][0]+';color:'+TINT[d.t][1]+'">'+ini(d.n)+'</span><div style="min-width:0;flex:1"><h2>'+d.n+'</h2><p class="idline">'+idl.join('<span class="iddot"></span>')+'</p></div>'+
+   '<div class="idright"'+(phone?' style="margin-left:0;width:100%"':'')+'>'+
+   (d.s!=null&&!phone?'<span class="mring">'+miniRing(d.s)+'<span><span class="bl">'+bandLabel(d.s)+'</span>'+(d.adj?'<span class="aj">Adjusted</span>':'')+'</span></span><span class="vdiv"></span>':'')+stageSel(d,id,opts)+'</div></div></div>';
+  var qa=opts.noScreening?null:d.qa,dd=Object.assign({},d,{qa:qa}),body='';
+  if(d.flag)body+='<div class="wal"><span class="fd">'+ic('star',2)+'</span><span><b>Worth a look</b><p>'+d.flag+'</p></span><button aria-label="Dismiss flag" title="Clears the flag. A materially better score later flags them again.">'+ic('x',2)+'</button></div>';
+  if(d.s==null){
+    var U=d.ns==='No CV text'?['No readable CV text','We couldn\'t read text from this CV, so it wasn\'t scored. A number is never guessed.',0]:['Scoring this CV','The CV is still being scored. Nothing is shown until the score is ready - a number is never guessed.',1];
+    body+='<div class="pc unsc"'+(U[2]?'':' style="border-style:solid;border-color:transparent"')+'><h3>'+U[0]+'</h3><p>'+U[1]+'</p></div>';
+    var sc=screeningCard(dd),dc=detailsCard(d),g=phone?' style="grid-template-columns:1fr"':'';
+    if(sc)body+='<div class="g2p"'+g+'><div>'+sc+'</div><div>'+appCard(d)+dc+'</div></div>';
+    else if(dc)body+='<div class="g2p"'+g+'><div>'+appCard(d)+'</div><div>'+dc+'</div></div>';
+    else body+=appCard(d);
+  } else {
+    body+='<div class="pc"><div class="pc-h"><h3>Summary</h3><small>Generated from the CV'+(qa?' and '+qa.length+' screening answers':'')+'</small></div><p class="sum">'+d.sum.replace(/<\/?b>/g,'')+'</p></div>';
+    body+='<div class="subh"><h3>Scored dimensions</h3><i></i></div><div class="pc">'+DIM.map(function(n,k){var x=d.brk[k],c=band(x),lvl=x>=80?0:x>=60?1:2;
+      return '<div class="dim'+(phone?' ph':'')+'"><span class="dn">'+n+'</span><span class="dt"><i style="width:'+x+'%;background:'+c[0]+'"></i></span><span class="ds" style="color:'+c[1]+'">'+x+'<small>/100</small></span><p>'+REASON[n][lvl]+'</p></div>'}).join('')+'</div>';
+    body+='<div class="g2p"'+(phone?' style="grid-template-columns:1fr"':'')+'><div>'+mustCard(d,!phone)+screeningCard(dd)+'</div><div>'+appCard(d)+detailsCard(d)+'</div></div>';
+  }
+  return '<div class="pnl">'+head+'<div class="pnl-b"'+(phone?' style="padding:18px 16px 28px"':'')+'>'+body+'</div></div>';
+}
+
+function sidebar(){var N=[['grid','Overview'],['brief','Jobs',2],['people','Applicants',57,1],['mail','Messages',26],['video','Interviews',2],['chart','Analytics']];
+  return '<aside class="side"><div class="brand">Remotiv<i>.</i></div><div class="wsc"><span class="ic"></span><span><b>Rocket Search</b><small>Owner</small></span></div>'+
+  N.map(function(n){return '<div class="nl'+(n[3]?' on':'')+'">'+ic(n[0],1.7)+n[1]+(n[2]?'<span class="ct">'+n[2]+'</span>':'')+'</div>'}).join('')+
+  '<p class="nlab">Workspace</p>'+[['user','Team'],['cog','Settings'],['help','Help']].map(function(n){return '<div class="nl">'+ic(n[0],1.7)+n[1]+'</div>'}).join('')+'</aside>'}
+function jobhead(phone){return '<div class="jobhead"'+(phone?' style="flex-wrap:wrap"':'')+'><span class="logo">R<i>.</i></span><div><h1>Senior Frontend Engineer</h1><p class="meta">Remote · Pakistan · <b>Open</b> · Posted 12 days ago</p></div>'+
+  '<div class="hbtns"'+(phone?' style="margin-left:0;width:100%"':'')+'><button class="b-out">'+ic('dl',1.9)+'Export page</button><button class="b-dark" aria-pressed="false">'+ic('bolt',1.9)+'Review top 10</button></div></div>'}
+
+
+var TAB='Overview';
+var TABLIST=[['Overview'],['Communication','comm'],['Interviews','interviews'],['Timeline','timeline'],['Comments','comments']];
+function tabbar(phone){return '<div class="dtabs" role="tablist" aria-label="Applicant sections">'+TABLIST.map(function(t){var n=t[0]==='Communication'?3:t[0]==='Comments'?2:0;return '<button class="dtab" role="tab" data-tab="'+t[0]+'" aria-selected="'+(t[0]===TAB)+'">'+t[0]+(n?'<span class="c num">'+n+'</span>':'')+'</button>'}).join('')+'</div>'}
+function other(d,phone){
+  var first=d.n.split(' ')[0],live='<span class="livebadge">Same as the live drawer</span>';
+  if(TAB==='Communication')return '<div class="card"><div class="sec-h"><h3>Communication</h3>'+live+'</div>'+
+    [['Next steps for your application','Written','by Sara','2h ago'],['Could you share your portfolio?','Written','by Bilal','3d ago'],['Remotiv received your application','Automatic','','5d ago']].map(function(m){return '<div class="lrow"><span class="ico">'+ic('mail')+'</span><span class="t"><b class="trunc" style="display:block">'+m[0]+'</b><small>'+(m[2]?'Sent '+m[2]:'Sent automatically')+'</small></span><span class="ty">'+m[1]+'</span><span class="w">'+m[3]+'</span></div>'}).join('')+
+    '<div style="margin-top:16px"><button class="b-out">'+ic('mail',1.9)+'Email '+first+'</button></div></div>';
+  if(TAB==='Interviews')return '<div class="card"><div class="sec-h"><h3>Interviews</h3>'+live+'</div>'+
+    '<div class="lrow"><span>'+ring(76,46)+'</span><span class="t"><b>Video interview</b><small>5 of 5 answered · Submitted 2 days ago</small></span><button class="b-out">Open review'+ic('r',2)+'</button></div>'+
+    '<div class="lrow"><span class="nos">'+ic('clock',2)+'</span><span class="t"><b>Technical interview</b><small>Invited 9 Nov · due in 2 days · not started</small></span><button class="b-out">Resend invite</button></div></div>';
+  if(TAB==='Timeline')return '<div class="card"><div class="sec-h"><h3>Timeline</h3>'+live+'</div><div class="tl">'+
+    [['Moved to '+d.st,'by Bilal · 1d ago'],['Video interview submitted','2d ago'],['CV scored '+(d.s||'-')+' by AI recruiter','scored '+d.ago],['Applied to Senior Frontend Engineer',d.ago]].map(function(t){return '<div class="tli"><b>'+t[0]+'</b><p>'+t[1]+'</p></div>'}).join('')+'</div></div>';
+  return '<div class="card"><div class="sec-h"><h3>Comments</h3>'+live+'</div>'+
+    [['Sara Ahmed','sky','2h ago','Strong portfolio. Worth moving to the technical round this week.'],['Bilal Tariq','mint','1d ago','Notice period is long - check if they can negotiate it down.']].map(function(c){return '<div class="cm"><span class="av" style="background:'+TINT[c[1]][0]+';color:'+TINT[c[1]][1]+'">'+ini(c[0])+'</span><div><b>'+c[0]+'</b><small>'+c[2]+'</small><p>'+c[3]+'</p></div></div>'}).join('')+
+    '<label for="cmt" style="display:block;font-size:13px;font-weight:600;margin:16px 0 8px">Add a comment</label><textarea id="cmt" class="ta" placeholder="Visible to your hiring team only"></textarea><div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="b-pri">Post comment</button></div></div>';
+}
+
+var DTAB='Profile';
+function emailOf(d){return d.n.split(' ')[0].toLowerCase()+'@email.com'}
+function drawerHTML(){
+  return '<div class="dtop"><button class="back" data-close>'+ic('l',2)+'Back to applicants</button><button class="circ" data-close aria-label="Close">'+ic('x',2)+'</button></div>'+
+    '<div class="exist" style="margin:24px 30px;height:calc(100% - 110px);min-height:420px;flex-direction:column;font-size:14px;line-height:1.6"><b style="font-size:16px;color:var(--ai-t1)">Your existing drawer opens here</b>'+D[cur].n+' - all live tabs and content, unchanged</div>';
+}
+function openDrawer(){var dr=document.getElementById('drawer');dr.innerHTML=drawerHTML();dr.classList.add('open');dr.setAttribute('aria-hidden','false');document.getElementById('scrim').classList.add('open');bindDrawer()}
+function closeDrawer(){var dr=document.getElementById('drawer');dr.classList.remove('open');dr.setAttribute('aria-hidden','true');document.getElementById('scrim').classList.remove('open');}
+function bindDrawer(){var dr=document.getElementById('drawer');
+  dr.querySelectorAll('[data-close]').forEach(function(b){b.onclick=closeDrawer});
+}
+document.addEventListener('keydown',function(e){if(e.key==='Escape')closeDrawer()});
+/* desktop - interactive */
+var cur=0;
+function renderDesk(){
+  document.getElementById('desk').innerHTML=sidebar()+'<div><div class="topbar"><span class="crumb">Workspace · <b>Applicants</b></span><span class="me">WN</span></div><div class="container">'+
+  jobhead()+'<div class="toolbar">'+tabs()+controls()+'</div>'+
+  '<div class="split"><section class="panel" aria-label="Applicants"><div class="lh"><b>57 applicants</b></div><div>'+D.map(function(d,i){return item(d,i,i===cur?' is-sel':'')}).join('')+'</div>'+lfoot()+'</section>'+
+  '<section class="detail" role="region" aria-label="'+D[cur].n+' - applicant detail">'+detail(D[cur])+'</section></div></div></div>';
+  document.querySelectorAll('#desk .item').forEach(function(b){b.onclick=function(){cur=+b.getAttribute('data-i');renderDesk()}});
+  document.querySelectorAll('#desk [data-details]').forEach(function(b){b.onclick=function(){openDrawer()}});
+  var sb=document.querySelector('#desk [data-shortlist]');
+  if(sb)sb.onclick=function(){var d=D[cur];var acts=sb.parentNode;acts.innerHTML=slBtn(d,{saving:true})+acts.innerHTML.replace(sb.outerHTML,'');
+    setTimeout(function(){d.st='Shortlisted';renderDesk();showToast(d.n+' moved to Shortlisted')},900)};
+  var pv=document.querySelector('#desk .detail [data-prev]'),nx=document.querySelector('#desk .detail [data-next]');
+  if(pv)pv.onclick=function(){if(cur>0){cur--;renderDesk()}};if(nx)nx.onclick=function(){if(cur<D.length-1){cur++;renderDesk()}};
+}
+renderDesk();
+var tT;function showToast(m){var t=document.getElementById('dtoast');if(!t){t=document.createElement('div');t.id='dtoast';t.className='ftoast';t.setAttribute('role','status');document.querySelector('.frame').appendChild(t)}t.innerHTML=ic('check',2.2)+m;t.style.display='flex';clearTimeout(tT);tT=setTimeout(function(){t.style.display='none'},2600)}
+document.getElementById('scrim').onclick=closeDrawer;
+
+/* phone */
+document.getElementById('phoneList').innerHTML='<div class="topbar" style="padding:0 16px"><button class="pg" aria-label="Open menu">'+ic('menu',2)+'</button><span class="crumb"><b>Applicants</b></span><span class="me">WN</span></div><div class="container" style="padding:30px 16px 64px">'+
+  jobhead(true)+'<div class="toolbar">'+tabs()+controls(true)+'</div><section class="panel"><div class="lh"><b>57 applicants</b></div>'+D.slice(0,5).map(function(d,i){return item(d,i)}).join('')+lfoot()+'</section></div>';
+document.getElementById('phoneDetail').innerHTML='<div class="topbar" style="padding:0 16px"><button class="b-out" style="padding:8px 12px;border:none;background:none">'+ic('l',2)+'Back to applicants</button><span class="me">WN</span></div><div class="container detail" style="padding:20px 16px 64px">'+detail(D[0],true)+'</div>';
+
+/* states */
+function mini(t,d,h){return '<div class="mini"><h4>'+t+'</h4><p class="d">'+d+'</p>'+h+'</div>'}
+function pw(h,w){return '<div class="panel"'+(w?' style="width:'+w+'px"':'')+'>'+h+'</div>'}
+var A=D[2],S=[];
+var CM=D.filter(function(x){return x.common});
+S.push('<div class="mini" style="border:2px solid var(--ai-sidebar)"><h4 style="font-size:15px">Most common row today - about 2 in 3 applicants</h4><p class="d">Real data: location and years are empty for company applicants today, only ~35% are AI-scored and ~32% have screening. So the usual row is: name, email, "Applied X ago", and a no-score ring (dashed + clock = Pending; solid + minus = nothing coming). No verdict, no location line, no screening line. The email fills the second line so short rows keep the same rhythm, and the ring is centred. The panel beside it: unscored block, then Application and Details side by side (only Notice period filled).</p>'+
+ '<div style="display:grid;grid-template-columns:400px 1038px;gap:18px;align-items:start">'+pw('<div class="lh"><b>57 applicants</b></div>'+item(D[0],0)+item(CM[0],1)+item(CM[1],2,' is-sel')+item(CM[2],3)+item(D[6],4))+'<div class="pnl">'+detail(CM[1]).replace('<div class="pnl">','').slice(0,-6)+'</div></div>'+
+ '<div style="display:flex;gap:16px;margin-top:16px;flex-wrap:wrap"><div style="width:400px"><p class="d" style="margin-bottom:6px">Pending (most common)</p>'+pw(item(CM[0],0))+'</div><div style="width:400px"><p class="d" style="margin-bottom:6px">Hover</p>'+pw(item(CM[0],0,' is-hover'))+'</div><div style="width:400px"><p class="d" style="margin-bottom:6px">Selected</p>'+pw(item(CM[0],0,' is-sel'))+'</div><div style="width:400px"><p class="d" style="margin-bottom:6px">No CV text (dashed + clock, same as live)</p>'+pw(item(CM[2],0))+'</div></div></div>');
+S.push(mini('List item states','Default · hover (#FCFBFA, soft shadow, purple bar fades in) · selected (#EEEDFE, bar on) · Worth a look (3.5% purple wash, bar on) · keyboard focus (inset 2px ring, never clipped). Each item is one button - nothing clickable inside it.',
+ '<div style="display:grid;grid-template-columns:repeat(5,400px);gap:16px;overflow-x:auto">'+pw(item(A,0))+pw(item(A,0,' is-hover'))+pw(item(A,0,' is-sel'))+pw(item(D[3],0))+pw(item(A,0,' is-focus'))+'</div>'));
+S.push(mini('Score states (same ring as live)','Fixed bands: 80-100 green, 60-79 amber, 0-59 red. "Adjusted" when a person changed it. No score never shows a number: dashed + clock = something is coming; solid + minus = nothing is coming.',
+ '<div style="display:flex;gap:30px;flex-wrap:wrap;background:#fff;border-radius:14px;padding:20px 24px">'+[{s:94},{s:72},{s:38},{s:84,adj:1},{ns:'Pending'},{ns:'Failed'},{ns:'No CV text'},{ns:'Scoring off'},{ns:'Limit reached'}].map(score).join('')+'</div>'));
+S.push(mini('Top 10 view and long content','Review top 10 on: button turns purple and reads "Show all", banner above the list. Top match chip + mint avatar ring only here, only at 90+. Long names are cut with "…"; the verdict line wraps to 2 lines then cuts.',
+ '<div style="display:flex;gap:16px;align-items:flex-start"><div style="width:400px"><div style="margin-bottom:12px"><button class="b-pri" aria-pressed="true">'+ic('bolt',1.9)+'Show all</button></div>'+
+ pw('<div style="background:var(--purple-tint);padding:10px 18px;font-size:12.5px;font-weight:600;color:var(--purple-ink);display:flex;justify-content:space-between">Showing the top 10 scored applicants of 57.<a href="#" style="color:var(--purple);font-weight:700">Show all applicants</a></div>'+item(Object.assign({},D[0],{top:1}),0)+item(Object.assign({},D[1],{top:1}),1))+'</div>'+
+ '<div style="width:400px">'+pw(item(Object.assign({},D[4],{n:'Muhammad Abdullah Rehman Siddiqui Qureshi',v:'Very strong accessibility and component-library background, but below the experience bar for this senior role and no TypeScript in production'}),0))+'</div></div>'));
+function skItem(){return '<div style="display:grid;grid-template-columns:40px 1fr 38px;gap:12px;padding:15px 18px;border-bottom:1px solid var(--ai-line-soft)"><span class="sk" style="width:40px;height:40px;border-radius:50%"></span><span><span class="sk" style="display:block;width:50%;height:12px;margin-bottom:8px"></span><span class="sk" style="display:block;width:90%;height:10px;margin-bottom:6px"></span><span class="sk" style="display:block;width:40%;height:10px"></span></span><span class="sk" style="width:38px;height:38px;border-radius:50%"></span></div>'}
+S.push(mini('Loading','List: skeleton rows in the real shape. Panel: like the live drawer, there is no whole-panel skeleton - the header renders straight from the list row, and each card shows pulsing bars until its read returns.',
+ '<div style="display:grid;grid-template-columns:400px 1fr;gap:18px">'+pw('<div class="lh"><span class="sk" style="width:110px;height:14px"></span></div>'+skItem()+skItem()+skItem()+skItem())+
+ '<div class="pnl">'+detail(D[0]).split('<div class="pnl-b"')[0].replace('<div class="pnl">','')+'<div class="pnl-b"><div class="pc"><span class="sk" style="display:block;width:22%;height:14px;margin-bottom:14px"></span><span class="sk" style="display:block;width:95%;height:11px;margin-bottom:8px"></span><span class="sk" style="display:block;width:70%;height:11px"></span></div><div class="pc"><span class="sk" style="display:block;width:30%;height:14px;margin-bottom:14px"></span><span class="sk" style="display:block;width:100%;height:40px;border-radius:12px;margin-bottom:8px"></span><span class="sk" style="display:block;width:100%;height:40px;border-radius:12px"></span></div></div></div></div>'));
+S.push(mini('Updating after a filter change','Old list items stay at 50% with aria-busy; the details keep showing the selected person until the new list arrives.',
+ '<div style="width:400px;opacity:.5" aria-busy="true">'+pw(item(D[0],0,' is-sel')+item(D[1],1))+'</div>'));
+S.push(mini('Unscored in the details','The details never invent a score. Left: Pending with screening answers. Right: No CV text, nothing else filled - the unscored block is solid, and Application takes the full width.', '<div style="display:grid;grid-template-columns:1038px 700px;gap:18px;align-items:start"><div class="detail">'+detail(D[6])+'</div><div class="detail">'+detail(CM[2])+'</div></div>'));
+var E=[["We couldn't run that search","A different spelling won't help - this is on our side, not your query. Reload the page to try again."],['No applicants match “Ahmed”','Try a different name or email, or clear your search to see everyone.'],["You haven't been assigned to any roles yet","You'll see applicants for the roles you're on. Ask an owner or admin to add you to a job's hiring team."],['No applicants yet',"When someone applies to one of your published roles, they'll appear here - scored and ranked by your AI recruiter."],['Nothing in this view','No applicants match this stage or role filter. Switch tabs to see everyone.']];
+S.push(mini('Empty and error','The 5 live messages, same order. When the list is empty, the details area is hidden and the message spans the full width.',
+ '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">'+E.map(function(e){return pw('<div class="empty"><div class="tile">'+ic('people',1.7)+'</div><h3>'+e[0]+'</h3><p>'+e[1]+'</p></div>')}).join('')+'</div>'));
+S.push(mini('Footer variants','Below the list: the ranking note per sort, then the pager (20 per page, server side).','<div style="display:grid;grid-template-columns:400px 400px;gap:16px">'+pw(lfoot())+pw(lfoot('new'))+'</div>'));
+S.splice(1,0,mini('List item data variants','Verdict line only when scored. Location and years only when filled - the line is hidden when both are empty, never a "-". "Screening X/Y met" only when the job has screening questions.',
+ '<div style="display:grid;grid-template-columns:repeat(4,400px);gap:16px;overflow-x:auto">'+
+ '<div><p class="d" style="margin-bottom:6px">Location + years</p>'+pw(item(D[0],0))+'</div>'+
+ '<div><p class="d" style="margin-bottom:6px">Years only (no location)</p>'+pw(item(Object.assign({},D[3],{flag:null}),0))+'</div>'+
+ '<div><p class="d" style="margin-bottom:6px">Neither - line hidden</p>'+pw(item(D[5],0))+'</div>'+
+ '<div><p class="d" style="margin-bottom:6px">Unscored · job without screening</p>'+pw(item(Object.assign({},D[6],{q:null}),0))+'</div></div>'));
+S.push(mini('Panel on load - first row auto-selected','When the page opens without ?applicant=, the first row in the current order is selected in state, so the panel is never blank. The URL is written only when the viewer clicks a row (replaceState, no extra history). If the list is empty, the panel is hidden and the empty message spans the full width (see "Empty and error").',
+ '<div style="display:grid;grid-template-columns:400px 1fr;gap:18px;align-items:start;max-width:1456px">'+pw('<div class="lh"><b>57 applicants</b></div>'+item(D[0],0,' is-sel')+item(D[1],1))+'<div class="pnl" style="max-height:330px">'+detail(D[0]).replace('<div class="pnl">','').slice(0,-6)+'</div></div>'));
+function topOnly(d,o){return '<div class="pnl" style="width:1038px">'+detail(d,false,o).split('<div class="pnl-b"')[0].replace('<div class="pnl">','')+'</div>'}
+var HA=Object.assign({},D[3],{flag:null,st:'Applied'}),HS=Object.assign({},D[3],{flag:null,st:'Screening'});
+S.push(mini('Shortlist button states','Follows the live canChangeStage rules. Shortlisted is allowed for every role, including hiring managers. The button is hidden (not disabled) when it can\'t do anything, so there is never a dead control; the Stage control beside it already says where the applicant is.',
+ '<div style="display:grid;gap:14px">'+
+ '<div><p class="d" style="margin-bottom:6px"><b>1. Default</b> - stage Applied or Screening, any role (hiring manager too). Click moves the applicant to Shortlisted.</p>'+topOnly(HA)+'</div>'+
+ '<div><p class="d" style="margin-bottom:6px"><b>2. Saving</b> - spinner, "Shortlisting…", aria-busy; the Stage select is disabled at 70% with a wait cursor (live rule). Double clicks do nothing.</p>'+topOnly(HS,{saving:true}).replace('<select id=','<select disabled style="opacity:.7;cursor:wait" id=')+'</div>'+
+ '<div><p class="d" style="margin-bottom:6px"><b>3. Already Shortlisted or later</b> (Shortlisted, Interview, Offer, Hired) - button hidden. Success toast after a click: "&lt;name&gt; moved to Shortlisted".</p>'+topOnly(D[0])+
+   '<div style="position:relative;height:64px"><div class="ftoast" role="status" style="bottom:8px">'+ic('check',2.2)+'Fatima Khan moved to Shortlisted</div></div></div>'+
+ '<div><p class="d" style="margin-bottom:6px"><b>4. Error</b> - the button comes back, the stage is unchanged, and an error toast says so. A failed save never looks like a success.</p>'+topOnly(HA)+
+   '<div style="position:relative;height:64px"><div class="ftoast err" role="alert" style="bottom:8px"><span style="color:var(--ai-danger)">'+ic('x',2.4)+'</span>Couldn\'t shortlist Usman Ghani - nothing changed. <button>Try again</button></div></div></div>'+
+ '<div><p class="d" style="margin-bottom:6px"><b>5. Rejected, owner / admin / recruiter</b> - button shown: shortlisting re-opens the applicant.</p>'+topOnly(Object.assign({},HA,{st:'Rejected'}))+'</div>'+
+ '<div><p class="d" style="margin-bottom:6px"><b>6. Hiring manager on a decision stage</b> (Hired or Rejected) - button hidden; Stage is read-only with "Only an owner, admin or recruiter can change this." A hiring manager\'s Stage select never offers Hired or Rejected.</p>'+topOnly(Object.assign({},HA,{st:'Rejected'}),{hm:true})+'</div>'+
+ '</div>'));
+S.push(mini('Breakpoints - real browser width','This page has no table any more. The old 1049 px table/card switch is removed for this page (both the Tailwind classes and the data-twin rule in the root layout.tsx:101 - change both together).',
+ '<table style="width:100%;border-collapse:collapse;font-size:13px;background:#fff;border-radius:12px;overflow:hidden"><tr style="background:var(--ai-inset)"><th style="text-align:left;padding:10px 14px">Real width</th><th style="text-align:left;padding:10px 14px">What shows</th></tr>'+
+ [['1100 px and up','<b>Split</b>: list column 400 CSS px (the Split list item) + panel always open beside it. Panel is sticky, full height minus the topbar, scrolls on its own.'],
+  ['840 - 1099 px','<b>List only</b>, full width, with the sidebar. Same Split list item, stretched (no table). A row opens the <b>details full screen</b> (the same panel content as a full-screen sheet, with "Back to applicants"; useModalFocus on in this mode only).'],
+  ['below 840 px','Same as above, without the sidebar (menu button), container padding 16.'],
+  ['below 525 px','Same, plus the header score ring is hidden in the details (live rule).']].map(function(r){return '<tr><td style="padding:10px 14px;border-top:1px solid var(--ai-line-soft);font-weight:700;white-space:nowrap;vertical-align:top">'+r[0]+'</td><td style="padding:10px 14px;border-top:1px solid var(--ai-line-soft)">'+r[1]+'</td></tr>'}).join('')+'</table>'+
+ '<p class="d" style="margin:16px 0 6px"><b>Example: 1024 px real window</b> (1249 CSS px): list only, Split list item full width.</p>'+
+ '<div class="frame" style="width:1249px"><div class="shell" style="min-height:0">'+sidebar()+'<div><div class="container" style="padding:24px 32px 32px">'+jobhead()+'<div class="toolbar">'+tabs()+controls()+'</div>'+pw('<div class="lh"><b>57 applicants</b></div>'+item(D[0],0)+item(D.filter(function(x){return x.common})[0],1)+item(D[3],2))+'</div></div></div></div>'));
+S.push(mini('Details - must-haves','Live "Must-haves met" style: purple pill title, count N/M, evidence rows 12.5px with a 16px round icon, "View evidence" (aria-expanded) reveals the verbatim CV quote in italics with a left rule. Found = purple check; not found = neutral, in the same card. Mint is kept for Strengths (drawer only).',
+ '<div style="width:560px">'+mustCard(D[0],true)+'</div>'));
+S.push(mini('Details - job without screening questions','The Screening questions card is hidden (same rule as the live drawer); the summary line drops "and N screening answers".',
+ '<div class="detail" style="width:1038px">'+detail(D[2],false,{noScreening:true})+'</div>'));
+var JOBS=[['Senior Frontend Engineer','Open',57,1],['Sales Development Representative - US Market (Outbound, Full Cycle)','Open',34],['Backend Engineer (Node)','Open',21],['DevOps Engineer','Open',12],['Product Designer','Open',18],['Customer Success Manager - EMEA and APAC Enterprise Accounts','Open',9],['Data Analyst','Open',7],['QA Automation Engineer','Open',5],['Technical Recruiter','Closed',41],['Mobile Engineer (React Native)','Closed',26],['Head of Growth','Closed',15],['Content Writer','Closed',8]];
+S.push(mini('Job select - long list','The live native &lt;select&gt;, unchanged control. One job at a time: no "All jobs". Opens on the newest open job the viewer can see. Two &lt;optgroup&gt;s: "Open" then "Closed", newest first in each. Type-ahead jumps through long lists. The open menu on the right shows the grouping only - the browser draws the real menu.',
+ '<div style="display:flex;gap:24px;align-items:flex-start"><div><select class="sel" aria-label="Job" style="width:380px">'+['Open','Closed'].map(function(g){return '<optgroup label="'+g+'">'+JOBS.filter(function(j){return j[1]===g}).map(function(j){return '<option'+(j[3]?' selected':'')+'>'+j[0]+'</option>'}).join('')+'</optgroup>'}).join('')+'</select><p class="d" style="margin-top:8px">Closed (real native select - try it)</p></div>'+
+ '<div><div class="sel" style="width:380px;border-color:var(--purple);box-shadow:0 0 0 3px rgba(126,71,255,.14);margin-bottom:8px">Senior Frontend Engineer</div>'+
+ '<div class="jmenu" role="presentation" aria-hidden="true"><ul>'+
+ '<li class="grp" role="presentation">Open · 8</li>'+JOBS.filter(function(j){return j[1]==='Open'}).map(function(j,k){return '<li role="option" aria-selected="'+(!!j[3])+'"'+(k===1?' class="hov"':'')+' title="'+j[0]+'"><span class="ck">'+(j[3]?ic('check',2.4):'')+'</span><span class="jt trunc">'+j[0]+'</span><span class="jm num">'+j[2]+' applicants</span></li>'}).join('')+
+ '<li class="grp" role="presentation">Closed · 4</li>'+JOBS.filter(function(j){return j[1]==='Closed'}).map(function(j){return '<li role="option" aria-selected="false" title="'+j[0]+'"><span class="ck"></span><span class="jt trunc" style="color:var(--ai-t3)">'+j[0]+'</span><span class="jm num">'+j[2]+' applicants</span></li>'}).join('')+
+ '</ul></div></div></div>'));
+S.push(mini('Viewer has no jobs','No job header, no toolbar, no split - the live title and the live empty message, full width.',
+ '<div style="background:var(--ai-page);border-radius:14px;padding:30px 32px;width:1456px;max-width:100%"><h1 style="font-family:Sora;font-weight:800;font-size:32px;letter-spacing:-.035em;line-height:1;margin:0 0 20px">Applicants</h1>'+
+ pw('<div class="empty"><div class="tile">'+ic('people',1.7)+'</div><h3>You haven\'t been assigned to any roles yet</h3><p>You\'ll see applicants for the roles you\'re on. Ask an owner or admin to add you to a job\'s hiring team.</p></div>')+'</div>'));
+document.getElementById('states').innerHTML=S.join('');
+
+/* changes */
+var C=[
+ ['vis','Applicants layout','Full-width table; row opens a slide-in drawer, list fades to 30%','Split: list 400px on the left, panel always open on the right (gap 18px; 1038 CSS px at a 1440 px window). Below 1100 px real width: list only - the same Split list item, full width - and a row opens the details full screen. No table at any width: the old 1049 px table/card switch is removed for this page (Tailwind classes + the data-twin rule in root layout.tsx:101).','Brief 7.4 · drawer audit §10'],
+ ['vis','Page header','"Applicants" title + lede with lime highlight','Job header: 48px logo, job title (Sora 800 32px, -0.035em), meta line. Export page + Review top 10 kept on the right.','Brief 4.1'],
+ ['prod','Summary block','Dark block: total + 5-step funnel','Not shown on this page','Confirmed'],
+ ['prod','Shortlist button','-','Dark button in the panel top row. Stage Applied / Screening: shown, any role (hiring managers too - canChangeStage allows Shortlisted). Shortlisted or later: hidden. Saving: spinner, "Shortlisting…", aria-busy, Stage select disabled. Success toast "&lt;name&gt; moved to Shortlisted". Error toast "Couldn\'t shortlist &lt;name&gt; - nothing changed." + Try again; stage unchanged. Rejected: shown for owner / admin / recruiter; hidden for a hiring manager (Stage read-only).','Confirmed write action'],
+ ['prod','Job select','In the toolbar, "All jobs" default','One job at a time - no "All jobs". Opens on the newest open job the viewer can see. Stays the live native &lt;select&gt;: two optgroups, "Open" then "Closed", newest first in each.','Confirmed. Type-ahead covers long lists. <b>Possible later:</b> a "Filter jobs…" box'],
+ ['prod','List item data','Rank, name, email, job, Added by team, score, stage, applied date','Name · AI verdict line (scored only; 12.5px --ai-t2, max 2 lines) - when there is no verdict, the email shows in its place (12.5px --ai-t3, live email style) · location and years (each only when filled) · "Applied X ago" · "Screening X/Y met" in neutral --ai-t3, never green (only when the job has screening questions) · Added by team · score ring. No rank, email, job or stage on rows.','Fields exist; location and years are empty for company applicants today. Most common today (~2 in 3): name, email, applied, no-score ring'],
+ ['vis','Row alignment','Grid rows, ring vertically centred','Ring and avatar vertically centred in every row, so short and tall rows stay balanced',''],
+ ['prod','"New" dot and "N new" count','-','Removed','Data does not exist'],
+ ['vis','Score in list','38px ring','Same 38px ring and bands (unchanged)',''],
+ ['vis','--ai-t3 / --ai-t4 text (this page, list and panel)','#847E8C / #B0AAB8','#625C6A / #6E6876 (AA on white, inset and purple tint)','Also fixes the drawer audit\'s contrast fails for the same text in the panel'],
+ ['vis','Focus ring on list items','Global, offset 2px','Inset, offset -2px',''],
+ ['vis','Selected stage tab','Colour only','Adds aria-pressed and weight 700',''],
+ ['prod','Viewer has no jobs','Live empty message inside the table panel','No job header, toolbar or split - "Applicants" title + the live message full width','Uses the live copy']
+];
+var DR=[
+ ['same','Panel header','White, 1px --ai-line bottom border, padding 16px top / 22px sides','Same',''],
+ ['same','Avatar, name, identity line','54px avatar (Sora 800 18px, purple 10% ring); name Sora 800 21px, lh 1.15, -0.03em, truncates; identity 12.5px 500 --ai-t3: email bold --ai-t2 · location · "Applied 9 Nov 2026", 3px dots','Same',''],
+ ['same','Header score','42px mini ring (r18, stroke 4, slate track), Sora 800 14px; band label 12.5px bold "Strong match / Moderate match / Needs review"; "Adjusted" 11px; 1×36px divider; no ring when unscored; hidden below a real 525px','Same','Replaces the v5 96px score box'],
+ ['same','Stage control','Label 11.5px bold --ai-t3 + native select: radius 11, --ai-inset, 1px --ai-line, 9px 34px 9px 30px, 13px bold, 7px dot, neutral colour, purple focus ring','Same','Replaces the v5 coloured stage pill. Hiring-manager read-only rule stays'],
+ ['diff','Top row','"Back to applicants" (left) · Previous / "N of M" / Next · Close X (30px icon buttons, radius 11)','Left: <b>Shortlist</b> (dark --ai-sidebar fill) and <b>Details</b> (white, --ai-line-strong border, radius 11, 13.5px bold). Right: Previous / "N of M" / Next kept. No Back, no Close - nothing to close.','New buttons; Shortlist writes (confirmed)'],
+ ['diff','Tabs','6 tabs: Profile · Review · Communication · Interviews · Timeline · Comments','No tabs in the panel. "Details" opens the live drawer, unchanged, with all 6 tabs and the same URL params.','Drawer audit §3 untouched'],
+ ['same','Body and cards','--ai-inset body, padding 18 / 22 / 28; white cards radius 20, 1px --ai-line, shadow 0 6px 30px .06, padding 20px 22px; titles Sora 700 15px -0.02em; meta 11px 500 --ai-t3; 14px under the head','Same','Gap between cards 16px (not stated in the audit)'],
+ ['same','"Worth a look" banner','Lime, radius 16, padding 13px 16px, 30px disc, Sora 700 13px #2F3A00 + reason 12px at 70%, 26px dismiss','Same, on top of the panel body',''],
+ ['same','Summary card','Review tab: card "Summary", meta "Generated from the CV…", body 13px lh 1.72 --ai-t2','Same, title "Summary"; shown first, without opening Review',''],
+ ['same','Scored dimensions','Sub-head Sora 700 15px + hairline; rows 200px | 8px bar | Sora 800 25px score + "/100" 12px; reasoning 12.5px --ai-t2 under the bar; 4 AI names; single column below a real 840px','Same',''],
+ ['diff','Must-haves','Review evidence: "Must-haves met" box (purple pill, count N/M) and a separate "Missing requirements" box (danger); rows 12.5px, 16px icon, "View evidence" reveals the quote in italics with a left rule','Same "Must-haves met" style (purple pill, N/M, purple check, "View evidence"). Difference: not-found must-haves sit in the same card, neutral. Strengths (mint), Missing requirements and Risks stay in the drawer.','Confirmed: one card'],
+ ['same','Screening questions','Card, intro line 11.5px, bordered answer boxes (radius 12, 11px 13px), question 12px --ai-t3, "Essential" pill, answer 14px bold, "Meets / Below threshold" slate / amber, never green','Same','Replaces the v5 mint/amber tick list'],
+ ['same','Application card','"Applied to <b>job</b> · 2d ago" 13px; manual-row chip + "Not emailed…" note; Open CV (purple, link) + Email (outline, opens Composer), radius 12, 11px 12px, 13px bold','Same','Replaces v5 "View CV" and "Message" buttons'],
+ ['same','Details card','Rows 13.5px, label --ai-t3 / value bold, 9px padding: Location, Experience, Notice period, Availability, Phone, LinkedIn - each only if present','Same component; panel shows Location, Experience, Notice period','Availability, Phone, LinkedIn stay in the drawer'],
+ ['diff','Drawer-only parts','Danger card, Review score card (112px ring, verdict, confidence, Adjust / Re-score), Strengths / Risks, Communication, Interviews, Timeline, Comments','Not in the panel - reached through "Details"',''],
+ ['diff','Unscored','Review card: centred unscored block from unscoredCardState, dashed while in progress, invisible border otherwise','Same block: dashed for Pending ("Scoring this CV"), solid/invisible for No CV text ("No readable CV text"). Then Screening (if any), Application and Details. With no screening: Application and Details side by side; with no details either: Application full width.','Real copy comes from unscoredCardState'],
+ ['diff','Frame and behaviour','Fixed overlay, max 1100px, no radius, shadow to the left, role="dialog" aria-modal, focus trap, list inert, Escape closes','A page column: radius 20, 1px --ai-line, list shadow. role="region" aria-label "&lt;name&gt; - applicant detail"; no trap, list stays clickable, Escape does nothing (still closes Composer and dialogs above). The drawer opened by "Details" keeps its live behaviour.','Drawer audit §10.1-10.3'],
+ ['diff','Opening state','Drawer opens only on a row click; URL ?applicant=&tab=','First row is selected in state on load; the URL is written only on a click. Clicking down the list keeps the panel on summary data, so Interviews reads don\'t fire per row.','Drawer audit §10.4, 10.9'],
+ ['diff','Scrolling','Fixed full-height frame; body is the only scroller; page scroll locked','Panel column is sticky (top 80px) at full height minus the 64px topbar and gaps: height calc(var(--vh-full) - 64px - 32px). Header stays; body scrolls on its own (overflow-y auto, overscroll contained). The list scrolls with the page.','Drawer audit §10.7. Never h-screen inside the shell'],
+ ['diff','Below 1100 px real width','Overlay at 96% width at every size','List only (Split list item, full width, no table). A row opens the panel content as a full-screen sheet with "Back to applicants" (useModalFocus on only in this mode). 840 / 525 px rules as live','Drawer audit §10.5, 10.6. The list\'s own 1049px table/card switch still applies'],
+ ['diff','Small notes','--ai-t4 #B0AAB8, Danger note 10px (2.26:1)','Panel notes use --ai-t3 #625C6A (6.45:1); no --ai-t4 text at 10px in the panel. The 10px Danger note stays in the drawer only.','Contrast'],
+ ['diff','Removed from the panel (were in v5)','-','Facts row with icons, 96px score box, coloured stage pill, "…" menu, mint/amber screening ticks','All replaced by the live components above']
+];
+var U=[
+ ['Score shown as plain "92 match" text','Live 38px score ring with fixed bands'],
+ ['Filter pills: Best match first, Stage, Location, Years of experience, Skills, CV score 80+','Live toolbar: stage tabs + Flagged, Sort select, Job select, Search, Add candidate (no new server filters)'],
+ ['Purple "new" dot and purple matching-skill chips','Dot removed (no data); must-haves use the live purple "Must-haves met" style (mint is for Strengths in the drawer)'],
+ ['Pill-shaped buttons (radius 999px)','Live button radius 12px'],
+ ['Cards radius 16px, own shadow','Live panel: radius 20px, 1px --ai-line, shadow 0 6px 30px rgba(20,16,32,.06)'],
+ ['No pager, list scrolled','Live footer: ranking note + pager, 20 per page'],
+ ['Top match flag on the first person by default','Top match only in Review top 10, only at 90+'],
+ ['Page drawn inside a 0.82 zoom','Drawn at CSS size'],
+ ['v5 panel: 96px score box, coloured stage pill','Live mini ring + band label, live neutral Stage select'],
+ ['v5 panel: mint ticks on screening answers','Live "Meets / Below threshold" pills - self-reported data never looks verified (green)'],
+ ['v5 panel: "View CV" and "Message" buttons','Live "Open CV" (purple link) and "Email" (opens Composer)'],
+ ['v7 list: rows with no verdict had only "Applied X ago" under the name','Email fills the second line (live list data) so the most common row stays balanced'],
+ ['v6 list: "Screening X/Y met" in mint (green)','Neutral --ai-t3 - self-reported data never looks verified'],
+ ['v6 panel: must-haves "found" in mint','Live "Must-haves met" purple style - mint means Strengths in the drawer'],
+ ['v6 panel: card title "Why this match"','Live title "Summary", same as the drawer behind Details'],
+ ['v5 panel: name Sora 24px, cards radius 20 with 24px 26px padding, section titles 16px','Live sizes: name 21px, card padding 20px 22px, titles Sora 700 15px']
+];
+document.getElementById('changes').innerHTML='<p style="margin:0 0 14px"><span class="tag prod">Product</span> = a rule in the brief changes, needs your OK and backend data. <span class="tag vis">Visual</span> = look only.</p>'+
+ '<table><tr><th></th><th>What</th><th>Live</th><th>New</th><th>Note</th></tr>'+C.map(function(c,i){return '<tr><td><span class="tag '+c[0]+'">'+(c[0]==='prod'?'Product':'Visual')+'</span></td><td>'+c[1]+'</td><td>'+c[2]+'</td><td>'+c[3]+'</td><td>'+c[4]+'</td></tr>'}).join('')+'</table>'+
+ '<h3 style="margin-top:28px">Right panel vs the live drawer</h3><p style="margin:0 0 10px"><span class="tag vis">Same</span> = live component and sizes, no change. <span class="tag prod">Different</span> = a change to build.</p><table><tr><th></th><th>What</th><th>Live drawer</th><th>Split panel</th><th>Note</th></tr>'+DR.map(function(c){return '<tr><td><span class="tag '+(c[0]==='same'?'vis':'prod')+'">'+(c[0]==='same'?'Same':'Different')+'</span></td><td>'+c[1]+'</td><td>'+c[2]+'</td><td>'+c[3]+'</td><td>'+c[4]+'</td></tr>'}).join('')+'</table>'+
+ '<h3 style="margin-top:28px">Changes I had to undo (from the earlier Split page)</h3><table><tr><th>Earlier Split page</th><th>Now</th></tr>'+U.map(function(u){return '<tr><td>'+u[0]+'</td><td>'+u[1]+'</td></tr>'}).join('')+'</table>'+
+ '<p style="margin-top:14px">No new fonts or radii. New colour uses: purple tint (the live "Must-haves met" style) for found must-haves, --ai-sidebar fill for Shortlist - both existing tokens.</p>';
+</script>
+</body>
+</html>
