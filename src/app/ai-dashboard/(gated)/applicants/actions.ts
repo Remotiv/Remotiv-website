@@ -56,10 +56,11 @@ import { deleteApplicationInterviews } from "@/lib/interviews/application-deleti
 import { dismissShortlistFlag } from "@/lib/interviews/shortlist";
 import type { ScreeningAnswerSnapshot } from "@/lib/jobs";
 import { normalizeEmail } from "@/lib/normalize";
-import { notifyCompany } from "@/lib/notifications/company";
+import { notifyCompany, resolveHref } from "@/lib/notifications/company";
 import { extractPdfTextServer, type PdfTextResult, stripInvalidPgChars } from "@/lib/pdf-text";
 import { findSharedPaths } from "@/lib/shared-storage-refs";
 import { removeObjects } from "@/lib/storage-objects";
+import { pageAllByKey } from "@/lib/supabase/paging";
 import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 import { isValidEmail } from "@/lib/validators";
@@ -2445,13 +2446,34 @@ export async function rescoreJob(
  * operation can simply be repeated (removing an already-gone object is a
  * no-op). Row-first would leave the PDF — the single largest piece of PII —
  * orphaned in the bucket with no record of its path outside the logs.
+ *
+ * BELLS (#88): the applicant's notifications_company rows go with them. Their
+ * titles carry the person's name, and application_id is ON DELETE SET NULL,
+ * so without this a bell outlives the applicant indefinitely (the #72A sweep
+ * is manual and 30-day-gated). Two cleans, and the order is the point - do not
+ * "tidy" them into one:
+ *   - PRE-CLEAN, after the files and before the row, by application_id. While
+ *     the row exists the bells still point at it, so this finds them all. If
+ *     it fails the row is kept: a retry repeats it, files-first stays safe.
+ *   - POST-CLEAN, after the row, for a bell written between the pre-clean and
+ *     the row delete. The FK has nulled its pointer by then, so it is found by
+ *     the href notifyCompany built for this applicant. If it fails, the
+ *     applicant is already gone, so the delete is still reported done and the
+ *     failure is logged by code; that bell is left for the manual sweep.
  */
 export async function deleteApplication(applicationId: string): Promise<MutationResult<undefined>> {
   const ctx = await requireCompanyRole("owner", "admin", "recruiter");
   const service = createServiceClient();
+  // The interview-page link interview_expired writes. lib/interviews/expiry.ts
+  // builds it by hand (AVI-owned); delete-bells.test.ts holds the two equal.
+  const interviewPageHref = (sessionId: string) => `/ai-dashboard/interviews/${sessionId}`;
+  // Hrefs per late-clean DELETE, so a long session list stays a short URL.
+  const LATE_HREF_CHUNK = 100;
 
   // Ownership recheck. Not-found and not-yours return the SAME message so a
-  // probe can't confirm another company's id exists.
+  // probe can't confirm another company's id exists. The column list is
+  // unchanged on purpose: tenant-isolation.test.ts pins this read by its exact
+  // text. The name columns are read but no longer written anywhere (#88).
   const { data } = await service
     .from("job_applications")
     .select("id, company_id_snapshot, cv_path, job_id, first_name, last_name")
@@ -2474,6 +2496,27 @@ export async function deleteApplication(applicationId: string): Promise<Mutation
     return { success: false, error: "Applicant not found in your workspace." };
   }
 
+  // Their interview session ids, read before step 0 deletes the sessions (#88).
+  // An interview_expired bell links to the interview page, not the applicant,
+  // so the post-clean needs these hrefs to catch one that raced the delete.
+  // A failed read stops here, before anything is removed.
+  let sessionHrefs: string[];
+  try {
+    const sessions = await pageAllByKey<{ id: string }>(
+      () =>
+        service
+          .from("interview_sessions")
+          .select("id")
+          .eq("company_id", ctx.companyId)
+          .eq("application_id", applicationId),
+      { scope: "applicants", label: "delete: interview session ids" },
+    );
+    sessionHrefs = sessions.map((s) => interviewPageHref(s.id));
+  } catch (err) {
+    const code = ((err as { cause?: { code?: string } }).cause?.code ?? "error") as string;
+    return { success: false, error: actionIncomplete("read an applicant's interviews", code) };
+  }
+
   // 0. Their AI interviews and recordings (B7), first: if a file is left, the
   //    delete stops here with nothing else removed, and a retry finishes it.
   const interviews = await deleteApplicationInterviews(service, ctx.companyId, applicationId);
@@ -2485,7 +2528,22 @@ export async function deleteApplication(applicationId: string): Promise<Mutation
   const files = await removeApplicationFiles(service, ctx.companyId, applicationId, target.cv_path);
   if (!files.ok) return { success: false, error: files.error };
 
-  // 2. The row. Scoped again on company_id_snapshot so the DELETE itself
+  // 2. Their bells, while they still point at this row (#88, PRE-CLEAN; see
+  //    the docblock). A failure keeps the row: the code is logged, never the
+  //    database's message, and a retry repeats this step.
+  const { error: bellErr } = await service
+    .from("notifications_company")
+    .delete()
+    .eq("company_id", ctx.companyId)
+    .eq("application_id", applicationId);
+  if (bellErr) {
+    return {
+      success: false,
+      error: actionIncomplete("delete an applicant's notifications", bellErr.code ?? "error"),
+    };
+  }
+
+  // 3. The row. Scoped again on company_id_snapshot so the DELETE itself
   //    cannot touch another tenant even if the check above were bypassed.
   const { error: delErr } = await service
     .from("job_applications")
@@ -2497,10 +2555,39 @@ export async function deleteApplication(applicationId: string): Promise<Mutation
   // "nothing was changed" case; a retry finds them gone and deletes the row.
   if (delErr) return { success: false, error: actionIncomplete("delete that applicant", delErr) };
 
+  // 4. POST-CLEAN (#88): a bell written between step 2 and step 3 had its
+  //    pointer nulled by the FK. Found by href: the applicant link
+  //    notifyCompany builds (same helper, so the two cannot drift) and the
+  //    interview pages read above (interview_expired). Always scoped to this
+  //    company and to orphaned rows. Tried twice; the applicant is gone either
+  //    way, so a second failure is logged by code and not reported. That does
+  //    NOT mean the bell is gone: it waits for the manual sweep.
+  const applicantHref = resolveHref({ type: "stage_change", applicationId });
+  const lateHrefs = [...(applicantHref ? [applicantHref] : []), ...sessionHrefs];
+  for (let i = 0; i < lateHrefs.length; i += LATE_HREF_CHUNK) {
+    const chunk = lateHrefs.slice(i, i + LATE_HREF_CHUNK);
+    const lateClean = () =>
+      service
+        .from("notifications_company")
+        .delete()
+        .eq("company_id", ctx.companyId)
+        .is("application_id", null)
+        .in("href", chunk);
+    let { error: lateErr } = await lateClean();
+    if (lateErr) ({ error: lateErr } = await lateClean());
+    if (lateErr) {
+      console.error(
+        `[applicants] delete applicant: late bell clean failed: ${lateErr.code ?? "error"}`,
+      );
+    }
+  }
+
+  // Names nobody (#88): the bell outlives the applicant by design, so it must
+  // not carry their name, email or phone. The actor is a team member.
   await notifyCompany({
     companyId: ctx.companyId,
     type: "applicant_deleted",
-    title: `${[target.first_name, target.last_name].filter(Boolean).join(" ").trim() || "An applicant"} was deleted`,
+    title: "An applicant was deleted",
     body: `${ctx.memberName} permanently removed them, their CV, and their interviews and recordings.`,
     jobId: target.job_id,
     // No application_id: the row it pointed at no longer exists, and a link to

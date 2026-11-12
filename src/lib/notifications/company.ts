@@ -126,13 +126,20 @@ const APPLICANT_TYPES = new Set<CompanyNotificationType>([
  * holds the two equal, and orphan-sweep-scan.test.ts proves every writer of
  * these types passes an application id from a live row.
  *
- *   score_ready            cv-scoring.ts:1713-1717, title "<name> scored"
- *   stage_change           applicants/actions.ts:1375 and :1421, title "<name> moved to"
- *   interview_booked       api/book/[token]/route.ts:489-493, title "<name> booked"
- *   interview_rescheduled  api/book/[token]/route.ts:604-608, title "<name> moved their interview"
- *   interview_cancelled    api/book/[token]/route.ts:694-700, booking-actions.ts:433,
- *                          final-interview-actions.ts:839-840, title "<name> cancelled"
- *   interview_expired      interviews/expiry.ts:574-576 and :588, title "<name>'s deadline passed"
+ * Writers named by file and function rather than line, which drifts:
+ *   score_ready            cv-scoring.ts (the score_ready notifyCompany), title "<name> scored"
+ *   stage_change           applicants/actions.ts updateApplicationStage, title "<name> moved to"
+ *   interview_booked       api/book/[token]/route.ts (booking), title "<name> booked"
+ *   interview_rescheduled  api/book/[token]/route.ts (reschedule), title "<name> moved their interview"
+ *   interview_cancelled    api/book/[token]/route.ts (cancel), booking-actions.ts,
+ *                          final-interview-actions.ts, title "<name> cancelled"
+ *   interview_expired      interviews/expiry.ts, title "<name>'s deadline passed"
+ *
+ * Since #88 neither delete path waits for the sweep: deleteApplication in
+ * applicants/actions.ts and in admin/applications/actions.ts delete the
+ * applicant's bells before the row (by application_id) and again after it
+ * (by the href resolveHref builds). The sweep stays the backstop for a
+ * failed second clean and for older orphans.
  *
  * Each name is read from the application row the id names, so a bell written
  * after the applicant is gone carries the fallback label and no name: every
@@ -143,10 +150,11 @@ const APPLICANT_TYPES = new Set<CompanyNotificationType>([
  *
  * Deliberately absent:
  *   applicant_deleted      always written with a NULL application_id
- *                          (applicants/actions.ts:2504-2508): orphaned from
- *                          birth, and the one bell meant to outlive the
- *                          applicant. #88 stops it writing the name, in the
- *                          body as well as the title.
+ *                          (applicants/actions.ts deleteApplication): orphaned
+ *                          from birth, and the one bell meant to outlive the
+ *                          applicant. Since #88 it names nobody: the title is
+ *                          "An applicant was deleted" and the body names only
+ *                          the team member who deleted them.
  *   final_recording_*      alerts.ts:550-551 and :669-670: the title is the
  *                          email subject and the body a fixed sentence; no name.
  *   message_failed         send-failure.ts names the applicant by six id

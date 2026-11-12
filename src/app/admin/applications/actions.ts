@@ -9,6 +9,8 @@ import { isValidEmail, trimRequired, trimToNull } from "@/lib/validators";
 import { adminApplicationScope } from "@/lib/admin-scope";
 import { removeApplicationFiles } from "@/lib/application-files";
 import { deleteApplicationInterviews } from "@/lib/interviews/application-deletion";
+import { resolveHref } from "@/lib/notifications/company";
+import { pageAllByKey } from "@/lib/supabase/paging";
 import { deriveCvPathFromUrl } from "@/lib/cv-path";
 
 export type ApplicationStatus = "new" | "shortlisted" | "not_a_fit" | "maybe";
@@ -215,6 +217,40 @@ export async function deleteApplication(
   } | null;
   if (!target) return { success: false, error: "Application not found." };
 
+  // The interview-page link interview_expired writes (lib/interviews/expiry.ts
+  // builds it by hand; actions.test.ts holds the two equal), and the number of
+  // hrefs per late-clean DELETE.
+  const interviewPageHref = (sessionId: string) => `/ai-dashboard/interviews/${sessionId}`;
+  const LATE_HREF_CHUNK = 100;
+
+  // The interview session ids, read before the interviews are deleted (#88):
+  // an interview_expired bell links to the interview page, so the late clean
+  // below needs these. Skipped with no company snapshot, like the bell cleans
+  // (no company bell can exist). A failed read stops before anything is removed.
+  let sessionHrefs: string[] = [];
+  if (target.company_id_snapshot) {
+    const company = target.company_id_snapshot;
+    try {
+      const sessions = await pageAllByKey<{ id: string }>(
+        () =>
+          supabase
+            .from("interview_sessions")
+            .select("id")
+            .eq("company_id", company)
+            .eq("application_id", target.id),
+        { scope: "admin", label: "delete: interview session ids" },
+      );
+      sessionHrefs = sessions.map((s) => interviewPageHref(s.id));
+    } catch (err) {
+      const code = ((err as { cause?: { code?: string } }).cause?.code ?? "error") as string;
+      console.error(`[admin] delete applicant: interview session read failed: ${code}`);
+      return {
+        success: false,
+        error: "Couldn't finish deleting this applicant. Refresh and try again.",
+      };
+    }
+  }
+
   // As the company's delete does (B7): the AI interviews and their recordings,
   // then the final-interview recordings and the CV file, then the row. A file
   // left stops before the row, and a retry finishes the job.
@@ -234,6 +270,35 @@ export async function deleteApplication(
   );
   if (!files.ok) return { success: false, error: files.error };
 
+  /*
+   * The company's bells for this applicant (#88), the same two cleans as the
+   * company delete in applicants/actions.ts, in the same order - see its
+   * docblock, and do not merge them: PRE-CLEAN by application_id while the row
+   * still exists (a failure keeps the row), POST-CLEAN after the row by the
+   * href notifyCompany built (a failure is logged, the delete still stands).
+   *
+   * Skipped when company_id_snapshot is null. That is a Remotiv-owned row, and
+   * every bell writer sends the application's company: notifyCompany,
+   * notifyCompanyOnce and notifyCompanyMember return without writing when it
+   * is missing, and score_ready is written only under company_id_snapshot. So
+   * no company bell can point at a row with no company.
+   */
+  const bellCompany = target.company_id_snapshot;
+  if (bellCompany) {
+    const { error: bellErr } = await supabase
+      .from("notifications_company")
+      .delete()
+      .eq("company_id", bellCompany)
+      .eq("application_id", target.id);
+    if (bellErr) {
+      console.error(`[admin] delete applicant: bell clean failed: ${bellErr.code ?? "error"}`);
+      return {
+        success: false,
+        error: "Couldn't finish deleting this applicant. Refresh and try again.",
+      };
+    }
+  }
+
   const { error } = await supabase.from("job_applications").delete().eq("id", target.id).or(scope);
 
   if (error) {
@@ -246,6 +311,32 @@ export async function deleteApplication(
       success: false,
       error: "Couldn't finish deleting this applicant. Refresh and try again.",
     };
+  }
+
+  // Late clean: the applicant link and the interview pages, scoped to this
+  // company and to orphaned rows, tried twice. A second failure is logged by
+  // code; the delete still stands, but the bell is NOT gone: it waits for the
+  // manual sweep.
+  if (bellCompany) {
+    const applicantHref = resolveHref({ type: "stage_change", applicationId: target.id });
+    const lateHrefs = [...(applicantHref ? [applicantHref] : []), ...sessionHrefs];
+    for (let i = 0; i < lateHrefs.length; i += LATE_HREF_CHUNK) {
+      const chunk = lateHrefs.slice(i, i + LATE_HREF_CHUNK);
+      const lateClean = () =>
+        supabase
+          .from("notifications_company")
+          .delete()
+          .eq("company_id", bellCompany)
+          .is("application_id", null)
+          .in("href", chunk);
+      let { error: lateErr } = await lateClean();
+      if (lateErr) ({ error: lateErr } = await lateClean());
+      if (lateErr) {
+        console.error(
+          `[admin] delete applicant: late bell clean failed: ${lateErr.code ?? "error"}`,
+        );
+      }
+    }
   }
   revalidatePath("/admin/applications");
   return { success: true, data: undefined };
