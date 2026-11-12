@@ -1,10 +1,21 @@
-import { AlertTriangle, Check, ChevronRight, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  ChevronRight,
+  ExternalLink,
+  File,
+  Flag,
+  Mail,
+  X,
+} from "lucide-react";
 import { useState } from "react";
 import type {
   ApplicantScoreDetail,
   CompanyApplicantRow,
   ScoreDimensionRow,
 } from "@/app/ai-dashboard/lib/applicant-types";
+import { AddedByTeamChip } from "./_list-row-parts";
+import type { Screening, ScreeningCard } from "./screening-state";
 
 /**
  * Display pieces of the applicant drawer that the Applicants Split panel will
@@ -493,5 +504,306 @@ export function DetailRow({ label, value }: { label: string; value: string }) {
       <span className="text-[var(--ai-t3)]">{label}</span>
       <b className="font-bold text-[var(--ai-t1)]">{value}</b>
     </div>
+  );
+}
+
+export const TIMELINE_NOTICE = "m-0 rounded-xl border px-3.5 py-2.5 text-[12px] leading-relaxed";
+
+export function WorthALookBanner({
+  row,
+  dismissing,
+  onDismissFlag,
+}: {
+  row: CompanyApplicantRow;
+  dismissing: string | null;
+  onDismissFlag: (id: string) => void;
+}) {
+  return (
+    <div className="mb-5 flex items-center gap-3 rounded-2xl bg-remotiv-lime px-4 py-[13px]">
+      <span className="grid size-[30px] shrink-0 place-items-center rounded-full bg-[rgba(20,16,32,0.1)] text-[#2F3A00]">
+        <Flag className="size-[15px]" strokeWidth={2} />
+      </span>
+      <div className="min-w-0">
+        <b className="block font-heading text-[13px] font-bold text-[#2F3A00]">Worth a look</b>
+        {/* The design uses a second, lighter olive here. Held to one lime
+            ink at reduced opacity instead — see the banner's colour note
+            in the report: three olives would be three untokened hexes. */}
+        <p className="m-0 mt-0.5 text-xs leading-[1.5] text-[#2F3A00]/70">
+          {row.shortlist.reason?.trim() || "Met your auto-shortlist mark."}
+        </p>
+      </div>
+      {/* Icon-only, per the design. The sentence that used to sit beside a
+          text button — that dismissing clears the flag rather than hiding
+          the person, and a materially better score re-flags them — has
+          nowhere to go in this layout, so it becomes the button's title. */}
+      <button
+        type="button"
+        disabled={dismissing === row.id}
+        onClick={() => onDismissFlag(row.id)}
+        aria-label="Dismiss flag"
+        title="Clears the flag. A materially better score later flags them again."
+        className="ml-auto grid size-[26px] shrink-0 place-items-center rounded-[9px] text-[#2F3A00]/70 transition-colors hover:bg-[rgba(20,16,32,0.1)] hover:text-[#2F3A00] disabled:opacity-40"
+      >
+        <X className="size-[13px]" strokeWidth={1.8} />
+      </button>
+    </div>
+  );
+}
+
+export function ApplicationCard({
+  row,
+  applied,
+  onEmail,
+}: {
+  row: CompanyApplicantRow;
+  applied: { main: string };
+  onEmail: () => void;
+}) {
+  return (
+    <PaneCard title="Application">
+      <p className="m-0 text-[13px] leading-relaxed text-[var(--ai-t3)]">
+        {/* "Added to", not "Applied to", on a manual row — the verb
+            is the claim, and they did not apply. */}
+        {row.added_manually ? "Added to" : "Applied to"}{" "}
+        <b className="font-bold text-[var(--ai-t1)]">{row.job_title}</b> · {applied.main}
+      </p>
+
+      {/* The chip alone says how they arrived; this says what follows
+          from it. The no-email decision is otherwise invisible, and
+          this card is where someone lands before wondering why the
+          candidate never replied. */}
+      {row.added_manually && (
+        <div className="mt-2.5 flex items-center gap-2">
+          <AddedByTeamChip />
+          <span className="min-w-0 text-[12px] leading-relaxed text-[var(--ai-t4)]">
+            Not emailed - they didn't apply through the job board.
+          </span>
+        </div>
+      )}
+
+      {/* The design's `.acts`: the actions sit under a hairline rather
+          than floating below the fact they act on. */}
+      <div className="mt-4 flex gap-[9px] border-t border-[var(--ai-line-soft)] pt-4">
+        {/* A real anchor, not window.open from an async handler — Safari
+            blocks the latter. The route signs and 302-redirects. */}
+        <a
+          href={`/api/cv/company-application/${row.id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-disabled={!row.has_cv}
+          onClick={(e) => {
+            if (!row.has_cv) e.preventDefault();
+          }}
+          className={`flex flex-1 items-center justify-center gap-[7px] rounded-xl px-3 py-[11px] text-[13px] font-bold transition-colors ${
+            row.has_cv
+              ? "bg-remotiv-purple text-white shadow-[0_6px_18px_rgba(126,71,255,0.3)] hover:bg-[var(--ai-purple-hover)]"
+              : "cursor-not-allowed bg-[var(--ai-inset)] text-[var(--ai-t4)]"
+          }`}
+        >
+          <File className="size-[15px]" strokeWidth={1.9} />
+          {cvLabel(row)}
+        </a>
+        {/* Opens the composer rather than handing off to the OS mail
+            client. A mailto: sends from the recruiter's own address, which
+            is the one thing the identity block exists to prevent — and it
+            leaves no record on the applicant. */}
+        <button
+          type="button"
+          onClick={onEmail}
+          className="flex flex-1 items-center justify-center gap-[7px] rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3 py-[11px] text-[13px] font-bold text-[var(--ai-t2)] transition-colors hover:border-[var(--ai-sidebar)] hover:bg-[var(--ai-sidebar)] hover:text-white"
+        >
+          <Mail className="size-[15px]" strokeWidth={1.9} />
+          Email
+        </button>
+        {/*
+          A general Replace / Add CV button stood here and was REMOVED
+          on purpose. Do not read its absence as an oversight, and do
+          not put it back here.
+
+          The gap it left did bite, in one specific shape: an applicant
+          whose CV extracted to nothing — a scan, a photo, a PDF of
+          images — had no way back to a scored state, because Re-score
+          re-reads the stored text and the text is what is missing.
+          That one state now has its own control: "Upload a readable
+          CV" on the Review tab's score card, shown only when the
+          stored text is under the scorer's floor (or there is no CV
+          at all), driven by unscoredCardState. It calls the same
+          attachApplicationCv this note always pointed at. A better CV
+          arriving for an applicant who already scored still has no
+          button — that remains the accepted trade.
+        */}
+      </div>
+
+      {/* Says WHY the CV button is dead, rather than leaving a greyed
+          control to be read as a bug. Only on expiry — "no CV" needs
+          no excuse. */}
+      {row.cv_expired && (
+        <p className="m-0 mt-2.5 text-[11.5px] leading-relaxed text-[var(--ai-t4)]">
+          CVs are deleted 24 months after the application. Everything else on this applicant is
+          unaffected.
+        </p>
+      )}
+    </PaneCard>
+  );
+}
+
+export function ScreeningQuestionsCard({
+  screening,
+  screeningView,
+}: {
+  screening: Screening;
+  screeningView: ScreeningCard;
+}) {
+  return (
+    <PaneCard title="Screening questions">
+      {screeningView === "failed" && (
+        <p
+          className={`${TIMELINE_NOTICE} border-[var(--ai-danger)]/30 bg-[var(--ai-danger-tint)] text-[var(--ai-danger)]`}
+        >
+          The screening answers couldn&apos;t be loaded. That isn&apos;t the same as the candidate
+          answering nothing - close and reopen to try again.
+        </p>
+      )}
+      {screeningView === "loading" && (
+        <div className="flex flex-col gap-3">
+          <div className="h-[11px] w-2/3 animate-pulse rounded-full bg-[var(--ai-inset)]" />
+          <div className="h-[11px] w-1/2 animate-pulse rounded-full bg-[var(--ai-inset)]" />
+        </div>
+      )}
+      {screening.status === "ready" && screening.answers.length > 0 && (
+        <>
+          {/* Provenance stated ONCE here rather than repeated on every
+        pill. The pills then stay short enough to sit inline beside
+        the answer, and this line can say the thing a pill never
+        could — that nobody verified any of it. */}
+          <p className="m-0 mb-2.5 text-[11.5px] leading-snug text-[var(--ai-t3)]">
+            Answered by the candidate at apply time and checked against the thresholds you set.
+            Self-reported - not verified by Remotiv.
+          </p>
+          <div className="flex flex-col gap-[9px]">
+            {screening.answers.map((a) => (
+              <div
+                key={a.question_id}
+                className="rounded-xl border border-[var(--ai-line)] px-[13px] py-[11px] transition-colors hover:border-[var(--ai-line-strong)] hover:bg-[var(--ai-inset)]"
+              >
+                <p className="mb-1.5 flex flex-wrap items-center gap-1.5 text-xs leading-snug text-[var(--ai-t3)]">
+                  {a.question}
+                  {/* Sits on the question, not the answer: "required" is
+                a property of what the employer asked, and an
+                unmatched essential is what turns a below-threshold
+                answer into a listed missing requirement. */}
+                  {a.essential && (
+                    <span className="shrink-0 rounded-full bg-[var(--ai-purple-tint)] px-[7px] py-px text-[10px] font-bold uppercase tracking-[0.06em] text-[var(--ai-purple-ink)]">
+                      Essential
+                    </span>
+                  )}
+                </p>
+                <p className="flex flex-wrap items-center gap-2 text-sm font-bold text-[var(--ai-t1)]">
+                  {a.answer_label || a.answer || "-"}
+                  {/* The snapshot's own `matched` flag, scored at apply
+                time — never re-derived here.
+
+                Deliberately NOT green. A mint success pill reads as
+                "Remotiv verified this", and nobody did: it is the
+                candidate's own number compared to the employer's
+                threshold. Neutral slate for met, muted amber for
+                below — distinguishable, but neither endorses.
+
+                NO pill at all when `scored` is false: the employer
+                asked for the number without setting a threshold, so
+                there was nothing to pass or fail. `matched` is false
+                on those rows and would render "Below threshold",
+                which is not a weaker claim than the truth — it is a
+                different and wrong one. Absent on every snapshot
+                written before the mode existed, so `!== false` keeps
+                those rendering exactly as they always did. */}
+                  {a.scored !== false && (
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-[2.5px] text-[10.5px] font-semibold ${
+                        a.matched
+                          ? "bg-[var(--ai-slate-tint)] text-[var(--ai-slate-ink)]"
+                          : "bg-[var(--ai-amber-tint)] text-[var(--ai-amber-ink)]"
+                      }`}
+                    >
+                      {a.matched ? "Meets threshold" : "Below threshold"}
+                    </span>
+                  )}
+                </p>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </PaneCard>
+  );
+}
+
+export function DetailsCard({
+  row,
+  location,
+  experienceText,
+}: {
+  row: CompanyApplicantRow;
+  location: string;
+  experienceText: string | null;
+}) {
+  return (
+    <PaneCard title="Details">
+      {/* Each row is conditional, so `last:border-b-0` lands on
+          whichever row actually renders last — a `{cond && …}` that
+          resolves false produces no DOM node, so :last-child stays
+          correct. */}
+      <div className="flex flex-col">
+        {location && <DetailRow label="Location" value={location} />}
+        {experienceText && <DetailRow label="Experience" value={experienceText} />}
+        {row.notice_period && <DetailRow label="Notice period" value={row.notice_period} />}
+        {row.availability && <DetailRow label="Availability" value={row.availability} />}
+        {row.phone && <DetailRow label="Phone" value={row.phone} />}
+        {row.linkedin_url && (
+          <div className="flex items-center justify-between border-b border-[var(--ai-line-soft)] py-[9px] text-[13.5px] last:border-b-0">
+            <span className="text-[var(--ai-t3)]">LinkedIn</span>
+            <a
+              href={row.linkedin_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 font-bold text-remotiv-purple hover:underline"
+            >
+              Profile
+              <ExternalLink className="size-3" strokeWidth={2} />
+            </a>
+          </div>
+        )}
+      </div>
+    </PaneCard>
+  );
+}
+
+export function MustHaveRows({ scoreDetail }: { scoreDetail: ApplicantScoreDetail }) {
+  return (
+    <>
+      {scoreDetail.must_haves.map((mh) => (
+        <EvidenceRow key={mh.item} tone={mh.status === "evidenced" ? "ok" : "warn"}>
+          {mh.item}
+          {mh.status === "not_found" && (
+            <>
+              {" - "}
+              <b className="font-bold text-[var(--ai-t1)]">not evidenced</b>
+            </>
+          )}
+          {mh.status === "evidenced" && mh.quote && <EvidenceQuote quote={mh.quote} />}
+        </EvidenceRow>
+      ))}
+      {/* The one box whose empty state is not self-evident.
+          Nothing on the card distinguishes "the job asks for
+          none" from "written before the job asked" — only the
+          job's count does, so it decides which is said. */}
+      {scoreDetail.must_haves.length === 0 && (
+        <EvidenceEmpty>
+          {scoreDetail.job_must_have_count === 0
+            ? "This job names no must-haves, so there was nothing to check the CV against."
+            : `This score was written before the job named its ${scoreDetail.job_must_have_count === 1 ? "must-have" : `${scoreDetail.job_must_have_count} must-haves`}, so they were never checked. Re-scoring fills this in.`}
+        </EvidenceEmpty>
+      )}
+    </>
   );
 }
