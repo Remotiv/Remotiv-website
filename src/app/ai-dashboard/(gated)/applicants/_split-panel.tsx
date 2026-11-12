@@ -1,9 +1,12 @@
+import { Loader2 } from "lucide-react";
 import type { ReactNode } from "react";
 import {
   type ApplicantScoreDetail,
   type CompanyApplicantRow,
+  type PipelineStage,
   showsWorthALook,
 } from "@/app/ai-dashboard/lib/applicant-types";
+import { type CompanyRole, canChangeStage } from "@/app/ai-dashboard/lib/company-roles";
 import {
   ApplicationCard,
   DetailsCard,
@@ -22,8 +25,8 @@ import { type Screening, screeningCard, screeningCount } from "./screening-state
  *
  * A page column, not a dialog: a named <section> (role region), no focus
  * trap, no inert page and no Escape handler, so the list beside it stays
- * clickable and Tab walks from the list into the panel and back out. The live drawer, with its trap, opens
- * from the Details button and is unchanged.
+ * clickable and Tab walks from the list into the panel and back out. The live
+ * drawer, with its trap, opens from the Details button and is unchanged.
  *
  * Every card is a drawer component from _drawer-parts.tsx. The identity row
  * comes in as `header` because it is defined in _applicants-client.tsx, where
@@ -51,7 +54,17 @@ const TOP_BTN =
   "inline-flex items-center justify-center gap-[7px] whitespace-nowrap rounded-[11px] px-4 py-2.5 text-[13.5px] font-bold transition-colors";
 
 /** Shortlist applies from Applied and Screening only (v9 section 1). */
-const SHORTLIST_FROM = new Set(["applied", "screening"]);
+const SHORTLIST_FROM: readonly PipelineStage[] = ["applied", "screening"];
+
+/**
+ * Whether the panel offers Shortlist (commit 6c): from Applied or Screening,
+ * and only when the server's own stage rule (canChangeStage) allows the move
+ * for this role. Hidden, never disabled, otherwise: the Stage control beside
+ * it already says where the applicant is, so there is never a dead button.
+ */
+export function canShortlist(role: CompanyRole, stage: PipelineStage): boolean {
+  return SHORTLIST_FROM.includes(stage) && canChangeStage(role, stage, "shortlisted");
+}
 
 /**
  * The Details card in the panel shows Location, Experience and Notice period
@@ -136,6 +149,10 @@ export function SplitPanel({
   onEmail,
   dismissing,
   onDismissFlag,
+  viewerRole,
+  shortlisting,
+  shortlistError,
+  onShortlist,
 }: {
   row: CompanyApplicantRow;
   /** The drawer's identity row, rendered by the client. */
@@ -149,7 +166,14 @@ export function SplitPanel({
   onEmail: () => void;
   dismissing: string | null;
   onDismissFlag: (id: string) => void;
+  viewerRole: CompanyRole;
+  /** The Shortlist write for this applicant is in flight. */
+  shortlisting: boolean;
+  /** The last Shortlist attempt for this applicant failed: the sentence to show. */
+  shortlistError: string | null;
+  onShortlist: () => void;
 }) {
+  const showShortlist = canShortlist(viewerRole, row.pipeline_stage);
   const screeningView = screeningCard(screening);
   const screeningAnswerCount = screeningCount(screening);
   const detailsRow = panelDetailsRow(row);
@@ -170,17 +194,26 @@ export function SplitPanel({
     >
       <header className="shrink-0 border-b border-[var(--ai-line)] bg-[var(--ai-surface)] px-[22px] pt-4">
         <div className="mb-3.5 flex items-center gap-[9px]">
-          {SHORTLIST_FROM.has(row.pipeline_stage) && (
-            // A placeholder until commit 6 wires the write. Disabled rather
-            // than a button that silently does nothing.
+          {showShortlist && (
+            // The same stage write as the drawer's Stage control. Nothing
+            // reaches the candidate: `shortlisted` is not a STAGE_EVENTS key
+            // (shortlist-no-email.test.ts pins that).
             <button
               type="button"
-              disabled
+              onClick={onShortlist}
+              disabled={shortlisting}
+              aria-busy={shortlisting}
               data-split-shortlist
-              title="Shortlisting from this panel is coming soon. Use the Stage control for now."
-              className={`${TOP_BTN} bg-[var(--ai-sidebar)] text-white disabled:cursor-not-allowed disabled:opacity-60`}
+              className={`${TOP_BTN} bg-[var(--ai-sidebar)] text-white hover:bg-[var(--ai-sidebar-hover)] disabled:cursor-wait disabled:opacity-80`}
             >
-              Shortlist
+              {shortlisting ? (
+                <>
+                  <Loader2 aria-hidden className="size-4 animate-spin" strokeWidth={2.2} />
+                  Shortlisting…
+                </>
+              ) : (
+                "Shortlist"
+              )}
             </button>
           )}
           <button
@@ -192,6 +225,25 @@ export function SplitPanel({
             Details
           </button>
         </div>
+        {shortlistError && (
+          <div
+            role="alert"
+            data-split-shortlist-error
+            className="-mt-1 mb-3.5 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[11px] border border-[var(--ai-danger)]/30 bg-[var(--ai-danger-tint)] px-3.5 py-2.5 text-[12.5px] font-semibold text-[var(--ai-danger)]"
+          >
+            <span className="min-w-0">{shortlistError}</span>
+            {showShortlist && (
+              <button
+                type="button"
+                onClick={onShortlist}
+                disabled={shortlisting}
+                className="font-bold underline underline-offset-2 hover:no-underline disabled:opacity-60"
+              >
+                Try again
+              </button>
+            )}
+          </div>
+        )}
         {header}
       </header>
 

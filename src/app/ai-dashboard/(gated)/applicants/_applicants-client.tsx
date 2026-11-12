@@ -121,6 +121,7 @@ import {
 } from "./_list-row-parts";
 import { SplitListItem } from "./_split-list-item";
 import {
+  canShortlist,
   SPLIT_CARD_WIDE,
   SPLIT_TOOLBAR_WIDE,
   SplitLayout,
@@ -4118,6 +4119,11 @@ export function ApplicantsClient({
    */
   const [stageOverrides, setStageOverrides] = useState<Record<string, PipelineStage>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
+  /** The Split panel's Shortlist write in flight, and its last failure (6c). */
+  const [shortlistingId, setShortlistingId] = useState<string | null>(null);
+  const [shortlistError, setShortlistError] = useState<{ id: string; message: string } | null>(
+    null,
+  );
   const [history, setHistory] = useState<StageHistoryRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyFailed, setHistoryFailed] = useState(false);
@@ -4694,6 +4700,42 @@ export function ApplicantsClient({
    * applicant, a Review-top-10 row or the panel's applicant can be off this
    * page, and that used to make the change a silent no-op (commit 6a).
    */
+  /**
+   * Shortlist from the Split panel (commit 6c): the same updateApplicationStage
+   * write as the Stage control, with its own pending and error state.
+   *
+   * Not optimistic: the stage stays as it is until the server answers, so a
+   * failure has nothing to revert and the panel never shows a stage that did
+   * not save. On success the row takes the new stage through stageOverrides
+   * and the counts and the Flagged badge are re-read. The list is NOT
+   * re-read: under a stage tab the row stays in view until the next filter,
+   * sort or page change, and the panel stays on the same applicant.
+   */
+  async function handleShortlist(row: CompanyApplicantRow) {
+    if (shortlistingId || !canShortlist(viewerRole, row.pipeline_stage)) return;
+    const id = row.id;
+    const name = fullName(row);
+    setShortlistError(null);
+    setShortlistingId(id);
+    setSavingId(id);
+    let saved = false;
+    try {
+      saved = (await updateApplicationStage(id, "shortlisted")).success;
+    } catch {
+      saved = false;
+    }
+    setShortlistingId(null);
+    setSavingId(null);
+    if (!saved) {
+      setShortlistError({ id, message: `Couldn't shortlist ${name} - nothing changed.` });
+      return;
+    }
+    setStageOverrides((prev) => ({ ...prev, [id]: "shortlisted" }));
+    setToast(`${name} moved to Shortlisted`);
+    refreshCounts(jobFilter === "all" ? null : jobFilter);
+    refreshFlaggedCount(jobFilter);
+  }
+
   async function handleStageChange(
     id: string,
     next: PipelineStage,
@@ -5127,6 +5169,12 @@ export function ApplicantsClient({
       dismissing={dismissing}
       onDismissFlag={(id) => {
         void dismissFlag(id);
+      }}
+      viewerRole={viewerRole}
+      shortlisting={shortlistingId === splitRow.id}
+      shortlistError={shortlistError?.id === splitRow.id ? shortlistError.message : null}
+      onShortlist={() => {
+        void handleShortlist(splitRow);
       }}
     />
   ) : null;

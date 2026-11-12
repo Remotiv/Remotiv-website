@@ -22,7 +22,9 @@ register(new URL("../../../../test-support/tsx-load.mjs", import.meta.url));
 
 const { createElement } = await import("react");
 const { renderToStaticMarkup } = await import("react-dom/server");
-const { SplitLayout, SplitListColumn, SplitPanel } = await import("./_split-panel.tsx");
+const { SplitLayout, SplitListColumn, SplitPanel, canShortlist } = await import(
+  "./_split-panel.tsx"
+);
 const { autoSplitSelection, SPLIT_MIN_WIDTH_QUERY } = await import("./split-selection.ts");
 
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
@@ -80,6 +82,10 @@ function renderPanel(r, props = {}) {
       onEmail: () => {},
       dismissing: null,
       onDismissFlag: () => {},
+      viewerRole: "owner",
+      shortlisting: false,
+      shortlistError: null,
+      onShortlist: () => {},
       ...props,
     }),
   );
@@ -231,11 +237,12 @@ describe("flag off: the layout adds nothing", () => {
 });
 
 describe("panel content", () => {
-  test("Shortlist is a disabled placeholder, shown from Applied and Screening only", () => {
-    assert.match(
-      renderPanel(row()),
-      /<button type="button" disabled="" data-split-shortlist="true"/,
-    );
+  test("Shortlist (6c): a live button from Applied and Screening, hidden otherwise", () => {
+    const applied = renderPanel(row());
+    assert.match(applied, /<button type="button" aria-busy="false" data-split-shortlist="true"/);
+    const tag = applied.match(/<button[^>]*data-split-shortlist="true"[^>]*>/)?.[0] ?? "";
+    assert.doesNotMatch(tag, /\sdisabled=""/, "never a dead button");
+    assert.match(applied, /data-split-shortlist="true"[^>]*>Shortlist<\/button>/);
     assert.match(renderPanel(row({ pipeline_stage: "screening" })), /data-split-shortlist/);
     for (const stage of ["shortlisted", "interview", "offer", "hired", "rejected"]) {
       assert.doesNotMatch(
@@ -244,6 +251,44 @@ describe("panel content", () => {
         stage,
       );
     }
+  });
+
+  test("canShortlist follows the server's stage rule for every role", () => {
+    for (const role of ["owner", "admin", "recruiter", "hiring_manager"]) {
+      assert.equal(canShortlist(role, "applied"), true, role);
+      assert.equal(canShortlist(role, "screening"), true, role);
+      for (const stage of ["shortlisted", "interview", "offer", "hired", "rejected"]) {
+        assert.equal(canShortlist(role, stage), false, `${role} ${stage}`);
+      }
+    }
+    // A hiring manager sees the button too (Shortlisted is not a decision stage).
+    assert.match(renderPanel(row(), { viewerRole: "hiring_manager" }), /data-split-shortlist/);
+  });
+
+  test("pending: spinner, Shortlisting\u2026, aria-busy and disabled", () => {
+    const html = renderPanel(row(), { shortlisting: true });
+    assert.match(
+      html,
+      /<button type="button" disabled="" aria-busy="true" data-split-shortlist="true"/,
+    );
+    assert.match(html, /lucide-loader-circle[^"]*animate-spin|animate-spin[^"]*lucide/);
+    assert.match(html, /Shortlisting\u2026<\/button>/);
+  });
+
+  test("error: the sentence and Try again, in an alert", () => {
+    const msg = "Couldn't shortlist Candidatea Testperson - nothing changed.";
+    const html = renderPanel(row(), { shortlistError: msg });
+    const alert = html.match(
+      /<div role="alert" data-split-shortlist-error="true"[^>]*>([\s\S]*?)<\/div>/,
+    );
+    assert.ok(alert, "no alert");
+    assert.match(alert[1], /Couldn&#x27;t shortlist Candidatea Testperson - nothing changed\./);
+    assert.match(alert[1], /<button type="button"[^>]*>Try again<\/button>/);
+    assert.doesNotMatch(
+      renderPanel(row()),
+      /data-split-shortlist-error/,
+      "no alert without an error",
+    );
   });
 
   test("Details is always there", () => {
