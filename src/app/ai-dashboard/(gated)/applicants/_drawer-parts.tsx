@@ -807,3 +807,61 @@ export function MustHaveRows({ scoreDetail }: { scoreDetail: ApplicantScoreDetai
     </>
   );
 }
+
+export function SummaryCard({
+  scoreDetail,
+  screeningAnswerCount,
+}: {
+  scoreDetail: ApplicantScoreDetail;
+  screeningAnswerCount: number | null;
+}) {
+  return (
+    <div className={`${CARD_SURFACE} mb-7 px-[22px] py-5`}>
+      <div className="mb-3.5 flex items-center justify-between gap-4">
+        <h3 className="m-0 whitespace-nowrap font-heading text-[15px] font-bold tracking-[-0.02em] text-[var(--ai-t1)]">
+          Summary
+        </h3>
+        {/* Real, unlike most of the design's sub-lines. The
+            answers are frozen at apply time and the scorer is
+            handed them as context alongside the CV, so the count
+            is the count the model read.
+
+            The scorecard arrives before the answers do, so this
+            clause waits for them instead of claiming the CV was
+            the only input. */}
+        {screeningAnswerCount !== null && (
+          <span className="text-right text-[11px] font-medium text-[var(--ai-t3)]">
+            {summarySource(screeningAnswerCount)}
+          </span>
+        )}
+      </div>
+      <p className="m-0 text-[13px] leading-[1.72] text-[var(--ai-t2)]">{scoreDetail.summary}</p>
+    </div>
+  );
+}
+
+export function ScoredDimensionsSection({ scoreDetail }: { scoreDetail: ApplicantScoreDetail }) {
+  return (
+    <div className="mb-7">
+      <ReviewSubhead title="Scored dimensions" meta={dimensionsMeta(scoreDetail)} />
+      <div className={`${CARD_SURFACE} py-1`}>
+        {scoreDetail.dimensions.map((d) => (
+          <ScoredDimension key={d.dimension} dimension={d} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function MustHavesBox({ scoreDetail }: { scoreDetail: ApplicantScoreDetail }) {
+  return (
+    <EvidenceList
+      label="Must-haves met"
+      badge="bg-[var(--ai-purple-tint)] text-[var(--ai-purple-ink)]"
+      dot="bg-remotiv-purple"
+      count={mustHaveCount(scoreDetail)}
+    >
+      <MustHaveRows scoreDetail={scoreDetail} />
+    </EvidenceList>
+  );
+}

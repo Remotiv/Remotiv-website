@@ -1,0 +1,247 @@
+/**
+ * The Applicants Split panel and layout (Applicants Split, commit 5c).
+ *
+ *   node --test "src/app/ai-dashboard/(gated)/applicants/split-panel.test.ts"
+ *
+ * Three pins the brief asked for, plus the selection rule they rest on:
+ *   1. the panel is a region, not a dialog: no focus trap, no inert page, no
+ *      Escape handler;
+ *   2. auto-selecting the first row never writes the URL - only a click does;
+ *   3. the panel's height comes from var(--vh-full), never h-screen or vh.
+ * And with the flag off, the layout wrappers add nothing to the live DOM.
+ * Synthetic data only.
+ */
+// @ts-nocheck - same reason as stage-tabs.test.ts: Node's `.ts` specifier vs this tsconfig.
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { register } from "node:module";
+import { describe, test } from "node:test";
+
+register(new URL("../../../../test-support/node-resolve.mjs", import.meta.url));
+register(new URL("../../../../test-support/tsx-load.mjs", import.meta.url));
+
+const { createElement } = await import("react");
+const { renderToStaticMarkup } = await import("react-dom/server");
+const { SplitLayout, SplitListColumn, SplitPanel } = await import("./_split-panel.tsx");
+const { autoSplitSelection, SPLIT_MIN_WIDTH_QUERY } = await import("./split-selection.ts");
+
+const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
+const PANEL_SRC = read("./_split-panel.tsx");
+const CLIENT_SRC = read("./_applicants-client.tsx");
+
+/** Code only: comments may name the things the code must not do. */
+const code = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
+
+function row(over = {}) {
+  return {
+    id: "app-aaaaaa",
+    first_name: "Candidatea",
+    last_name: "Testperson",
+    email: "candidate.a@example.test",
+    phone: "+00 0000 000000",
+    linkedin_url: "https://example.test/in/candidate-a",
+    job_id: "job-1",
+    job_title: "Engineer",
+    city: null,
+    country: null,
+    years_experience: null,
+    notice_period: "1 Month",
+    availability: "Full time",
+    created_at: "2026-11-01T00:00:00.000Z",
+    pipeline_stage: "applied",
+    score: {
+      status: "pending",
+      ai_status: "pending",
+      overall: null,
+      ai_overall: null,
+      adjusted: false,
+      confidence: null,
+      error: null,
+      verdict: null,
+    },
+    has_cv: true,
+    cv_expired: false,
+    added_manually: false,
+    shortlist: { flaggedAt: null, reason: null },
+    screening: null,
+    ...over,
+  };
+}
+
+function renderPanel(r, props = {}) {
+  return renderToStaticMarkup(
+    createElement(SplitPanel, {
+      row: r,
+      header: createElement("div", { "data-test-header": "1" }),
+      scoreDetail: null,
+      screening: { status: "loading" },
+      applied: { main: "11d ago" },
+      onDetails: () => {},
+      onEmail: () => {},
+      dismissing: null,
+      onDismissFlag: () => {},
+      ...props,
+    }),
+  );
+}
+
+describe("selection rule", () => {
+  test("first row when nothing is selected and the URL names nobody", () => {
+    assert.equal(autoSplitSelection(null, ["a", "b"], null), "a");
+  });
+  test("keeps the selection while it is on the page", () => {
+    assert.equal(autoSplitSelection("b", ["a", "b"], null), "b");
+  });
+  test("moves to the new first row when the selection left the page", () => {
+    assert.equal(autoSplitSelection("x", ["a", "b"], null), "a");
+  });
+  test("the URL wins: a deep-linked or clicked applicant stays, even off this page", () => {
+    assert.equal(autoSplitSelection("x", ["a", "b"], "x"), "x");
+    assert.equal(autoSplitSelection(null, ["a", "b"], "x"), "x");
+  });
+  test("an empty page selects nobody", () => {
+    assert.equal(autoSplitSelection(null, [], null), null);
+  });
+  test("the breakpoint is a media query on the real width, 1100px", () => {
+    assert.equal(SPLIT_MIN_WIDTH_QUERY, "(min-width: 1100px)");
+  });
+});
+
+describe("1. no focus trap", () => {
+  test("the panel module uses none of the modal machinery", () => {
+    const c = code(PANEL_SRC);
+    assert.doesNotMatch(c, /useModalFocus/, "the trap belongs to the drawer only");
+    assert.doesNotMatch(c, /aria-modal/);
+    assert.doesNotMatch(c, /role="dialog"/);
+    assert.doesNotMatch(c, /\binert\b/, "the list beside the panel must stay clickable");
+    assert.doesNotMatch(c, /onKeyDown|addEventListener|Escape/, "Escape does nothing in the panel");
+  });
+
+  test("it renders as a named <section>, which is role region", () => {
+    const html = renderPanel(row());
+    assert.match(
+      html,
+      /^<section aria-label="Candidatea Testperson - applicant detail" data-split-panel="true"/,
+    );
+    assert.doesNotMatch(html, /role="dialog"|aria-modal|tabindex="-1"/);
+  });
+
+  test("the client still has exactly the drawer's three traps (a11y-wiring's count)", () => {
+    assert.equal((CLIENT_SRC.match(/useModalFocus\(/g) ?? []).length, 3);
+  });
+});
+
+describe("2. the URL is written on a click, never on auto-select", () => {
+  test("the auto-select effect only sets state", () => {
+    const m = code(CLIENT_SRC).match(
+      /useEffect\(\(\) => \{\s*if \(!splitWide\) return;\s*setSplitId\(\(prev\) =>[\s\S]*?\}, \[splitWide, pagedIds, deepLinkId\]\);/,
+    );
+    assert.ok(m, "auto-select effect not found - the pin needs its anchor");
+    assert.match(m[0], /autoSplitSelection\(/);
+    assert.doesNotMatch(m[0], /syncPanelUrl|history\.|router\.|encodePanelUrl/, m[0]);
+  });
+
+  test("selectSplit, the click handler, is the writer", () => {
+    const m = code(CLIENT_SRC).match(/const selectSplit = useCallback\([\s\S]*?\n {2}\);/);
+    assert.ok(m, "selectSplit not found");
+    assert.match(m[0], /setSplitId\(id\);\s*syncPanelUrl\(id, panelTab\);/);
+  });
+
+  test("a Split row calls selectSplit at 1100+ and the live drawer below it", () => {
+    assert.match(
+      CLIENT_SRC,
+      /onOpen=\{\(\) => \(splitWide \? selectSplit\(r\.id\) : openApplicant\(r\.id\)\)\}/,
+    );
+  });
+
+  test("Details opens the drawer in state, without a URL write of its own", () => {
+    assert.match(CLIENT_SRC, /onDetails=\{\(\) => setOpenId\(splitRow\.id\)\}/);
+  });
+});
+
+describe("3. height from --vh-full", () => {
+  test("the panel frame is sticky at var(--vh-full) less the topbar and gaps", () => {
+    const frame = PANEL_SRC.match(/const PANEL_FRAME =\s*"([^"]*)";/)?.[1];
+    assert.ok(frame, "PANEL_FRAME not found");
+    assert.match(frame, /\bsticky\b/);
+    assert.match(frame, /\btop-\[80px\]/);
+    assert.match(frame, /h-\[calc\(var\(--vh-full\)_-_64px_-_32px\)\]/);
+  });
+
+  test("no h-screen and no raw vh anywhere in the panel module", () => {
+    assert.doesNotMatch(code(PANEL_SRC), /h-screen|\d+vh\b|100dvh/);
+  });
+
+  test("the panel body scrolls on its own", () => {
+    assert.match(PANEL_SRC, /min-h-0 flex-1 overflow-y-auto overscroll-contain/);
+  });
+});
+
+describe("flag off: the layout adds nothing", () => {
+  const child = createElement("div", { id: "live-card" }, "live");
+  const live = renderToStaticMarkup(child);
+
+  test("SplitLayout returns its children alone, with no panel", () => {
+    const html = renderToStaticMarkup(
+      createElement(SplitLayout, { split: false, panel: createElement("aside", null, "p") }, child),
+    );
+    assert.equal(html, live);
+  });
+
+  test("SplitListColumn returns its children alone", () => {
+    const html = renderToStaticMarkup(
+      createElement(SplitListColumn, { split: false, fullWidth: false }, child),
+    );
+    assert.equal(html, live);
+  });
+
+  test("the client adds the wide classes only when split is on", () => {
+    assert.match(CLIENT_SRC, /\$\{split \? ` \$\{SPLIT_CARD_WIDE\}` : ""\}/);
+    assert.match(CLIENT_SRC, /\$\{split \? ` \$\{SPLIT_TOOLBAR_WIDE\}` : ""\}/);
+  });
+});
+
+describe("panel content", () => {
+  test("Shortlist is a disabled placeholder, shown from Applied and Screening only", () => {
+    assert.match(
+      renderPanel(row()),
+      /<button type="button" disabled="" data-split-shortlist="true"/,
+    );
+    assert.match(renderPanel(row({ pipeline_stage: "screening" })), /data-split-shortlist/);
+    for (const stage of ["shortlisted", "interview", "offer", "hired", "rejected"]) {
+      assert.doesNotMatch(
+        renderPanel(row({ pipeline_stage: stage })),
+        /data-split-shortlist/,
+        stage,
+      );
+    }
+  });
+
+  test("Details is always there", () => {
+    assert.match(
+      renderPanel(row({ pipeline_stage: "hired" })),
+      /data-split-details="true"[^>]*>Details<\/button>/,
+    );
+  });
+
+  test("the Details card shows Location, Experience and Notice period only", () => {
+    const html = renderPanel(row({ city: "Lahore", country: "Pakistan", years_experience: 4 }));
+    assert.match(html, />Location</);
+    assert.match(html, />Experience</);
+    assert.match(html, />Notice period</);
+    assert.doesNotMatch(html, />Phone<|>Availability<|>LinkedIn</, "those stay in the drawer");
+  });
+
+  test("an unscored row shows no score block", () => {
+    const html = renderPanel(row());
+    assert.doesNotMatch(html, />Summary<|Scored dimensions|Must-haves met/);
+    assert.match(html, />Application</);
+  });
+
+  test("no em or en dashes in the panel's own copy", () => {
+    const strings = [...code(PANEL_SRC).matchAll(/"([^"]*)"|>([^<>{}]+)</g)].map(
+      (m) => m[1] ?? m[2],
+    );
+    for (const s of strings) assert.doesNotMatch(s, /[–—]/, s);
+  });
+});

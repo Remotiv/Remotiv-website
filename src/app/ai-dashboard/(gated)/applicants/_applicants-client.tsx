@@ -88,28 +88,25 @@ import { useModalFocus } from "@/hooks/use-modal-focus";
 import { placeholderFor } from "@/lib/whatsapp/inbound-display";
 import {
   ApplicationCard,
-  CARD_SURFACE,
   CONFIDENCE_BADGE,
   CONFIDENCE_LABEL,
   DetailsCard,
   DrawerLabel,
   DrawerMiniRing,
-  dimensionsMeta,
   EvidenceEmpty,
   EvidenceList,
   EvidenceQuote,
   EvidenceRow,
   evidenceMeta,
   IdDot,
-  MustHaveRows,
-  mustHaveCount,
+  MustHavesBox,
   PaneCard,
   ReviewScoreRing,
   ReviewSubhead,
-  ScoredDimension,
+  ScoredDimensionsSection,
   ScreeningQuestionsCard,
+  SummaryCard,
   scoreBand,
-  summarySource,
   TIMELINE_NOTICE,
   WorthALookBanner,
 } from "./_drawer-parts";
@@ -123,6 +120,13 @@ import {
   WorthALookChip,
 } from "./_list-row-parts";
 import { SplitListItem } from "./_split-list-item";
+import {
+  SPLIT_CARD_WIDE,
+  SPLIT_TOOLBAR_WIDE,
+  SplitLayout,
+  SplitListColumn,
+  SplitPanel,
+} from "./_split-panel";
 import { StageTabs } from "./_stage-tabs";
 import {
   addApplicationComment,
@@ -184,6 +188,7 @@ import {
   screeningCount,
   selectScreening,
 } from "./screening-state";
+import { autoSplitSelection, SPLIT_MIN_WIDTH_QUERY } from "./split-selection";
 import { TAB_FADE_PX, tabScrollLeft } from "./tab-scroll";
 
 // ── Constants ────────────────────────────────────────────────
@@ -319,6 +324,33 @@ function useIsHydrated(): boolean {
     () => true,
     () => false,
   );
+}
+
+function subscribeSplitWidth(onChange: () => void): () => void {
+  const mq = window.matchMedia(SPLIT_MIN_WIDTH_QUERY);
+  mq.addEventListener("change", onChange);
+  return () => mq.removeEventListener("change", onChange);
+}
+
+/**
+ * True at 1100+ real browser width (the Split layout's breakpoint). False on
+ * the server and during hydration, like useIsHydrated, so the first client
+ * render matches the HTML; the CSS breakpoint lays the page out before then.
+ */
+function useSplitWide(): boolean {
+  return useSyncExternalStore(
+    subscribeSplitWidth,
+    () => window.matchMedia(SPLIT_MIN_WIDTH_QUERY).matches,
+    () => false,
+  );
+}
+
+/**
+ * The same test read once, for effects and handlers that run before the hook
+ * above has caught up after hydration (a deep link is handled on mount).
+ */
+function isSplitWide(split: boolean): boolean {
+  return split && window.matchMedia(SPLIT_MIN_WIDTH_QUERY).matches;
 }
 
 function fmtApplied(iso: string, clock: PageClock): { main: string; sub: string } {
@@ -936,6 +968,187 @@ function AdjustmentRecord({
   );
 }
 
+/**
+ * The drawer header's identity row: avatar, name, identity line, mini ring and
+ * the Stage control. Shared by the drawer and the Applicants Split panel
+ * (commit 5c). It stays in this file because drawer-header.test.ts and
+ * company-roles.test.ts pin its markup here.
+ *
+ * `stageSelectId` exists because both can be on screen at once: the panel
+ * stays mounted behind the drawer that its Details button opens.
+ */
+function ApplicantIdentityRow({
+  row,
+  clock,
+  headerScore,
+  viewerRole,
+  saving,
+  onStageChange,
+  stageSelectId,
+}: {
+  row: CompanyApplicantRow;
+  clock: PageClock;
+  headerScore: ApplicantScore;
+  viewerRole: CompanyRole;
+  saving: boolean;
+  onStageChange: (stage: PipelineStage) => void;
+  stageSelectId: string;
+}) {
+  const tint = getTint(row.id);
+  const name = fullName(row);
+  const stage = stageOf(row);
+  const location = [row.city, row.country].filter(Boolean).join(", ");
+  const band =
+    headerScore.status === "scored" && headerScore.overall != null
+      ? bandKey(headerScore.overall)
+      : null;
+  return (
+    <div className="flex items-center gap-[15px] pb-4">
+      <span
+        className="grid size-[54px] shrink-0 place-items-center rounded-full font-heading text-[18px] font-extrabold shadow-[0_0_0_3px_rgba(126,71,255,0.1)]"
+        style={{ background: tint.bg, color: tint.fg }}
+      >
+        {initials(row.first_name, row.last_name, row.email)}
+      </span>
+      <div className="min-w-0">
+        <h2 className="m-0 truncate font-heading text-[21px] font-extrabold leading-[1.15] tracking-[-0.03em] text-[var(--ai-t1)]">
+          {name}
+        </h2>
+        {/* Email, then whichever of location and applied date exist. The
+            separators are joined to their following item so a missing
+            location does not leave a dot floating. */}
+        <div className="mt-1 flex items-center gap-[9px] text-[12.5px] font-medium text-[var(--ai-t3)]">
+          <b className="truncate font-semibold text-[var(--ai-t2)]">{row.email}</b>
+          {location && (
+            <>
+              <IdDot />
+              <span className="whitespace-nowrap">{location}</span>
+            </>
+          )}
+          <IdDot />
+          {/* The absolute date, not the list's "40d ago". A relative age
+              earns its place in a column being scanned; here it is the one
+              date on the record and the reader may be about to quote it. */}
+          <span className="whitespace-nowrap">Applied {fmtDay(row.created_at, clock.local)}</span>
+        </div>
+      </div>
+
+      <div className="flex-1" />
+
+      {/* Mini ring only. The full card lives on Review, where the reader
+          has the breakdown in front of them; this keeps the number
+          itself on screen from every tab. Absent rather than a dashed
+          placeholder when unscored — Review carries that explanation.
+
+          Hidden below 525px (the segment's `sm`, scaled by the shell's
+          0.82 zoom), because at a 360px viewport this row has 377px to
+          place 446px of content and the ring block plus its divider are
+          the first 136px of the excess. What was being lost instead was
+          the NAME: the h2 and the email both carry `truncate`, so they
+          clipped to zero width and vanished while the ring stayed, and
+          the only survivor was the whitespace-nowrap applied date
+          painting across the ring. Hiding the ring brings the identity
+          row's overflow to 0 and the name back to 99px at 360 / 117px at
+          375, at no vertical cost — the header stays 163px tall. The
+          argument for which one goes is the comment above: the score has
+          a full card one tab away and the name has nowhere else to be.
+
+          This also fixes the Stage select, which was sitting 46px past
+          the drawer edge for the same reason and needs no edit of its
+          own. */}
+      {band && headerScore.overall != null && (
+        <>
+          <div className="hidden shrink-0 items-center gap-[11px] min-[525px]:flex">
+            <DrawerMiniRing score={headerScore.overall} />
+            <div>
+              <span className="block text-[12.5px] font-bold leading-[1.25] text-[var(--ai-t1)]">
+                {BAND_MATCH_LABEL[band]}
+              </span>
+              {/* The design's second line here is rank. Cut — nothing
+                  computes it — so the slot closes up, except when a human
+                  has overridden: then the number beside it is not the
+                  AI's and the header has to say so. */}
+              {headerScore.adjusted && (
+                <span className="mt-0.5 block text-[11px] font-semibold text-[var(--ai-t3)]">
+                  Adjusted
+                </span>
+              )}
+            </div>
+          </div>
+          {/* Same breakpoint as the ring it separates: a divider with
+              nothing on one side of it is just a stray line. */}
+          <span
+            aria-hidden
+            className="hidden h-9 w-px shrink-0 bg-[var(--ai-line)] min-[525px]:block"
+          />
+        </>
+      )}
+
+      {/* The stage select used to sit mid-scroll, where the one edit a
+          recruiter makes most often scrolled away from them.
+
+          Neutral, where the design tints it blue. That blue is the mock's
+          one stage showing through — there is no stage colour system to
+          read it from, and painting all six blue would make the dot mean
+          nothing. Shape, size and the leading dot match the design. */}
+      {/* The decision stages (Hired, Rejected) are reserved to owner, admin
+          and recruiter. A hiring manager is not offered them, and once a
+          candidate is in one, sees the stage as text rather than a menu
+          that would refuse. Same rule as the server (canChangeStage). */}
+      {!canMakeHiringDecision(viewerRole) && isDecisionStage(stage) ? (
+        <div className="flex shrink-0 items-center gap-2.5">
+          <span className="text-[11.5px] font-bold tracking-[0.02em] text-[var(--ai-t3)]">
+            Stage
+          </span>
+          <div className="min-w-0">
+            <span className="block rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] px-[13px] py-[9px] text-[13px] font-bold text-[var(--ai-t1)]">
+              {PIPELINE_STAGE_LABELS[stage]}
+            </span>
+            <span className="mt-1 block text-[11px] leading-[1.4] text-[var(--ai-t3)]">
+              Only an owner, admin or recruiter can change this.
+            </span>
+          </div>
+        </div>
+      ) : (
+        <div className="flex shrink-0 items-center gap-2.5">
+          <label
+            htmlFor={stageSelectId}
+            className="text-[11.5px] font-bold tracking-[0.02em] text-[var(--ai-t3)]"
+          >
+            Stage
+          </label>
+          <div className="relative">
+            <span
+              aria-hidden
+              className="pointer-events-none absolute left-[13px] top-1/2 size-[7px] -translate-y-1/2 rounded-full bg-[var(--ai-t3)]"
+            />
+            <select
+              id={stageSelectId}
+              value={stage}
+              disabled={saving}
+              onChange={(e) => onStageChange(e.target.value as PipelineStage)}
+              className="cursor-pointer appearance-none rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] py-[9px] pl-[30px] pr-[34px] text-[13px] font-bold text-[var(--ai-t1)] transition-colors hover:border-[var(--ai-line-strong)] focus:border-remotiv-purple focus:outline-none focus:ring-[3px] focus:ring-remotiv-purple/[0.16] disabled:cursor-wait disabled:opacity-70"
+            >
+              {PIPELINE_STAGES.filter(
+                (s) => canMakeHiringDecision(viewerRole) || !isDecisionStage(s),
+              ).map((s) => (
+                <option key={s} value={s}>
+                  {PIPELINE_STAGE_LABELS[s]}
+                </option>
+              ))}
+            </select>
+            <ChevronDown
+              aria-hidden
+              className="pointer-events-none absolute right-3 top-1/2 size-3 -translate-y-1/2 text-[var(--ai-t1)] opacity-55"
+              strokeWidth={1.8}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Drawer ───────────────────────────────────────────────────
 
 function ApplicantDrawer({
@@ -1062,10 +1275,8 @@ function ApplicantDrawer({
   stepBusy: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
-  const tint = getTint(row.id);
   const name = fullName(row);
   const applied = fmtApplied(row.created_at, clock);
-  const stage = stageOf(row);
 
   // Escape, scroll lock, focus in, Tab containment, inert page behind, and
   // focus back to the row that opened it - all from the one modal primitive.
@@ -1294,151 +1505,15 @@ function ApplicantDrawer({
           </div>
         </div>
 
-        <div className="flex items-center gap-[15px] pb-4">
-          <span
-            className="grid size-[54px] shrink-0 place-items-center rounded-full font-heading text-[18px] font-extrabold shadow-[0_0_0_3px_rgba(126,71,255,0.1)]"
-            style={{ background: tint.bg, color: tint.fg }}
-          >
-            {initials(row.first_name, row.last_name, row.email)}
-          </span>
-          <div className="min-w-0">
-            <h2 className="m-0 truncate font-heading text-[21px] font-extrabold leading-[1.15] tracking-[-0.03em] text-[var(--ai-t1)]">
-              {name}
-            </h2>
-            {/* Email, then whichever of location and applied date exist. The
-                separators are joined to their following item so a missing
-                location does not leave a dot floating. */}
-            <div className="mt-1 flex items-center gap-[9px] text-[12.5px] font-medium text-[var(--ai-t3)]">
-              <b className="truncate font-semibold text-[var(--ai-t2)]">{row.email}</b>
-              {location && (
-                <>
-                  <IdDot />
-                  <span className="whitespace-nowrap">{location}</span>
-                </>
-              )}
-              <IdDot />
-              {/* The absolute date, not the list's "40d ago". A relative age
-                  earns its place in a column being scanned; here it is the one
-                  date on the record and the reader may be about to quote it. */}
-              <span className="whitespace-nowrap">
-                Applied {fmtDay(row.created_at, clock.local)}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex-1" />
-
-          {/* Mini ring only. The full card lives on Review, where the reader
-              has the breakdown in front of them; this keeps the number
-              itself on screen from every tab. Absent rather than a dashed
-              placeholder when unscored — Review carries that explanation.
-
-              Hidden below 525px (the segment's `sm`, scaled by the shell's
-              0.82 zoom), because at a 360px viewport this row has 377px to
-              place 446px of content and the ring block plus its divider are
-              the first 136px of the excess. What was being lost instead was
-              the NAME: the h2 and the email both carry `truncate`, so they
-              clipped to zero width and vanished while the ring stayed, and
-              the only survivor was the whitespace-nowrap applied date
-              painting across the ring. Hiding the ring brings the identity
-              row's overflow to 0 and the name back to 99px at 360 / 117px at
-              375, at no vertical cost — the header stays 163px tall. The
-              argument for which one goes is the comment above: the score has
-              a full card one tab away and the name has nowhere else to be.
-
-              This also fixes the Stage select, which was sitting 46px past
-              the drawer edge for the same reason and needs no edit of its
-              own. */}
-          {band && headerScore.overall != null && (
-            <>
-              <div className="hidden shrink-0 items-center gap-[11px] min-[525px]:flex">
-                <DrawerMiniRing score={headerScore.overall} />
-                <div>
-                  <span className="block text-[12.5px] font-bold leading-[1.25] text-[var(--ai-t1)]">
-                    {BAND_MATCH_LABEL[band]}
-                  </span>
-                  {/* The design's second line here is rank. Cut — nothing
-                      computes it — so the slot closes up, except when a human
-                      has overridden: then the number beside it is not the
-                      AI's and the header has to say so. */}
-                  {headerScore.adjusted && (
-                    <span className="mt-0.5 block text-[11px] font-semibold text-[var(--ai-t3)]">
-                      Adjusted
-                    </span>
-                  )}
-                </div>
-              </div>
-              {/* Same breakpoint as the ring it separates: a divider with
-                  nothing on one side of it is just a stray line. */}
-              <span
-                aria-hidden
-                className="hidden h-9 w-px shrink-0 bg-[var(--ai-line)] min-[525px]:block"
-              />
-            </>
-          )}
-
-          {/* The stage select used to sit mid-scroll, where the one edit a
-              recruiter makes most often scrolled away from them.
-
-              Neutral, where the design tints it blue. That blue is the mock's
-              one stage showing through — there is no stage colour system to
-              read it from, and painting all six blue would make the dot mean
-              nothing. Shape, size and the leading dot match the design. */}
-          {/* The decision stages (Hired, Rejected) are reserved to owner, admin
-              and recruiter. A hiring manager is not offered them, and once a
-              candidate is in one, sees the stage as text rather than a menu
-              that would refuse. Same rule as the server (canChangeStage). */}
-          {!canMakeHiringDecision(viewerRole) && isDecisionStage(stage) ? (
-            <div className="flex shrink-0 items-center gap-2.5">
-              <span className="text-[11.5px] font-bold tracking-[0.02em] text-[var(--ai-t3)]">
-                Stage
-              </span>
-              <div className="min-w-0">
-                <span className="block rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] px-[13px] py-[9px] text-[13px] font-bold text-[var(--ai-t1)]">
-                  {PIPELINE_STAGE_LABELS[stage]}
-                </span>
-                <span className="mt-1 block text-[11px] leading-[1.4] text-[var(--ai-t3)]">
-                  Only an owner, admin or recruiter can change this.
-                </span>
-              </div>
-            </div>
-          ) : (
-            <div className="flex shrink-0 items-center gap-2.5">
-              <label
-                htmlFor="applicant-stage"
-                className="text-[11.5px] font-bold tracking-[0.02em] text-[var(--ai-t3)]"
-              >
-                Stage
-              </label>
-              <div className="relative">
-                <span
-                  aria-hidden
-                  className="pointer-events-none absolute left-[13px] top-1/2 size-[7px] -translate-y-1/2 rounded-full bg-[var(--ai-t3)]"
-                />
-                <select
-                  id="applicant-stage"
-                  value={stage}
-                  disabled={saving}
-                  onChange={(e) => onStageChange(e.target.value as PipelineStage)}
-                  className="cursor-pointer appearance-none rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] py-[9px] pl-[30px] pr-[34px] text-[13px] font-bold text-[var(--ai-t1)] transition-colors hover:border-[var(--ai-line-strong)] focus:border-remotiv-purple focus:outline-none focus:ring-[3px] focus:ring-remotiv-purple/[0.16] disabled:cursor-wait disabled:opacity-70"
-                >
-                  {PIPELINE_STAGES.filter(
-                    (s) => canMakeHiringDecision(viewerRole) || !isDecisionStage(s),
-                  ).map((s) => (
-                    <option key={s} value={s}>
-                      {PIPELINE_STAGE_LABELS[s]}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown
-                  aria-hidden
-                  className="pointer-events-none absolute right-3 top-1/2 size-3 -translate-y-1/2 text-[var(--ai-t1)] opacity-55"
-                  strokeWidth={1.8}
-                />
-              </div>
-            </div>
-          )}
-        </div>
+        <ApplicantIdentityRow
+          row={row}
+          clock={clock}
+          headerScore={headerScore}
+          viewerRole={viewerRole}
+          saving={saving}
+          onStageChange={onStageChange}
+          stageSelectId="applicant-stage"
+        />
 
         {/* Scrolls sideways rather than wrapping, which is the opposite of the
             call made for the dashboard's filter-chip strips, and for a reason
@@ -1812,40 +1887,14 @@ function ApplicantDrawer({
             {scoreDetail?.ai_status === "scored" && (
               <>
                 {scoreDetail.summary && (
-                  <div className={`${CARD_SURFACE} mb-7 px-[22px] py-5`}>
-                    <div className="mb-3.5 flex items-center justify-between gap-4">
-                      <h3 className="m-0 whitespace-nowrap font-heading text-[15px] font-bold tracking-[-0.02em] text-[var(--ai-t1)]">
-                        Summary
-                      </h3>
-                      {/* Real, unlike most of the design's sub-lines. The
-                          answers are frozen at apply time and the scorer is
-                          handed them as context alongside the CV, so the count
-                          is the count the model read.
-
-                          The scorecard arrives before the answers do, so this
-                          clause waits for them instead of claiming the CV was
-                          the only input. */}
-                      {screeningAnswerCount !== null && (
-                        <span className="text-right text-[11px] font-medium text-[var(--ai-t3)]">
-                          {summarySource(screeningAnswerCount)}
-                        </span>
-                      )}
-                    </div>
-                    <p className="m-0 text-[13px] leading-[1.72] text-[var(--ai-t2)]">
-                      {scoreDetail.summary}
-                    </p>
-                  </div>
+                  <SummaryCard
+                    scoreDetail={scoreDetail}
+                    screeningAnswerCount={screeningAnswerCount}
+                  />
                 )}
 
                 {scoreDetail.dimensions.length > 0 && (
-                  <div className="mb-7">
-                    <ReviewSubhead title="Scored dimensions" meta={dimensionsMeta(scoreDetail)} />
-                    <div className={`${CARD_SURFACE} py-1`}>
-                      {scoreDetail.dimensions.map((d) => (
-                        <ScoredDimension key={d.dimension} dimension={d} />
-                      ))}
-                    </div>
-                  </div>
+                  <ScoredDimensionsSection scoreDetail={scoreDetail} />
                 )}
 
                 <div className="mb-7">
@@ -1882,14 +1931,7 @@ function ApplicantDrawer({
                       )}
                     </EvidenceList>
 
-                    <EvidenceList
-                      label="Must-haves met"
-                      badge="bg-[var(--ai-purple-tint)] text-[var(--ai-purple-ink)]"
-                      dot="bg-remotiv-purple"
-                      count={mustHaveCount(scoreDetail)}
-                    >
-                      <MustHaveRows scoreDetail={scoreDetail} />
-                    </EvidenceList>
+                    <MustHavesBox scoreDetail={scoreDetail} />
 
                     <EvidenceList
                       label="Missing requirements"
@@ -3831,8 +3873,22 @@ export function ApplicantsClient({
    * would fire it during that gap and close the panel just opened.
    */
   useEffect(() => {
+    // Split at 1100+: ?applicant= names the panel's applicant, not an open
+    // drawer. The drawer opens from the panel's Details button instead.
+    if (isSplitWide(split)) {
+      if (deepLinkId) setSplitId(deepLinkId);
+      return;
+    }
     setOpenId(deepLinkId);
-  }, [deepLinkId]);
+  }, [deepLinkId, split]);
+
+  /**
+   * The applicant in the Split panel (1100+ real width, flag on). Separate
+   * from openId, which stays the live drawer's. Set in state by the
+   * auto-select effect, and written to the URL only by selectSplit (a click).
+   */
+  const [splitId, setSplitId] = useState<string | null>(null);
+  const splitWide = useSplitWide() && split;
 
   /**
    * Which pane the panel is showing. Seeded from ?tab= by the same effect
@@ -3885,8 +3941,20 @@ export function ApplicantsClient({
 
   const closePanel = useCallback(() => {
     setOpenId(null);
+    // Split at 1100+: closing the drawer returns to the panel, and the URL
+    // still names the panel's applicant, so it is left alone.
+    if (isSplitWide(split)) return;
     syncPanelUrl(null, panelTab);
-  }, [syncPanelUrl, panelTab]);
+  }, [syncPanelUrl, panelTab, split]);
+
+  /** A click on a row in the Split list: the one place the panel writes the URL. */
+  const selectSplit = useCallback(
+    (id: string) => {
+      setSplitId(id);
+      syncPanelUrl(id, panelTab);
+    },
+    [syncPanelUrl, panelTab],
+  );
 
   const selectPanelTab = useCallback(
     (tab: PanelTab) => {
@@ -4173,6 +4241,73 @@ export function ApplicantsClient({
       topRows.find((r) => r.id === openId) ??
       (offPageRow?.id === openId ? offPageRow : null))
     : null;
+
+  /*
+   * ── The Split panel (flag on, 1100+ real width) ───────────────
+   *
+   * Auto-select: the first row of the page, in STATE only. This effect never
+   * writes the URL; selectSplit (a click) is the only writer. While a new page
+   * is on its way the old rows stay, so the panel keeps the selected person
+   * until the new list arrives (v9 state 7).
+   */
+  const pagedIds = paged.map((r) => r.id).join(",");
+  useEffect(() => {
+    if (!splitWide) return;
+    setSplitId((prev) => autoSplitSelection(prev, pagedIds ? pagedIds.split(",") : [], deepLinkId));
+  }, [splitWide, pagedIds, deepLinkId]);
+
+  /**
+   * The panel's own read of the selected applicant: the same action the drawer
+   * uses, keyed to the id it was started for so a late answer for the previous
+   * row never paints under the next one.
+   */
+  const [splitRead, setSplitRead] = useState<{
+    id: string;
+    ok: boolean;
+    scoreDetail: ApplicantScoreDetail | null;
+    screening: ScreeningState;
+    applicant: CompanyApplicantRow | null;
+  } | null>(null);
+  useEffect(() => {
+    if (!splitWide || !splitId) return;
+    let cancelled = false;
+    const id = splitId;
+    fetchCompanyApplicant(id)
+      .then((read) => {
+        if (cancelled) return;
+        setSplitRead({
+          id,
+          ok: read.ok,
+          scoreDetail: read.ok ? (read.value?.scoreDetail ?? null) : null,
+          screening: { id, answers: read.ok && read.value ? read.value.screening_answers : null },
+          applicant: read.ok ? (read.value?.applicant ?? null) : null,
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSplitRead({
+          id,
+          ok: false,
+          scoreDetail: null,
+          screening: { id, answers: null },
+          applicant: null,
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [splitWide, splitId]);
+
+  const splitRow =
+    splitWide && splitId
+      ? (rows.find((r) => r.id === splitId) ??
+        topRows.find((r) => r.id === splitId) ??
+        (splitRead?.id === splitId ? splitRead.applicant : null))
+      : null;
+  const splitDetail = splitRow && splitRead?.id === splitRow.id ? splitRead.scoreDetail : null;
+
+  /** The Composer's one recipient: the drawer's applicant, else the panel's. */
+  const composerRow = openRow ?? splitRow;
 
   /**
    * The refusal sentence, dated in the reader's timezone off the page clock —
@@ -4917,6 +5052,35 @@ export function ApplicantsClient({
     };
   })();
 
+  const splitPanel = splitRow ? (
+    <SplitPanel
+      key={splitRow.id}
+      row={splitRow}
+      header={
+        <ApplicantIdentityRow
+          row={splitRow}
+          clock={clock}
+          headerScore={splitDetail ?? splitRow.score}
+          viewerRole={viewerRole}
+          saving={savingId === splitRow.id}
+          onStageChange={(next) => {
+            void handleStageChange(splitRow.id, next);
+          }}
+          stageSelectId="split-applicant-stage"
+        />
+      }
+      scoreDetail={splitDetail}
+      screening={selectScreening(splitRead?.screening ?? null, splitRow.id)}
+      applied={fmtApplied(splitRow.created_at, clock)}
+      onDetails={() => setOpenId(splitRow.id)}
+      onEmail={() => setComposerOpen(true)}
+      dismissing={dismissing}
+      onDismissFlag={(id) => {
+        void dismissFlag(id);
+      }}
+    />
+  ) : null;
+
   const renderedPage = (
     <PageContainer>
       {/* The list dims and goes inert behind the panel rather than sitting
@@ -5067,28 +5231,33 @@ export function ApplicantsClient({
         </DashboardHero>
 
         {/* Panel */}
-        <div className="overflow-hidden rounded-[20px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_6px_30px_rgba(20,16,32,0.06)]">
-          <div className="flex flex-wrap items-center gap-3 border-b border-[var(--ai-line)] px-[18px] py-3.5">
-            <StageTabs
-              tab={tab}
-              total={view.total}
-              stageCounts={view.stages}
-              updating={view.updating}
-              flaggedOnly={flaggedOnly}
-              flaggedCount={flaggedCount}
-              onSelectStage={(stage) => setFilters({ stage })}
-              onToggleFlagged={() => setFilters({ flaggedOnly: !flaggedOnly })}
-            />
+        <SplitLayout split={split} panel={splitPanel}>
+          <div
+            className={`overflow-hidden rounded-[20px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_6px_30px_rgba(20,16,32,0.06)]${split ? ` ${SPLIT_CARD_WIDE}` : ""}`}
+          >
+            <div
+              className={`flex flex-wrap items-center gap-3 border-b border-[var(--ai-line)] px-[18px] py-3.5${split ? ` ${SPLIT_TOOLBAR_WIDE}` : ""}`}
+            >
+              <StageTabs
+                tab={tab}
+                total={view.total}
+                stageCounts={view.stages}
+                updating={view.updating}
+                flaggedOnly={flaggedOnly}
+                flaggedCount={flaggedCount}
+                onSelectStage={(stage) => setFilters({ stage })}
+                onToggleFlagged={() => setFilters({ flaggedOnly: !flaggedOnly })}
+              />
 
-            {/* Full-width on phones so the selects + search stack under the tabs
+              {/* Full-width on phones so the selects + search stack under the tabs
                 instead of forcing the toolbar wider than the viewport.
                 `flex-wrap` because this cluster holds three controls now. The
                 search box needs a min-width to make that wrap happen: with
                 `min-w-0` it was squeezed to 68px between the two selects at a
                 360px viewport while Add candidate sat orphaned on a row of its
                 own. The floor pushes both onto that row together. */}
-            <div className="flex w-full flex-wrap items-center gap-[9px] min-[630px]:ml-auto min-[630px]:w-auto min-[630px]:flex-nowrap">
-              {/*
+              <div className="flex w-full flex-wrap items-center gap-[9px] min-[630px]:ml-auto min-[630px]:w-auto min-[630px]:flex-nowrap">
+                {/*
                 A SELECT, not a segmented toggle, and that is the whole reason it
                 reads correctly here. A two-button Best/Newest control is the same
                 shape as the tab strip's buttons a few pixels to the left, so at a
@@ -5097,45 +5266,45 @@ export function ApplicantsClient({
                 cluster that answers "how is this list shaped" rather than the
                 strip that answers "which stage".
               */}
-              <select
-                value={sort}
-                onChange={(e) => setFilters({ sort: e.target.value as ApplicantSort })}
-                aria-label="Sort applicants"
-                className={`${TOOLBAR_SELECT} shrink-0`}
-              >
-                <option value="best">Best match</option>
-                <option value="newest">Newest first</option>
-              </select>
+                <select
+                  value={sort}
+                  onChange={(e) => setFilters({ sort: e.target.value as ApplicantSort })}
+                  aria-label="Sort applicants"
+                  className={`${TOOLBAR_SELECT} shrink-0`}
+                >
+                  <option value="best">Best match</option>
+                  <option value="newest">Newest first</option>
+                </select>
 
-              <select
-                value={jobFilter}
-                onChange={(e) =>
-                  setFilters({ jobId: e.target.value === "all" ? null : e.target.value })
-                }
-                aria-label="Filter by job"
-                className={`${TOOLBAR_SELECT} max-w-[45%] shrink min-[630px]:max-w-none`}
-              >
-                <option value="all">All jobs</option>
-                {jobOptions.map(([id, title]) => (
-                  <option key={id} value={id}>
-                    {title}
-                  </option>
-                ))}
-              </select>
+                <select
+                  value={jobFilter}
+                  onChange={(e) =>
+                    setFilters({ jobId: e.target.value === "all" ? null : e.target.value })
+                  }
+                  aria-label="Filter by job"
+                  className={`${TOOLBAR_SELECT} max-w-[45%] shrink min-[630px]:max-w-none`}
+                >
+                  <option value="all">All jobs</option>
+                  {jobOptions.map(([id, title]) => (
+                    <option key={id} value={id}>
+                      {title}
+                    </option>
+                  ))}
+                </select>
 
-              <div className="flex min-w-[160px] flex-1 items-center gap-2 rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-3 py-[7px] text-[var(--ai-t3)] focus-within:border-remotiv-purple min-[630px]:w-[210px] min-[630px]:flex-none">
-                <SearchIcon className="size-[15px] shrink-0" strokeWidth={1.8} />
-                <input
-                  type="search"
-                  aria-label="Search applicants"
-                  placeholder="Search applicants…"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full min-w-0 bg-transparent text-[13px] text-[var(--ai-t1)] outline-none placeholder:text-[var(--ai-t3)]"
-                />
-              </div>
+                <div className="flex min-w-[160px] flex-1 items-center gap-2 rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-3 py-[7px] text-[var(--ai-t3)] focus-within:border-remotiv-purple min-[630px]:w-[210px] min-[630px]:flex-none">
+                  <SearchIcon className="size-[15px] shrink-0" strokeWidth={1.8} />
+                  <input
+                    type="search"
+                    aria-label="Search applicants"
+                    placeholder="Search applicants…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="w-full min-w-0 bg-transparent text-[13px] text-[var(--ai-t1)] outline-none placeholder:text-[var(--ai-t3)]"
+                  />
+                </div>
 
-              {/* In the header, not the empty state: the commonest time to add
+                {/* In the header, not the empty state: the commonest time to add
                   someone by hand is onto a list that already has people on it.
                   Last in the cluster because it is the only control here that
                   writes — everything to its left only reshapes the view.
@@ -5144,70 +5313,71 @@ export function ApplicantsClient({
                   reason in the tooltip. A missing button reads as a missing
                   feature; a disabled one that explains itself points at the
                   fix, which is to post a role first. */}
-              {canAddApplicant && (
-                <button
-                  type="button"
-                  disabled={assignableJobs.length === 0}
-                  onClick={() => {
-                    setAddError(null);
-                    setAddDuplicate(null);
-                    setAddOpen(true);
-                  }}
-                  title={
-                    assignableJobs.length === 0
-                      ? "Create a job first - a candidate has to be added to a role."
-                      : "Add a candidate whose CV reached you outside the job board."
-                  }
-                  className="flex shrink-0 items-center gap-[7px] rounded-[10px] bg-remotiv-purple px-[13px] py-[8px] text-[13px] font-bold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45"
-                >
-                  <Plus className="size-[15px]" strokeWidth={2.4} />
-                  Add candidate
-                </button>
-              )}
-            </div>
-          </div>
-
-          {paged.length === 0 && (
-            <div className="flex flex-col items-center px-6 pb-16 pt-[60px] text-center">
-              <div className="mb-[18px] flex size-[66px] items-center justify-center rounded-[20px] bg-[var(--ai-purple-tint)] text-remotiv-purple">
-                <Users className="size-7" strokeWidth={1.7} />
+                {canAddApplicant && (
+                  <button
+                    type="button"
+                    disabled={assignableJobs.length === 0}
+                    onClick={() => {
+                      setAddError(null);
+                      setAddDuplicate(null);
+                      setAddOpen(true);
+                    }}
+                    title={
+                      assignableJobs.length === 0
+                        ? "Create a job first - a candidate has to be added to a role."
+                        : "Add a candidate whose CV reached you outside the job board."
+                    }
+                    className="flex shrink-0 items-center gap-[7px] rounded-[10px] bg-remotiv-purple px-[13px] py-[8px] text-[13px] font-bold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    <Plus className="size-[15px]" strokeWidth={2.4} />
+                    Add candidate
+                  </button>
+                )}
               </div>
-              <h3 className="font-heading text-[19px] font-extrabold tracking-[-0.02em]">
-                {emptyCopy.title}
-              </h3>
-              <p className="m-0 mt-1.5 max-w-[340px] text-[13.5px] leading-relaxed text-[var(--ai-t3)]">
-                {emptyCopy.text}
-              </p>
             </div>
-          )}
 
-          {/* Stacked cards below the table breakpoint — the 7-column grid needs
+            <SplitListColumn split={split} fullWidth={paged.length === 0}>
+              {paged.length === 0 && (
+                <div className="flex flex-col items-center px-6 pb-16 pt-[60px] text-center">
+                  <div className="mb-[18px] flex size-[66px] items-center justify-center rounded-[20px] bg-[var(--ai-purple-tint)] text-remotiv-purple">
+                    <Users className="size-7" strokeWidth={1.7} />
+                  </div>
+                  <h3 className="font-heading text-[19px] font-extrabold tracking-[-0.02em]">
+                    {emptyCopy.title}
+                  </h3>
+                  <p className="m-0 mt-1.5 max-w-[340px] text-[13.5px] leading-relaxed text-[var(--ai-t3)]">
+                    {emptyCopy.text}
+                  </p>
+                </div>
+              )}
+
+              {/* Stacked cards below the table breakpoint — the 7-column grid needs
               960 design px, which simply doesn't exist on a phone. Squeezing it
               would clip the candidate name; scrolling it sideways hides Job /
               Score / Stage. Same data, same tap target, no horizontal scroll. */}
-          {topOnly && (
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--ai-line)] bg-[var(--ai-purple-tint)] px-5 py-2.5">
-              <p className="m-0 text-[12.5px] font-semibold text-[var(--ai-purple-ink)]">
-                {/* The denominator is the FILTERED population, which is a
+              {topOnly && (
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--ai-line)] bg-[var(--ai-purple-tint)] px-5 py-2.5">
+                  <p className="m-0 text-[12.5px] font-semibold text-[var(--ai-purple-ink)]">
+                    {/* The denominator is the FILTERED population, which is a
                     server count and so can be unknown — and there is no em
                     dash available mid-sentence. So an unreadable total drops
                     the "of N" clause rather than inventing one; the top ten
                     themselves are still a fact worth stating. */}
-                Showing the top {topRows.length} scored applicant
-                {topRows.length === 1 ? "" : "s"}
-                {pageView.total === null ? "." : ` of ${pageView.total}.`}
-              </p>
-              <button
-                type="button"
-                onClick={() => setFilters({ topOnly: false })}
-                className="text-[12.5px] font-bold text-remotiv-purple underline-offset-2 hover:underline"
-              >
-                Show all applicants
-              </button>
-            </div>
-          )}
+                    Showing the top {topRows.length} scored applicant
+                    {topRows.length === 1 ? "" : "s"}
+                    {pageView.total === null ? "." : ` of ${pageView.total}.`}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setFilters({ topOnly: false })}
+                    className="text-[12.5px] font-bold text-remotiv-purple underline-offset-2 hover:underline"
+                  >
+                    Show all applicants
+                  </button>
+                </div>
+              )}
 
-          {/*
+              {/*
             The rows answer a request the reader may have moved off.
             ──────────────────────────────────────────────────────
 
@@ -5225,130 +5395,131 @@ export function ApplicantsClient({
             `topOnly` is excluded: that mode reads from `topScored`, which this
             flag says nothing about.
           */}
-          <div
-            aria-busy={!topOnly && pageView.updating}
-            className={`transition-opacity ${!topOnly && pageView.updating ? "opacity-50" : ""}`}
-          >
-            {split ? (
-              /* Split (commit 4): the Split list item at every width, no table
-                 and no card twin. The panel beside it comes in commit 5; until
-                 then a row opens the live drawer, as today. */
-              paged.length > 0 && (
-                <div data-split-list>
-                  {paged.map((r) => (
-                    <SplitListItem
-                      key={r.id}
-                      row={r}
-                      ring={<ScoreRing score={r.score} />}
-                      applied={fmtApplied(r.created_at, clock).main}
-                      isTop={topMatchIds.has(r.id)}
-                      selected={openId === r.id}
-                      onOpen={() => openApplicant(r.id)}
-                    />
-                  ))}
-                </div>
-              )
-            ) : (
-              <>
-                {paged.length > 0 && (
-                  <div data-twin-narrow className="min-[1049px]:hidden">
-                    {paged.map((r, i) => (
-                      <ApplicantCard
-                        key={r.id}
-                        row={r}
-                        rank={pageStart + i}
-                        isTop={topMatchIds.has(r.id)}
-                        selected={openId === r.id}
-                        onOpen={() => openApplicant(r.id)}
-                        clock={clock}
-                      />
-                    ))}
-                  </div>
-                )}
-
-                {/* Desktop table — unchanged above the breakpoint. overflow-x-auto is
-                kept as a belt-and-braces guard; at >=1049px the grid fits. */}
-                <div data-twin-wide className="hidden overflow-x-auto min-[1049px]:block">
-                  <div className="min-w-[960px]">
-                    <div
-                      className={`${GRID} border-b border-[var(--ai-line)] bg-[var(--ai-inset)] py-[11px] text-[10.5px] font-bold uppercase tracking-[0.08em] text-[var(--ai-t3)]`}
-                    >
-                      <span>#</span>
-                      <span>Candidate</span>
-                      <span>Job</span>
-                      <span>CV score</span>
-                      <span>Stage</span>
-                      <span>Applied</span>
-                      <span />
-                    </div>
-
-                    {paged.map((r, i) => {
-                      const tint = getTint(r.id);
-                      const applied = fmtApplied(r.created_at, clock);
-                      const stage = stageOf(r);
-                      const pill = stagePill(stage);
-                      const isTop = topMatchIds.has(r.id);
-                      const rank = pageStart + i;
-
-                      return (
-                        <button
+              <div
+                aria-busy={!topOnly && pageView.updating}
+                className={`transition-opacity ${!topOnly && pageView.updating ? "opacity-50" : ""}`}
+              >
+                {split ? (
+                  /* Split: the Split list item at every width, no table and no
+                 card twin. At 1100+ a row selects it in the panel beside the
+                 list (commit 5c); below that it opens the live drawer, as
+                 today, until the sheet in commit 7. */
+                  paged.length > 0 && (
+                    <div data-split-list>
+                      {paged.map((r) => (
+                        <SplitListItem
                           key={r.id}
-                          type="button"
-                          data-applicant-id={r.id}
-                          onClick={() => openApplicant(r.id)}
-                          className={`${GRID} group/row group relative w-full cursor-pointer border-b border-[var(--ai-line-soft)] py-[13px] text-left transition-all last:border-b-0 hover:z-[2] hover:bg-[#FCFBFA] hover:shadow-[0_6px_22px_rgba(20,16,32,0.07)] ${
-                            openId === r.id
-                              ? "bg-[var(--ai-purple-tint)]"
-                              : showsWorthALook(r)
-                                ? "bg-remotiv-purple/[0.035]"
-                                : "bg-[var(--ai-surface)]"
-                          }`}
+                          row={r}
+                          ring={<ScoreRing score={r.score} />}
+                          applied={fmtApplied(r.created_at, clock).main}
+                          isTop={topMatchIds.has(r.id)}
+                          selected={(splitWide ? splitId : openId) === r.id}
+                          onOpen={() => (splitWide ? selectSplit(r.id) : openApplicant(r.id))}
+                        />
+                      ))}
+                    </div>
+                  )
+                ) : (
+                  <>
+                    {paged.length > 0 && (
+                      <div data-twin-narrow className="min-[1049px]:hidden">
+                        {paged.map((r, i) => (
+                          <ApplicantCard
+                            key={r.id}
+                            row={r}
+                            rank={pageStart + i}
+                            isTop={topMatchIds.has(r.id)}
+                            selected={openId === r.id}
+                            onOpen={() => openApplicant(r.id)}
+                            clock={clock}
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Desktop table — unchanged above the breakpoint. overflow-x-auto is
+                kept as a belt-and-braces guard; at >=1049px the grid fits. */}
+                    <div data-twin-wide className="hidden overflow-x-auto min-[1049px]:block">
+                      <div className="min-w-[960px]">
+                        <div
+                          className={`${GRID} border-b border-[var(--ai-line)] bg-[var(--ai-inset)] py-[11px] text-[10.5px] font-bold uppercase tracking-[0.08em] text-[var(--ai-t3)]`}
                         >
-                          {/* Always on for a flagged row — the accent is what makes a
+                          <span>#</span>
+                          <span>Candidate</span>
+                          <span>Job</span>
+                          <span>CV score</span>
+                          <span>Stage</span>
+                          <span>Applied</span>
+                          <span />
+                        </div>
+
+                        {paged.map((r, i) => {
+                          const tint = getTint(r.id);
+                          const applied = fmtApplied(r.created_at, clock);
+                          const stage = stageOf(r);
+                          const pill = stagePill(stage);
+                          const isTop = topMatchIds.has(r.id);
+                          const rank = pageStart + i;
+
+                          return (
+                            <button
+                              key={r.id}
+                              type="button"
+                              data-applicant-id={r.id}
+                              onClick={() => openApplicant(r.id)}
+                              className={`${GRID} group/row group relative w-full cursor-pointer border-b border-[var(--ai-line-soft)] py-[13px] text-left transition-all last:border-b-0 hover:z-[2] hover:bg-[#FCFBFA] hover:shadow-[0_6px_22px_rgba(20,16,32,0.07)] ${
+                                openId === r.id
+                                  ? "bg-[var(--ai-purple-tint)]"
+                                  : showsWorthALook(r)
+                                    ? "bg-remotiv-purple/[0.035]"
+                                    : "bg-[var(--ai-surface)]"
+                              }`}
+                            >
+                              {/* Always on for a flagged row — the accent is what makes a
                             flag findable while scrolling, so it does not wait for a
                             hover the way the default row's does. */}
-                          <span
-                            aria-hidden
-                            className={`absolute inset-y-0 left-0 w-[3px] bg-remotiv-purple transition-opacity ${
-                              openId === r.id || showsWorthALook(r)
-                                ? "opacity-100"
-                                : "opacity-0 group-hover:opacity-100"
-                            }`}
-                          />
-                          <span
-                            className={`font-heading text-sm font-extrabold tabular-nums tracking-[-0.02em] transition-colors group-hover:text-remotiv-purple ${
-                              isTop ? "text-[var(--ai-purple-ink)]" : "text-[var(--ai-t4)]"
-                            }`}
-                          >
-                            {/* `rank` is already 1-based — `rangeStart` is, because
+                              <span
+                                aria-hidden
+                                className={`absolute inset-y-0 left-0 w-[3px] bg-remotiv-purple transition-opacity ${
+                                  openId === r.id || showsWorthALook(r)
+                                    ? "opacity-100"
+                                    : "opacity-0 group-hover:opacity-100"
+                                }`}
+                              />
+                              <span
+                                className={`font-heading text-sm font-extrabold tabular-nums tracking-[-0.02em] transition-colors group-hover:text-remotiv-purple ${
+                                  isTop ? "text-[var(--ai-purple-ink)]" : "text-[var(--ai-t4)]"
+                                }`}
+                              >
+                                {/* `rank` is already 1-based — `rangeStart` is, because
                             the pager's "21–40" reads off the same number. */}
-                            {String(rank).padStart(2, "0")}
-                          </span>
+                                {String(rank).padStart(2, "0")}
+                              </span>
 
-                          <div className="flex min-w-0 items-center gap-3">
-                            <span
-                              className="flex size-10 shrink-0 items-center justify-center rounded-full text-[13px] font-bold"
-                              style={{
-                                background: tint.bg,
-                                color: tint.fg,
-                                boxShadow: isTop
-                                  ? "0 0 0 2px var(--ai-surface), 0 0 0 3.5px #49D7A7"
-                                  : "0 0 0 2px var(--ai-surface), 0 0 0 3.5px rgba(20,16,32,0.07)",
-                              }}
-                            >
-                              {initials(r.first_name, r.last_name, r.email)}
-                            </span>
-                            <div className="min-w-0">
-                              {/* .nm is a flex container, so truncation lives on the
+                              <div className="flex min-w-0 items-center gap-3">
+                                <span
+                                  className="flex size-10 shrink-0 items-center justify-center rounded-full text-[13px] font-bold"
+                                  style={{
+                                    background: tint.bg,
+                                    color: tint.fg,
+                                    boxShadow: isTop
+                                      ? "0 0 0 2px var(--ai-surface), 0 0 0 3.5px #49D7A7"
+                                      : "0 0 0 2px var(--ai-surface), 0 0 0 3.5px rgba(20,16,32,0.07)",
+                                  }}
+                                >
+                                  {initials(r.first_name, r.last_name, r.email)}
+                                </span>
+                                <div className="min-w-0">
+                                  {/* .nm is a flex container, so truncation lives on the
                                 INNER span — otherwise the Top-match flag clips. */}
-                              <p className="m-0 flex min-w-0 items-center gap-2 text-[14.5px] font-bold leading-tight tracking-[-0.01em] text-[var(--ai-t1)]">
-                                <span className="min-w-0 truncate">{fullName(r)}</span>
-                                {isTop && (
-                                  <span className="shrink-0 rounded-[5px] bg-remotiv-lime px-[7px] py-0.5 text-[9.5px] font-extrabold uppercase tracking-[0.06em] text-[#2F3A00]">
-                                    Top match
-                                  </span>
-                                )}
-                                {/* Display-only, exactly as ApplicantCard renders it.
+                                  <p className="m-0 flex min-w-0 items-center gap-2 text-[14.5px] font-bold leading-tight tracking-[-0.01em] text-[var(--ai-t1)]">
+                                    <span className="min-w-0 truncate">{fullName(r)}</span>
+                                    {isTop && (
+                                      <span className="shrink-0 rounded-[5px] bg-remotiv-lime px-[7px] py-0.5 text-[9.5px] font-extrabold uppercase tracking-[0.06em] text-[#2F3A00]">
+                                        Top match
+                                      </span>
+                                    )}
+                                    {/* Display-only, exactly as ApplicantCard renders it.
                                 Passing onDismiss puts a <button> inside this row's
                                 <button>, which is invalid HTML: the parser closes
                                 the row early and reparents everything after the
@@ -5360,76 +5531,78 @@ export function ApplicantsClient({
                                 they broke. Dismissal lives in the drawer's
                                 Worth-a-look banner, one click away on the row the
                                 reader is already pointing at. */}
-                                {showsWorthALook(r) && <WorthALookChip />}
-                              </p>
-                              {showsWorthALook(r) ? (
-                                <FlagReasonLine reason={r.shortlist.reason} />
-                              ) : (
-                                <p className="m-0 mt-0.5 truncate text-[12.5px] text-[var(--ai-t3)]">
-                                  {r.email}
-                                </p>
-                              )}
-                            </div>
-                          </div>
+                                    {showsWorthALook(r) && <WorthALookChip />}
+                                  </p>
+                                  {showsWorthALook(r) ? (
+                                    <FlagReasonLine reason={r.shortlist.reason} />
+                                  ) : (
+                                    <p className="m-0 mt-0.5 truncate text-[12.5px] text-[var(--ai-t3)]">
+                                      {r.email}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
 
-                          {/* min-w-0 on the flex parent and truncate on the title, so
+                              {/* min-w-0 on the flex parent and truncate on the title, so
                           a long role name shortens rather than pushing the chip
                           out of the cell. The chip never shrinks — it is two
                           words or it is wrong. */}
-                          <div className="flex min-w-0 items-center gap-1.5">
-                            <span className="min-w-0 truncate rounded-lg border border-[var(--ai-line-soft)] bg-[var(--ai-inset)] px-2.5 py-[5px] text-[12.5px] font-semibold text-[var(--ai-t2)]">
-                              {r.job_title}
-                            </span>
-                            {r.added_manually && <AddedByTeamChip />}
-                          </div>
+                              <div className="flex min-w-0 items-center gap-1.5">
+                                <span className="min-w-0 truncate rounded-lg border border-[var(--ai-line-soft)] bg-[var(--ai-inset)] px-2.5 py-[5px] text-[12.5px] font-semibold text-[var(--ai-t2)]">
+                                  {r.job_title}
+                                </span>
+                                {r.added_manually && <AddedByTeamChip />}
+                              </div>
 
-                          <ScoreRing score={r.score} />
+                              <ScoreRing score={r.score} />
 
-                          <span
-                            className={`inline-flex items-center gap-1.5 justify-self-start whitespace-nowrap rounded-full px-3 py-[5px] text-xs font-bold ${pill.cls}`}
-                          >
-                            <span className={`size-[5px] shrink-0 rounded-full ${pill.dot}`} />
-                            {pipelineStageLabel(stage)}
-                          </span>
+                              <span
+                                className={`inline-flex items-center gap-1.5 justify-self-start whitespace-nowrap rounded-full px-3 py-[5px] text-xs font-bold ${pill.cls}`}
+                              >
+                                <span className={`size-[5px] shrink-0 rounded-full ${pill.dot}`} />
+                                {pipelineStageLabel(stage)}
+                              </span>
 
-                          <span className="whitespace-nowrap text-[13px] text-[var(--ai-t2)]">
-                            {applied.main}
-                            <small className="mt-px block text-[11.5px] text-[var(--ai-t4)]">
-                              {applied.sub}
-                            </small>
-                          </span>
+                              <span className="whitespace-nowrap text-[13px] text-[var(--ai-t2)]">
+                                {applied.main}
+                                <small className="mt-px block text-[11.5px] text-[var(--ai-t4)]">
+                                  {applied.sub}
+                                </small>
+                              </span>
 
-                          <span />
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
+                              <span />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
 
-          <div className="flex items-center justify-between gap-4 border-t border-[var(--ai-line)] bg-[var(--ai-inset)] px-5 py-[13px]">
-            <p className="m-0 text-[12.5px] text-[var(--ai-t3)]">
-              {sort === "best"
-                ? "Ranked by AI score. Anything without a score sits at the end."
-                : "Newest first. Scores don't affect this order."}
-            </p>
-            <Pagination
-              page={safePage}
-              pageCount={pageCount}
-              total={total}
-              grandTotal={view.grandTotal}
-              /* `pageStart` is already the 1-based index of the page's first
+              <div className="flex items-center justify-between gap-4 border-t border-[var(--ai-line)] bg-[var(--ai-inset)] px-5 py-[13px]">
+                <p className="m-0 text-[12.5px] text-[var(--ai-t3)]">
+                  {sort === "best"
+                    ? "Ranked by AI score. Anything without a score sits at the end."
+                    : "Newest first. Scores don't affect this order."}
+                </p>
+                <Pagination
+                  page={safePage}
+                  pageCount={pageCount}
+                  total={total}
+                  grandTotal={view.grandTotal}
+                  /* `pageStart` is already the 1-based index of the page's first
                  row — `rangeStart` computes it from the page number, where the
                  old local was a 0-based offset into an in-memory array and
                  needed the +1 here. */
-              rangeStart={pageStart}
-              rangeEnd={pageStart === 0 ? 0 : pageStart + paged.length - 1}
-              onPage={(n) => setFilters({ page: n })}
-            />
+                  rangeStart={pageStart}
+                  rangeEnd={pageStart === 0 ? 0 : pageStart + paged.length - 1}
+                  onPage={(n) => setFilters({ page: n })}
+                />
+              </div>
+            </SplitListColumn>
           </div>
-        </div>
+        </SplitLayout>
       </div>
 
       {openRow && (
@@ -5510,10 +5683,11 @@ export function ApplicantsClient({
         />
       )}
 
-      {/* One recipient — the open applicant. The select still renders, so the
+      {/* One recipient — the open applicant (the drawer's, else the Split
+          panel's). The select still renders, so the
           identity block and the required-To rule behave identically to the
           page-level composer rather than being a second, looser path. */}
-      {openRow && (
+      {composerRow && (
         <Composer
           open={composerOpen}
           onClose={() => setComposerOpen(false)}
@@ -5521,16 +5695,19 @@ export function ApplicantsClient({
           replyToAddress={replyToAddress}
           recipients={[
             {
-              applicationId: openRow.id,
-              name: fullName(openRow),
-              email: openRow.email ?? "",
-              jobTitle: openRow.job_title ?? "-",
+              applicationId: composerRow.id,
+              name: fullName(composerRow),
+              email: composerRow.email ?? "",
+              jobTitle: composerRow.job_title ?? "-",
             },
           ]}
           templates={manualTemplates}
-          presetApplicationId={openRow.id}
+          presetApplicationId={composerRow.id}
           onSent={async () => {
             setToast("Email sent");
+            // The trail below belongs to the drawer. Sent from the Split
+            // panel with the drawer shut, there is no trail on screen.
+            if (!openRow) return;
             setMessagesLoading(true);
             try {
               const read = await fetchApplicationMessages(openRow.id);

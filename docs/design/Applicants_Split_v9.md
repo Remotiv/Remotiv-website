@@ -77,6 +77,8 @@ Same = live component and sizes, no change. Different = a change to build.
 | v6 panel: card title "Why this match" | Live title "Summary", same as the drawer behind Details |
 | v5 panel: name Sora 24px, cards radius 20 with 24px 26px padding, section titles 16px | Live sizes: name 21px, card padding 20px 22px, titles Sora 700 15px |
 
+> **Top match - build note (commit 5c):** the build keeps the LIVE rule, not the "only in Review top 10" wording in this file. An applicant who is in the top-10 read and scores 90 or more gets the Top match chip in the normal list too, exactly as the live page does today.
+
 
 No new fonts or radii. New colour uses: purple tint (the live "Must-haves met" style) for found must-haves, --ai-sidebar fill for Shortlist - both existing tokens.
 
