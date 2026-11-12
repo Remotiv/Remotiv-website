@@ -635,3 +635,144 @@ function tally(acc, v) {
   acc[v] = (acc[v] ?? 0) + 1;
   return acc;
 }
+
+/* ── Showcase rows (Applicants Split, commit 4b) ────────────────── */
+
+const SHOWCASE = await import("./seed-plan.mjs");
+
+const SHOWCASE_APP_KEYS = ["screening_answers", "notice_period", "source", "shortlist_flag_reason"];
+const SHOWCASE_SCORE_KEYS = [
+  "verdict",
+  "summary",
+  "confidence",
+  "dimension_scores",
+  "must_haves",
+  "human_adjusted_score",
+  "adjusted_by_name",
+];
+
+for (const scale of [50, FULL_SCALE]) {
+  const p = buildPlan({ companyId: COMPANY, companyName: COMPANY_NAME, applicants: scale });
+  const showApps = p.applications.filter((a) => "screening_answers" in a);
+  const showScores = p.scores.filter((s) => "verdict" in s);
+
+  test(`showcase @${scale}: ${SHOWCASE.SHOWCASE_ROWS} top-scored rows, each fully detailed`, () => {
+    assert.equal(showScores.length, SHOWCASE.SHOWCASE_ROWS);
+    assert.equal(showApps.length, SHOWCASE.SHOWCASE_ROWS);
+    const top = p.scores
+      .filter((s) => s.status === "scored")
+      .map((s) => s.overall_score)
+      .sort((a, b) => b - a)
+      .slice(0, SHOWCASE.SHOWCASE_ROWS);
+    assert.deepEqual(
+      showScores.map((s) => s.overall_score).sort((a, b) => b - a),
+      top,
+      "the showcase is the top of Best match, so it is on page 1",
+    );
+    for (const s of showScores) {
+      assert.equal(s.status, "scored");
+      assert.equal(s.dimension_scores.length, 4);
+      for (const d of s.dimension_scores) assert.ok(d.reasoning.length > 0);
+      assert.ok(s.must_haves.some((m) => m.status === "evidenced" && m.quote));
+      assert.ok(SHOWCASE.SHOWCASE_CONFIDENCE.includes(s.confidence));
+    }
+  });
+
+  test(`showcase @${scale}: nothing the manifest is derived from moves`, () => {
+    const base = buildPlan({ companyId: COMPANY, companyName: COMPANY_NAME, applicants: scale });
+    // Strip the showcase from a second build and compare the manifest-bearing fields.
+    for (const [i, a] of p.applications.entries()) {
+      const b = base.applications[i];
+      for (const k of ["id", "job_id", "pipeline_stage", "created_at", "company_id_snapshot"]) {
+        assert.equal(a[k], b[k], `${k} moved on application ${i}`);
+      }
+      for (const k of Object.keys(a)) {
+        assert.ok(
+          k in b || SHOWCASE_APP_KEYS.includes(k),
+          `application ${i} gained an unexpected key ${k}`,
+        );
+      }
+      assert.ok(!("shortlist_flagged_at" in a), "the flag's timestamp is set at insert, not here");
+    }
+    for (const s of p.scores) {
+      for (const k of Object.keys(s)) {
+        assert.ok(
+          [
+            "id",
+            "application_id",
+            "job_id",
+            "company_id",
+            "status",
+            "overall_score",
+            "human_adjusted_score",
+            "ai_model",
+            "prompt_version",
+          ].includes(k) || SHOWCASE_SCORE_KEYS.includes(k),
+          `score gained an unexpected key ${k}`,
+        );
+      }
+      // effective_score = human_adjusted_score ?? overall_score (scored rows):
+      // a showcase adjustment equals the AI's own number, so Best match is unchanged.
+      if (s.status === "scored" && s.human_adjusted_score !== null) {
+        assert.equal(s.human_adjusted_score, s.overall_score);
+      }
+    }
+    const effectiveNonNull = p.scores.filter(
+      (s) => s.status === "scored" || s.human_adjusted_score !== null,
+    ).length;
+    assert.equal(effectiveNonNull, p.manifest.bestMatch.effectiveNonNull);
+  });
+
+  test(`showcase @${scale}: one adjusted, one added by team, one visible flag, notice periods`, () => {
+    const adjusted = showScores.filter((s) => s.human_adjusted_score !== null);
+    assert.equal(adjusted.length, 1);
+    assert.equal(adjusted[0].adjusted_by_name, "Staging Reviewer");
+    assert.equal(showApps.filter((a) => a.source === SHOWCASE.SHOWCASE_SOURCE_MANUAL).length, 1);
+    const flagged = showApps.filter((a) => a.shortlist_flag_reason);
+    assert.equal(flagged.length, 1);
+    assert.ok(
+      ["applied", "screening"].includes(flagged[0].pipeline_stage),
+      "flag in a stage that shows it",
+    );
+    for (const a of showApps) assert.ok(SHOWCASE.SHOWCASE_NOTICE_PERIODS.includes(a.notice_period));
+  });
+
+  test(`showcase @${scale}: screening answers give tested and untested questions, never all met`, () => {
+    for (const a of showApps) {
+      const tested = a.screening_answers.filter((q) => q.scored !== false);
+      assert.equal(tested.length, 3, "three tested questions");
+      assert.ok(
+        a.screening_answers.some((q) => q.scored === false),
+        "one collected, not tested",
+      );
+      assert.ok(
+        a.screening_answers.some((q) => q.essential),
+        "an essential question",
+      );
+    }
+    assert.ok(
+      showApps.some((a) => a.screening_answers.some((q) => q.scored !== false && !q.matched)),
+      "at least one tested question missed, so a row reads e.g. 2/3",
+    );
+  });
+}
+
+test("showcase: fake text only, nothing that looks like a real person", () => {
+  const p = buildPlan({ companyId: COMPANY, companyName: COMPANY_NAME, applicants: 50 });
+  const strings = [];
+  const walk = (v) => {
+    if (typeof v === "string") strings.push(v);
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === "object") Object.values(v).forEach(walk);
+  };
+  for (const s of p.scores.filter((x) => "verdict" in x)) {
+    walk([s.verdict, s.summary, s.dimension_scores, s.must_haves]);
+  }
+  for (const a of p.applications.filter((x) => "screening_answers" in x)) {
+    walk([a.screening_answers.map((q) => q.question), a.shortlist_flag_reason ?? "Fake"]);
+  }
+  // Sentences only: dimension keys such as requirements_match are identifiers.
+  const prose = strings.filter((t) => t.length > 12 && t.includes(" "));
+  assert.ok(prose.length > 0);
+  for (const t of prose) assert.match(t, /^Fake /, `not marked fake: ${t.slice(0, 40)}`);
+});

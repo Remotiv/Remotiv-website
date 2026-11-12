@@ -579,5 +579,165 @@ export function buildPlan({ companyId, companyName, applicants, scopedJobIndexes
   };
 
   manifest.notCovered = notCovered(manifest);
+  // After the manifest, and touching no field it was derived from (see
+  // addShowcase): the counts above stay true whatever the showcase adds.
+  addShowcase({ applications, scores });
   return { jobs, applications, scores, messages, sessions, manifest };
+}
+
+/*
+ * ── Showcase rows (Applicants Split, commit 4b) ─────────────────
+ *
+ * The load-test rows carry ids, stages, dates and score numbers and nothing
+ * else, so the Applicants list and drawer show none of their richer states on
+ * staging: no verdict line, no "Screening X/Y met", no summary, dimensions or
+ * must-haves, no Worth-a-look reason, no adjusted score, no "Added by team".
+ * addShowcase gives a handful of the top-scored rows that detail.
+ *
+ * FAKE TEXT ONLY, and nothing the manifest is derived from may change: ids,
+ * pipeline_stage, created_at, score status and overall_score are left exactly
+ * as planned. The one human_adjusted_score it writes equals the row's own
+ * overall_score on a row already "scored", so effective_score, the Best-match
+ * order, the tie groups and effectiveNonNull are all unchanged. The flag's
+ * timestamp is written at insert time (seed.mjs), keyed on the reason set here.
+ */
+
+/** How many top-scored rows get the showcase detail. */
+export const SHOWCASE_ROWS = 8;
+
+/** A notice period the apply form accepts (api/apply/route.ts VALID_NOTICE_PERIOD). */
+export const SHOWCASE_NOTICE_PERIODS = ["Immediate", "2 Weeks", "1 Month", "Negotiable"];
+
+/** Written at most once per value, so the enum preflight can check each. */
+export const SHOWCASE_CONFIDENCE = ["high", "medium", "low"];
+export const SHOWCASE_SOURCE_MANUAL = "manual_upload";
+
+/** The stages where a flag shows as "Worth a look" (applicant-types WORTH_A_LOOK_STAGES). */
+const FLAG_VISIBLE_STAGES = ["applied", "screening"];
+
+const VERDICTS = [
+  "Fake verdict: strong fit on the core stack; notice period is the only gap",
+  "Fake verdict: solid delivery record, lighter on the stated testing practice",
+  "Fake verdict: good domain match, one must-have not shown in the CV",
+  "Fake verdict: relevant experience, fewer years than the role asks for",
+];
+
+const DIMENSIONS = [
+  "requirements_match",
+  "experience_depth",
+  "domain_relevance",
+  "responsibilities_fit",
+];
+
+function screeningFor(k) {
+  // Some tested and met, one tested and missed, one collected but not tested
+  // (scored: false), so the counts show e.g. "Screening 2/3 met".
+  return [
+    {
+      question_id: `q-fake-1`,
+      question: "Fake question: years with the main framework?",
+      type: "numeric",
+      essential: true,
+      ideal: "3",
+      answer: String(3 + (k % 4)),
+      matched: true,
+    },
+    {
+      question_id: `q-fake-2`,
+      question: "Fake question: comfortable with a 4-hour overlap?",
+      type: "yesno",
+      essential: false,
+      ideal: "yes",
+      answer: k % 3 === 0 ? "no" : "yes",
+      matched: k % 3 !== 0,
+    },
+    {
+      question_id: `q-fake-3`,
+      question: "Fake question: available within 30 days?",
+      type: "yesno",
+      essential: false,
+      ideal: "yes",
+      answer: "yes",
+      matched: true,
+    },
+    {
+      question_id: `q-fake-4`,
+      question: "Fake question: preferred working hours?",
+      type: "multiple",
+      essential: false,
+      ideal: "",
+      answer: "Mornings",
+      matched: false,
+      scored: false,
+    },
+  ];
+}
+
+/**
+ * Mutates the chosen application and score rows in place, adding fake detail.
+ * Returns the ids it touched, for the tests.
+ */
+export function addShowcase({ applications, scores }) {
+  const appById = new Map(applications.map((a) => [a.id, a]));
+  const chosen = scores
+    .filter((s) => s.status === "scored" && s.overall_score !== null)
+    .sort((a, b) => b.overall_score - a.overall_score || (a.id < b.id ? -1 : 1))
+    .slice(0, SHOWCASE_ROWS);
+
+  const flagTarget = chosen.find((s) =>
+    FLAG_VISIBLE_STAGES.includes(appById.get(s.application_id)?.pipeline_stage),
+  );
+
+  const touched = { applications: [], scores: [], flagged: null, adjusted: null, manual: null };
+  for (const [k, score] of chosen.entries()) {
+    const app = appById.get(score.application_id);
+    const n = score.overall_score;
+    score.verdict = VERDICTS[k % VERDICTS.length];
+    score.summary =
+      "Fake summary for staging. The candidate shows the core skills the role names, " +
+      "with concrete examples, and one gap worth raising in an interview.";
+    score.confidence = SHOWCASE_CONFIDENCE[k % SHOWCASE_CONFIDENCE.length];
+    score.dimension_scores = DIMENSIONS.map((dimension, d) => ({
+      dimension,
+      score: Math.max(0, Math.min(100, n - 6 + d * 3)),
+      reasoning: `Fake reasoning for ${dimension.replace(/_/g, " ")} on staging.`,
+      quote: d % 2 === 0 ? "Fake CV quote: built and shipped the main product feature." : "",
+    }));
+    score.must_haves = [
+      {
+        item: "Fake must-have: 3+ years with the main framework",
+        status: "evidenced",
+        quote: "Fake CV quote: four years on the main framework.",
+      },
+      {
+        item: "Fake must-have: production experience with typed code",
+        status: "evidenced",
+        quote: "Fake CV quote: moved the codebase to typed code.",
+      },
+      {
+        item: "Fake must-have: automated testing",
+        status: k % 2 === 0 ? "not_found" : "evidenced",
+        quote: k % 2 === 0 ? "" : "Fake CV quote: wrote the test suite.",
+      },
+    ];
+    if (k === 1) {
+      // Same value as the AI's own number: "Adjusted" shows, the order does not move.
+      score.human_adjusted_score = n;
+      score.adjusted_by_name = "Staging Reviewer";
+      touched.adjusted = score.id;
+    }
+    app.screening_answers = screeningFor(k);
+    app.notice_period = SHOWCASE_NOTICE_PERIODS[k % SHOWCASE_NOTICE_PERIODS.length];
+    if (k === 2) {
+      app.source = SHOWCASE_SOURCE_MANUAL;
+      touched.manual = app.id;
+    }
+    if (flagTarget && score.id === flagTarget.id) {
+      app.shortlist_flag_reason = `Fake reason: scored ${n}, over the auto-shortlist mark.`;
+      touched.flagged = app.id;
+    }
+    touched.applications.push(app.id);
+    touched.scores.push(score.id);
+  }
+  return touched;
 }

@@ -81,6 +81,9 @@ import {
   MESSAGE_STATUSES,
   PIPELINE_STAGES,
   SCORE_STATUSES,
+  SHOWCASE_CONFIDENCE,
+  SHOWCASE_NOTICE_PERIODS,
+  SHOWCASE_SOURCE_MANUAL,
   uuidFrom,
 } from "./seed-plan.mjs";
 
@@ -142,6 +145,9 @@ const ENUM_WANTED = {
   "job_applications.status": [APPLICATION_STATUS],
   "job_applications.pipeline_stage": PIPELINE_STAGES,
   "application_scores.status": SCORE_STATUSES,
+  "application_scores.confidence": SHOWCASE_CONFIDENCE,
+  "job_applications.source": [SHOWCASE_SOURCE_MANUAL],
+  "job_applications.notice_period": SHOWCASE_NOTICE_PERIODS,
   "communication_logs.event": [MESSAGE_EVENT_MANUAL, ...MESSAGE_EVENTS_AUTOMATIC],
   "communication_logs.status": MESSAGE_STATUSES,
   "interview_sessions.status": CHIP_STATUSES,
@@ -280,7 +286,10 @@ async function insertAll(service, table, rows, label = table) {
   }
   for (let i = 0; i < rows.length; i += BATCH) {
     const chunk = rows.slice(i, i + BATCH);
-    const { error } = await service.from(table).insert(chunk);
+    // missing=default: a showcase row carries columns the others in its batch
+    // do not, and a missing key must take the column's default (screening_answers
+    // and must_haves default to []), not NULL.
+    const { error } = await service.from(table).insert(chunk, { defaultToNull: false });
     if (error) {
       throw new Error(
         `[seed] ${label} failed at rows ${i}-${i + chunk.length - 1} of ${rows.length}: ` +
@@ -360,6 +369,11 @@ const COLUMN_PLAN = {
     "job_title_snapshot",
     "created_at",
     "shortlist_flagged_at",
+    // Showcase rows only (seed-plan addShowcase).
+    "screening_answers",
+    "notice_period",
+    "source",
+    "shortlist_flag_reason",
   ],
   application_scores: [
     "id",
@@ -374,6 +388,13 @@ const COLUMN_PLAN = {
     "prompt_version",
     "scored_at",
     "created_at",
+    // Showcase rows only (seed-plan addShowcase).
+    "verdict",
+    "summary",
+    "confidence",
+    "dimension_scores",
+    "must_haves",
+    "adjusted_by_name",
   ],
   application_stage_history: [
     "id",
@@ -636,7 +657,9 @@ async function main() {
         status: APPLICATION_STATUS,
         // On a subset only, and the flaggedOnly filter ANDs this with
         // WORTH_A_LOOK_STAGES, so a flag on a rejected row is deliberately inert.
-        shortlist_flagged_at: i % 17 === 0 ? at(i) : null,
+        // ...and on the showcase row given a reason, which is chosen in a
+        // stage where the flag shows (seed-plan addShowcase).
+        shortlist_flagged_at: i % 17 === 0 || a.shortlist_flag_reason ? at(i) : null,
       }),
     );
     await insertAll(service, "job_applications", applicationRows, "job_applications");
