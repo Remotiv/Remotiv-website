@@ -249,10 +249,15 @@ test("C7-25: every retention string is anchored to the invitation, as the data i
 
 test("C7-23/N2: the policy describes what survives a purge and what OpenAI receives", () => {
   // F3: the scores outlive the recording; the explanations and quotes do not.
-  assert.match(privacy, /the scores are kept with the application after the\s+recording goes/);
+  // Every space is \s+ so a re-wrap of the paragraph cannot break the match:
+  // #99 (178aade) moved line breaks here without changing a word.
   assert.match(
     privacy,
-    /written explanations and\s+summary, and the short quotes from your answers that it cited as evidence, are deleted\s+at the same time as the recording/,
+    /the\s+scores\s+are\s+kept\s+with\s+the\s+application\s+after\s+the\s+recording\s+goes/,
+  );
+  assert.match(
+    privacy,
+    /written\s+explanations\s+and\s+summary,\s+and\s+the\s+short\s+quotes\s+from\s+your\s+answers\s+that\s+it\s+cited\s+as\s+evidence,\s+are\s+deleted\s+at\s+the\s+same\s+time\s+as\s+the\s+recording/,
   );
   assert.match(privacy, /Notes the hiring team wrote when adjusting a score\s+are kept with it/);
   assert.doesNotMatch(privacy, /including the short quotes from your answers/);
@@ -274,7 +279,7 @@ test("C7-23/N2: the policy describes what survives a purge and what OpenAI recei
   assert.match(privacy, /our record of the emails and messages we sent you/);
   // OpenAI receives the recording, not "the audio": the upload is a webm blob.
   assert.doesNotMatch(privacy, /receives the audio of/);
-  assert.match(privacy, /receives the\s+recording of your video interview answers/);
+  assert.match(privacy, /receives\s+the\s+recording\s+of\s+your\s+video\s+interview\s+answers/);
   const transcribe = src("./interviews/transcribe.ts");
   assert.match(transcribe, /video\/webm/);
   // The header inventory names the rows that outlive the purge.
