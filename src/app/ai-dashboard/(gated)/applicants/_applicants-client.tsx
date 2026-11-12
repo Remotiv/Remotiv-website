@@ -3706,24 +3706,29 @@ export function ApplicantsClient({
    * Deliberately NOT `rows.filter(showsWorthALook).length`: the badge is a claim
    * about the workspace and the table shows a page, so a client count would
    * quietly become wrong the moment the list is genuinely paged. Re-fetched
-   * whenever the job filter moves, because the count is scoped the same way.
+   * whenever the job filter moves, because the count is scoped the same way,
+   * and after every stage change (commit 6b): the count covers Applied and
+   * Screening only, so moving a flagged applicant out of them changes it.
+   *
+   * A sequence number, as the counts use, so only the newest read lands.
    */
-  useEffect(() => {
-    let cancelled = false;
-    countFlaggedApplicants(jobFilter === "all" ? {} : { jobId: jobFilter })
+  const flaggedSeq = useRef(0);
+  const refreshFlaggedCount = useCallback((job: string) => {
+    const seq = ++flaggedSeq.current;
+    countFlaggedApplicants(job === "all" ? {} : { jobId: job })
       .then((read) => {
         // null is what this component already uses for "no number to show", and
         // it is what the .catch below has always set. A failed count now takes
         // the same path instead of arriving as a confident 0.
-        if (!cancelled) setFlaggedCount(read.ok ? read.value : null);
+        if (seq === flaggedSeq.current) setFlaggedCount(read.ok ? read.value : null);
       })
       .catch(() => {
-        if (!cancelled) setFlaggedCount(null);
+        if (seq === flaggedSeq.current) setFlaggedCount(null);
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [jobFilter]);
+  }, []);
+  useEffect(() => {
+    refreshFlaggedCount(jobFilter);
+  }, [jobFilter, refreshFlaggedCount]);
 
   /**
    * Dismiss a flag optimistically, reverting if the server refuses.
@@ -4739,6 +4744,8 @@ export function ApplicantsClient({
      * once.
      */
     refreshCounts(jobFilter === "all" ? null : jobFilter);
+    // The Flagged badge is a separate count, scoped to Applied and Screening.
+    refreshFlaggedCount(jobFilter);
     /*
      * And the page itself, because a stage move can change who belongs on it:
      * under a stage tab the row leaves, and under Best Match the ordering is
