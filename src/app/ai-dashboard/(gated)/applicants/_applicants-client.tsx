@@ -627,7 +627,7 @@ function Pagination({
     <div className="flex flex-wrap items-center justify-end gap-3">
       <span className="whitespace-nowrap text-[12.5px] font-semibold text-[var(--ai-t2)]">
         <b className="text-remotiv-purple">
-          {rangeStart}–{rangeEnd}
+          {rangeStart}-{rangeEnd}
         </b>{" "}
         of {countLabel(total)}
         {/* Both numbers have to be KNOWN before this can claim they differ.
