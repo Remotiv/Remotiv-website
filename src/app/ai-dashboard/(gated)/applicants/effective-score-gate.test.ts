@@ -133,6 +133,7 @@ function scoreRow({ id, status, overall = null, adjusted = null }) {
     human_adjusted_score: adjusted,
     confidence: status === "scored" && overall !== null ? "high" : null,
     error: status === "failed" ? "model timeout" : null,
+    verdict: null,
   };
   return { ...row, effective_score: effectiveScoreFromLiveSchema(row) };
 }

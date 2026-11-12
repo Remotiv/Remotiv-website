@@ -28,9 +28,11 @@ import {
   type ScoreStatus,
   type ScoreStrengthRow,
   type StageHistoryRow,
+  screeningCounts,
   TOP_SCORED_LIMIT,
   WORTH_A_LOOK_STAGES,
 } from "@/app/ai-dashboard/lib/applicant-types";
+import { isApplicantsSplitOn } from "@/app/ai-dashboard/lib/applicants-split-flag";
 import { getCompanyContext, requireCompanyRole } from "@/app/ai-dashboard/lib/company-guards";
 import { type CompanyContext, canChangeStage } from "@/app/ai-dashboard/lib/company-roles";
 import {
@@ -135,7 +137,7 @@ function toScreeningAnswers(v: unknown): ScreeningAnswerSnapshot[] {
 
 /** Summary columns for the list; the drawer selects the jsonb on top. */
 const SCORE_SUMMARY_COLUMNS =
-  "application_id, status, overall_score, human_adjusted_score, confidence, error";
+  "application_id, status, overall_score, human_adjusted_score, confidence, error, verdict";
 
 type ScoreSummaryRow = {
   application_id: string;
@@ -144,6 +146,8 @@ type ScoreSummaryRow = {
   human_adjusted_score: number | null;
   confidence: string | null;
   error: string | null;
+  /** The model's one-line verdict; short text, so it rides on the list row. */
+  verdict?: string | null;
   effective_score: number | null;
 };
 
@@ -192,6 +196,7 @@ const NO_SCORE: ApplicantScore = {
   adjusted: false,
   confidence: null,
   error: null,
+  verdict: null,
 };
 
 /**
@@ -239,6 +244,8 @@ function toScore(r: ScoreSummaryRow | null | undefined): ApplicantScore {
     adjusted,
     confidence: (r.confidence as ScoreConfidence | null) ?? null,
     error: r.error,
+    // Same gate as ai_overall: only a line the model itself produced.
+    verdict: aiStatus === "scored" ? r.verdict?.trim() || null : null,
   };
 }
 
@@ -388,7 +395,56 @@ function toRow(r: ApplicantQueryRow, score?: ScoreSummaryRow): CompanyApplicantR
       flaggedAt: r.shortlist_flagged_at,
       reason: r.shortlist_flag_reason,
     },
+    // Filled per page by withScreeningCounts; the list select does not carry
+    // screening_answers (see screening-read-scope.test.ts).
+    screening: null,
   };
+}
+
+/**
+ * "Screening X/Y met" for one page of list rows.
+ *
+ * A second read of the page's own ids rather than screening_answers back on
+ * the list select: that column was taken off the list on purpose, and it stays
+ * off. Scoped to the company like every read here, and reduced to two numbers
+ * on the server, so the answers themselves never reach the browser. About
+ * 1.7 KB a row from the database for at most a page of rows; no AI call.
+ *
+ * Runs only while the Split flag is on for this company (applicants-split-flag.ts).
+ *
+ * A failed read is not a failed list: every row keeps `screening: null`, which
+ * the list shows as no screening line, and the code is logged. Counts that are
+ * merely missing must not take the applicants away with them.
+ */
+async function withScreeningCounts(
+  service: ReturnType<typeof createServiceClient>,
+  companyId: string,
+  rows: CompanyApplicantRow[],
+): Promise<CompanyApplicantRow[]> {
+  // Only the Split list shows the counts. With the flag off the live page
+  // pays nothing: no read, and every row keeps screening: null.
+  if (rows.length === 0 || !isApplicantsSplitOn(companyId)) return rows;
+  const { data, error } = await service
+    .from("job_applications")
+    .select("id, screening_answers")
+    .eq("company_id_snapshot", companyId)
+    .in(
+      "id",
+      rows.map((r) => r.id),
+    )
+    // Bounded like every list-path read (list-read.test.ts): at most the page.
+    .limit(rows.length);
+  if (error) {
+    console.error(`[applicants] screening counts read failed: ${error.code ?? "error"}`);
+    return rows;
+  }
+  const counts = new Map(
+    ((data ?? []) as { id: string; screening_answers: unknown }[]).map((d) => [
+      d.id,
+      screeningCounts(d.screening_answers),
+    ]),
+  );
+  return rows.map((r) => ({ ...r, screening: counts.get(r.id) ?? null }));
 }
 
 /**
@@ -910,7 +966,11 @@ export async function fetchCompanyApplicants(
 
   const rows = (data ?? []) as unknown as ApplicantListQueryRow[];
   return answered({
-    rows: rows.map((r) => toRow(r, r.application_scores ?? undefined)),
+    rows: await withScreeningCounts(
+      service,
+      ctx.companyId,
+      rows.map((r) => toRow(r, r.application_scores ?? undefined)),
+    ),
     // countOf, not `count ?? 0`: a 200 whose content-range was stripped would
     // otherwise publish a hard zero over a populated pipeline.
     total: countOf(count),
@@ -995,7 +1055,13 @@ export async function fetchTopScoredApplicants(
   }
 
   const rows = (data ?? []) as unknown as ApplicantListQueryRow[];
-  return answered(rows.map((r) => toRow(r, r.application_scores ?? undefined)));
+  return answered(
+    await withScreeningCounts(
+      service,
+      ctx.companyId,
+      rows.map((r) => toRow(r, r.application_scores ?? undefined)),
+    ),
+  );
 }
 
 /**
@@ -1106,7 +1172,7 @@ export async function fetchCompanyApplicant(
   const { data: scoreData, error: scoreErr } = await service
     .from("application_scores")
     .select(
-      `${SCORE_SUMMARY_COLUMNS}, verdict, dimension_scores, evidence, strengths, missing_requirements, must_haves, concerns, summary, screening_score, ai_model, scored_at, human_feedback, adjusted_by_name, adjusted_at, job_criteria_version`,
+      `${SCORE_SUMMARY_COLUMNS}, dimension_scores, evidence, strengths, missing_requirements, must_haves, concerns, summary, screening_score, ai_model, scored_at, human_feedback, adjusted_by_name, adjusted_at, job_criteria_version`,
     )
     .eq("application_id", applicationId)
     .eq("company_id", ctx.companyId)
@@ -1178,7 +1244,11 @@ export async function fetchCompanyApplicant(
     : null;
 
   return answered({
-    applicant: toRow(row, sRow ?? undefined),
+    // The detail read already holds the answers, so its counts come free.
+    applicant: {
+      ...toRow(row, sRow ?? undefined),
+      screening: screeningCounts(row.screening_answers),
+    },
     screening_answers: toScreeningAnswers(row.screening_answers),
     history: (histData ?? []) as StageHistoryRow[],
     scoreDetail,

@@ -122,7 +122,39 @@ export type CompanyApplicantRow = {
    * lands. Never derived here — the list and the Flagged count would disagree.
    */
   shortlist: ApplicantShortlist;
+  /**
+   * "Screening X/Y met" on the list: of the questions that carry a threshold,
+   * how many the candidate met. Counted server-side from the snapshot frozen at
+   * apply time; the answer text never reaches the list. Null when the job set
+   * no threshold, or when the counts could not be read: the list then shows no
+   * screening line at all, never "0/0".
+   */
+  screening: ScreeningCounts | null;
 };
+
+/** Met and scored screening questions for one application. */
+export type ScreeningCounts = { met: number; scored: number };
+
+/**
+ * The list's screening counts, from the frozen snapshot.
+ *
+ * The same rule computeScreeningScore (lib/ai/cv-scoring.ts) applies: a
+ * question with `scored === false` was collected, never tested, so it is
+ * neither met nor counted. Snapshots written before that flag existed have no
+ * `scored` key and count as tested. Null when nothing was tested, and for a
+ * value that is not an array (a damaged or missing snapshot).
+ */
+export function screeningCounts(answers: unknown): ScreeningCounts | null {
+  if (!Array.isArray(answers)) return null;
+  let met = 0;
+  let scored = 0;
+  for (const a of answers as Partial<ScreeningAnswerSnapshot>[]) {
+    if (!a || typeof a !== "object" || a.scored === false) continue;
+    scored += 1;
+    if (a.matched === true) met += 1;
+  }
+  return scored === 0 ? null : { met, scored };
+}
 
 export type ApplicantShortlist = {
   /** Null when never flagged, or when a recruiter dismissed it. */
@@ -243,6 +275,13 @@ export type ApplicantScore = {
   confidence: ScoreConfidence | null;
   /** Why the score is missing, for failed/skipped. */
   error: string | null;
+  /**
+   * The model's one-line verdict (scorecards v4 and later), for the list.
+   * Gated on `ai_status` like `ai_overall`: a reviewer's number on a CV the
+   * model never read has no verdict, and a failed re-score's leftover line is
+   * not one the model is standing behind. Null otherwise.
+   */
+  verdict: string | null;
 };
 
 export type ScoreDimensionRow = {

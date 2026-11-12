@@ -740,12 +740,35 @@ test("filters apply to the POPULATION: a match on page 7 is found from page 1", 
 // ════════════════════════════════════════════════════════════
 
 test("one page costs the same number of requests at 8 applicants and at 2,500", async () => {
-  const small = await run(fetchCompanyApplicants, {}, { world: MIXED });
-  const large = await run(fetchCompanyApplicants, {}, { world: ORDERING });
+  // Split on: the page's screening counts are part of the budget then.
+  const saved = process.env.APPLICANTS_SPLIT_ENABLED;
+  process.env.APPLICANTS_SPLIT_ENABLED = "1";
+  const [small, large] = await (async () => {
+    try {
+      return [
+        await run(fetchCompanyApplicants, {}, { world: MIXED }),
+        await run(fetchCompanyApplicants, {}, { world: ORDERING }),
+      ];
+    } finally {
+      if (saved === undefined) delete process.env.APPLICANTS_SPLIT_ENABLED;
+      else process.env.APPLICANTS_SPLIT_ENABLED = saved;
+    }
+  })();
 
-  const appReads = (s) => s.queries.filter((q) => q.table === "job_applications").length;
-  assert.equal(appReads(small.service), 1, "the list path issued more than one row read");
-  assert.equal(appReads(large.service), appReads(small.service));
+  // One list read, plus the page's "Screening X/Y met" counts (Split commit
+  // 2): a second read of the page's own ids, never of the population.
+  const isCounts = (q) => q.calls.find((c) => c[0] === "select")?.[1] === "id, screening_answers";
+  const listReads = (s) =>
+    s.queries.filter((q) => q.table === "job_applications" && !isCounts(q)).length;
+  const countReads = (s) => s.queries.filter((q) => q.table === "job_applications" && isCounts(q));
+  assert.equal(listReads(small.service), 1, "the list path issued more than one row read");
+  assert.equal(listReads(large.service), listReads(small.service));
+  for (const s of [small.service, large.service]) {
+    const counts = countReads(s);
+    assert.equal(counts.length, 1, "the screening counts are one read per page");
+    const ids = counts[0].calls.find((c) => c[0] === "in" && c[1] === "id")?.[2] ?? [];
+    assert.ok(ids.length <= APPLICANT_PAGE_SIZE, `counts read asked for ${ids.length} ids`);
+  }
   assert.equal(large.service.queries.length, small.service.queries.length);
 });
 
