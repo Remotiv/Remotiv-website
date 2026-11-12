@@ -165,15 +165,44 @@ describe("3. height from --vh-full", () => {
     assert.ok(frame, "PANEL_FRAME not found");
     assert.match(frame, /\bsticky\b/);
     assert.match(frame, /\btop-\[80px\]/);
-    assert.match(frame, /h-\[calc\(var\(--vh-full\)_-_64px_-_32px\)\]/);
+    // Topbar 64 + gap 16 + PageContainer's pb-16 (64) below the grid: a sticky
+    // box cannot leave the grid, so a taller panel was pushed under the
+    // topbar at the bottom of the page (5f).
+    assert.match(frame, /h-\[calc\(var\(--vh-full\)_-_64px_-_16px_-_64px\)\]/);
   });
 
   test("no h-screen and no raw vh anywhere in the panel module", () => {
     assert.doesNotMatch(code(PANEL_SRC), /h-screen|\d+vh\b|100dvh/);
   });
 
-  test("the panel body scrolls on its own", () => {
-    assert.match(PANEL_SRC, /min-h-0 flex-1 overflow-y-auto overscroll-contain/);
+  test("the panel body scrolls on its own, without chaining or bouncing (5f)", () => {
+    assert.match(PANEL_SRC, /min-h-0 flex-1 overflow-y-auto overscroll-none/);
+    assert.doesNotMatch(
+      code(PANEL_SRC),
+      /overscroll-contain/,
+      "-contain still lets the body bounce",
+    );
+  });
+
+  test("the bottom gap the height leaves is the page container's bottom padding", () => {
+    const container = read("../../_components/page-container.tsx");
+    assert.match(
+      container,
+      /\bpb-16\b/,
+      "PageContainer's bottom padding changed: re-derive the panel height",
+    );
+  });
+
+  test("the page does not bounce while the Split panel is beside the list, and only then", () => {
+    const css = read("../../ai-dashboard.css");
+    const rule = css.match(
+      /@media \(min-width: 1100px\) \{\s*html:has\(\[data-split-layout\]\),\s*body:has\(\[data-split-layout\]\) \{\s*overscroll-behavior-y: none;\s*\}\s*\}/,
+    );
+    assert.ok(rule, "the scoped overscroll rule is missing or changed shape");
+    // Nothing else in the shell's stylesheet turns overscroll off.
+    assert.equal((css.match(/overscroll-behavior/g) ?? []).length, 1);
+    // The marker it keys on renders only with the flag on.
+    assert.match(PANEL_SRC, /if \(!split\) return <>\{children\}<\/>;[\s\S]*?data-split-layout/);
   });
 });
 

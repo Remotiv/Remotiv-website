@@ -31,12 +31,21 @@ import { type Screening, screeningCard, screeningCount } from "./screening-state
  */
 
 /**
- * Sticky below the 64px topbar with a 16px gap, at the viewport's height less
- * the topbar and both gaps. var(--vh-full), never h-screen: vh resolves
- * against the unzoomed viewport inside .ai-shell and would come out 18% short.
+ * Sticky below the 64px topbar with a 16px gap (top 80), all at CSS size
+ * inside the shell's 0.82 zoom.
+ *
+ * The height leaves room for what sits below the grid too: a sticky box can
+ * never leave its containing block (the Split grid), and PageContainer's
+ * pb-16 puts the grid's end 64px above the viewport's bottom once the page is
+ * scrolled all the way down. A panel taller than "viewport - 80 - 64" was
+ * pushed up by the difference there and slid 25 real px under the topbar
+ * (commit 5f). So: viewport - topbar 64 - gap 16 - page bottom padding 64.
+ *
+ * var(--vh-full), never h-screen: vh resolves against the unzoomed viewport
+ * inside .ai-shell and would come out 18% short.
  */
 const PANEL_FRAME =
-  "sticky top-[80px] hidden h-[calc(var(--vh-full)_-_64px_-_32px)] flex-col overflow-hidden min-[1100px]:flex rounded-[20px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_6px_30px_rgba(20,16,32,0.06)]";
+  "sticky top-[80px] hidden h-[calc(var(--vh-full)_-_64px_-_16px_-_64px)] flex-col overflow-hidden min-[1100px]:flex rounded-[20px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_6px_30px_rgba(20,16,32,0.06)]";
 
 const TOP_BTN =
   "inline-flex items-center justify-center gap-[7px] whitespace-nowrap rounded-[11px] px-4 py-2.5 text-[13.5px] font-bold transition-colors";
@@ -186,7 +195,10 @@ export function SplitPanel({
         {header}
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[var(--ai-inset)] px-[22px] pb-7 pt-[18px]">
+      {/* overscroll-none, not -contain: both stop the panel's scroll from
+          handing off to the page, but -contain still lets the body itself
+          bounce, which showed as a blank gap above the first card (5f). */}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-none bg-[var(--ai-inset)] px-[22px] pb-7 pt-[18px]">
         {showsWorthALook(row) && (
           <WorthALookBanner row={row} dismissing={dismissing} onDismissFlag={onDismissFlag} />
         )}

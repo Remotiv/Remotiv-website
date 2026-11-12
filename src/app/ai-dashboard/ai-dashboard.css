@@ -156,3 +156,19 @@
   --ai-t3: #625c6a;
   --ai-t4: #6e6876;
 }
+
+/*
+ * No elastic bounce on the page while the Split panel is beside the list
+ * (commit 5f). The page's rubber band showed the html backdrop as a strip at
+ * the edge and dragged the sticky panel with it. Scoped twice so nothing else
+ * changes: [data-split-layout] renders only with the Applicants Split flag on,
+ * and 1100px is the width the panel appears at. :has() because a page cannot
+ * put a class on <html>; where :has() is unsupported the page simply bounces
+ * as before.
+ */
+@media (min-width: 1100px) {
+  html:has([data-split-layout]),
+  body:has([data-split-layout]) {
+    overscroll-behavior-y: none;
+  }
+}
