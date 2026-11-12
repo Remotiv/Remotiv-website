@@ -22,6 +22,7 @@ import {
   type PipelineStage,
   SCORE_FEEDBACK_MAX,
   type ScoreConfidence,
+  type ScoreDimensionRow,
   type ScoreEvidenceRow,
   type ScoreMustHaveRow,
   type ScoreQueueState,
@@ -41,6 +42,7 @@ import {
   readJobScope,
   roleAllowsJobAction,
 } from "@/app/ai-dashboard/lib/job-scope";
+import { plainDashes, plainDashesOrNull } from "@/app/ai-dashboard/lib/plain-dashes";
 import { searchTokens } from "@/app/ai-dashboard/lib/search-query";
 import { requestCvScore } from "@/lib/ai/cv-score-request";
 import { MIN_CV_TEXT_CHARS } from "@/lib/ai/cv-scoring";
@@ -245,7 +247,8 @@ function toScore(r: ScoreSummaryRow | null | undefined): ApplicantScore {
     confidence: (r.confidence as ScoreConfidence | null) ?? null,
     error: r.error,
     // Same gate as ai_overall: only a line the model itself produced.
-    verdict: aiStatus === "scored" ? r.verdict?.trim() || null : null,
+    // Hyphens for its dashes on screen (plain-dashes.ts).
+    verdict: aiStatus === "scored" ? plainDashesOrNull(r.verdict?.trim() || null) : null,
   };
 }
 
@@ -275,6 +278,27 @@ function normaliseMustHaves(v: unknown): ScoreMustHaveRow[] {
 
 function jsonArray<T>(v: unknown): T[] {
   return Array.isArray(v) ? (v as T[]) : [];
+}
+
+/*
+ * AI prose, with its dashes as hyphens on screen (plain-dashes.ts). Prose
+ * only: each dimension's `quote` is a verbatim CV span and is passed through
+ * untouched, as are strength quotes and the must-haves (the employer's own
+ * wording plus a CV quote).
+ */
+function proseDimensions(v: unknown): ScoreDimensionRow[] {
+  return jsonArray<ScoreDimensionRow>(v).map((d) =>
+    typeof d?.reasoning === "string" ? { ...d, reasoning: plainDashes(d.reasoning) } : d,
+  );
+}
+
+function proseStrengths(v: unknown): ScoreStrengthRow[] {
+  return normaliseStrengths(v).map((s) => ({ ...s, point: plainDashes(s.point) }));
+}
+
+/** missing_requirements and concerns: plain strings the model wrote. */
+function proseList(v: unknown): string[] {
+  return jsonArray<unknown>(v).map((s) => (typeof s === "string" ? plainDashes(s) : s)) as string[];
 }
 
 /**
@@ -1224,15 +1248,15 @@ export async function fetchCompanyApplicant(
   const scoreDetail: ApplicantScoreDetail | null = sRow
     ? {
         ...toScore(sRow),
-        verdict: resolveVerdict(sRow.verdict, sRow.evidence),
-        dimensions: jsonArray(sRow.dimension_scores),
+        verdict: plainDashes(resolveVerdict(sRow.verdict, sRow.evidence)),
+        dimensions: proseDimensions(sRow.dimension_scores),
         evidence: evidenceItems(sRow.evidence),
-        strengths: normaliseStrengths(sRow.strengths),
-        missing_requirements: jsonArray(sRow.missing_requirements),
+        strengths: proseStrengths(sRow.strengths),
+        missing_requirements: proseList(sRow.missing_requirements),
         must_haves: normaliseMustHaves(sRow.must_haves),
         job_must_have_count: jobMustHaveCount,
-        concerns: jsonArray(sRow.concerns),
-        summary: (sRow.summary as string | null) ?? null,
+        concerns: proseList(sRow.concerns),
+        summary: plainDashesOrNull((sRow.summary as string | null) ?? null),
         screening_score: (sRow.screening_score as number | null) ?? null,
         ai_model: (sRow.ai_model as string | null) ?? null,
         scored_at: (sRow.scored_at as string | null) ?? null,
