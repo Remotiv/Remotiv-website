@@ -143,3 +143,16 @@
     animation: none;
   }
 }
+
+/*
+ * Applicants Split, flag on only (docs/design/Applicants_Split_v9.md): darker
+ * small-text tokens for this page, so --ai-t3 and --ai-t4 text passes WCAG AA
+ * on white, the inset fill and the purple tint (6.45 and 5.38 to 1 on white;
+ * the shell values measure 3.93 and 2.26). Scoped by a class the Applicants
+ * client renders only when the flag is on, so every other page, and this page
+ * with the flag off, keeps the shell values above.
+ */
+.ai-shell .ai-split-tokens {
+  --ai-t3: #625c6a;
+  --ai-t4: #6e6876;
+}

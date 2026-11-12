@@ -144,10 +144,13 @@ function TabButton({
       type="button"
       data-stage={stage}
       onClick={onClick}
-      className={`flex shrink-0 items-center gap-[7px] rounded-lg px-3.5 py-[7px] text-[12.5px] font-semibold transition-colors ${
+      // The selected tab was colour only; aria-pressed says it to a screen
+      // reader and weight 700 says it to anyone who cannot tell the fills apart.
+      aria-pressed={on}
+      className={`flex shrink-0 items-center gap-[7px] rounded-lg px-3.5 py-[7px] text-[12.5px] transition-colors ${
         on
-          ? "bg-[var(--ai-sidebar)] text-white shadow-[0_3px_10px_rgba(20,16,32,0.2)]"
-          : "text-[var(--ai-t3)] hover:text-[var(--ai-t1)]"
+          ? "bg-[var(--ai-sidebar)] font-bold text-white shadow-[0_3px_10px_rgba(20,16,32,0.2)]"
+          : "font-semibold text-[var(--ai-t3)] hover:text-[var(--ai-t1)]"
       }`}
     >
       {children}

@@ -1,5 +1,6 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
+import { isApplicantsSplitOn } from "@/app/ai-dashboard/lib/applicants-split-flag";
 import { isEmptyScope, readJobScope } from "@/app/ai-dashboard/lib/job-scope";
 import { isTipDismissed } from "@/app/ai-dashboard/lib/tip-state";
 import { fetchManualTemplates } from "@/app/ai-dashboard/(gated)/messages/actions";
@@ -184,6 +185,7 @@ export default async function ApplicantsPage({
       showScoringTip={showScoringTip}
       renderedAt={now}
       quotaBanner={quota && <QuotaBanner view={quota} />}
+      split={isApplicantsSplitOn(ctx.companyId)}
     />
   );
 }

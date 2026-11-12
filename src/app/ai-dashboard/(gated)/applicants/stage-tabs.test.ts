@@ -313,3 +313,24 @@ test("the strip renders counts it is handed, so adding chips costs no query", ()
   assert.match(html, />1</);
   assert.match(html, />7</);
 });
+
+/* ── the selected chip says so, beyond colour (Split commit 3) ── */
+
+test("the selected stage chip has aria-pressed=true and weight 700; the others false and 600", () => {
+  const html = strip({ tab: "screening" });
+  const chips = [...html.matchAll(/<button[^>]*data-stage="([^"]+)"[^>]*>/g)].map((m) => ({
+    stage: m[1],
+    tag: m[0],
+  }));
+  assert.ok(chips.length > 1, "no stage chips rendered");
+  for (const { stage, tag } of chips) {
+    const on = stage === "screening";
+    assert.match(tag, new RegExp(`aria-pressed="${on}"`), `${stage} aria-pressed`);
+    assert.match(tag, on ? /\bfont-bold\b/ : /\bfont-semibold\b/, `${stage} weight`);
+    assert.doesNotMatch(
+      tag,
+      on ? /\bfont-semibold\b/ : /\bfont-bold\b/,
+      `${stage} has both weights`,
+    );
+  }
+});

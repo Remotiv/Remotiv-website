@@ -4185,6 +4185,7 @@ export function ApplicantsClient({
   showScoringTip,
   renderedAt,
   quotaBanner,
+  split = false,
 }: {
   viewerRole: CompanyRole;
   /**
@@ -4250,6 +4251,8 @@ export function ApplicantsClient({
   renderedAt: number;
   /** The recruiter's quota notices, already rendered on the server, or null. */
   quotaBanner: ReactNode;
+  /** The Applicants Split flag for this company (applicants-split-flag.ts). Off: the live page. */
+  split?: boolean;
 }) {
   // Same predicate the server action enforces (owner / admin / recruiter).
   // Hiring managers review candidates but do not spend the company's scoring
@@ -5724,7 +5727,7 @@ export function ApplicantsClient({
     };
   })();
 
-  return (
+  const renderedPage = (
     <PageContainer>
       {/* The list dims and goes inert behind the panel rather than sitting
           under a scrim. At 1100px the panel still leaves a strip of list
@@ -6568,4 +6571,8 @@ export function ApplicantsClient({
       <Toast state={toast} />
     </PageContainer>
   );
+
+  // Split only: the page-scoped AA text tokens (ai-dashboard.css). With the
+  // flag off the page renders exactly as before, with no wrapper at all.
+  return split ? <div className="ai-split-tokens">{renderedPage}</div> : renderedPage;
 }
