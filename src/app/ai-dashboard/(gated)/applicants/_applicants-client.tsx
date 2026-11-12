@@ -92,6 +92,15 @@ import { unscoredCardState } from "@/app/ai-dashboard/lib/unscored-card";
 import { useModalFocus } from "@/hooks/use-modal-focus";
 import { placeholderFor } from "@/lib/whatsapp/inbound-display";
 import { InterviewPanel } from "./_interview-panel";
+import {
+  AddedByTeamChip,
+  FlagReasonLine,
+  fullName,
+  getTint,
+  initials,
+  WorthALookChip,
+} from "./_list-row-parts";
+import { SplitListItem } from "./_split-list-item";
 import { StageTabs } from "./_stage-tabs";
 import {
   addApplicationComment,
@@ -246,34 +255,7 @@ const ADD_FIELD =
 
 const ADD_LABEL = "mb-[5px] block text-[11.5px] font-bold text-[var(--ai-t2)]";
 
-const AVATAR_TINTS = [
-  { bg: "var(--ai-purple-tint)", fg: "var(--ai-purple-ink)" },
-  { bg: "var(--ai-mint-tint)", fg: "var(--ai-mint-ink)" },
-  { bg: "var(--ai-peach-tint)", fg: "var(--ai-peach-ink)" },
-  { bg: "var(--ai-sky-tint)", fg: "var(--ai-sky-ink)" },
-  { bg: "var(--ai-amber-tint)", fg: "var(--ai-amber-ink)" },
-  { bg: "var(--ai-slate-tint)", fg: "var(--ai-slate-ink)" },
-];
-
 // ── Helpers ──────────────────────────────────────────────────
-
-/** Tint derived from a stable hash of the record id, never array position. */
-function getTint(id: string) {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
-  return AVATAR_TINTS[hash % AVATAR_TINTS.length];
-}
-
-function initials(first: string, last: string, email: string): string {
-  const a = first.trim()[0] ?? "";
-  const b = last.trim()[0] ?? "";
-  const joined = `${a}${b}`.toUpperCase();
-  return joined || email.slice(0, 2).toUpperCase() || "?";
-}
-
-function fullName(r: CompanyApplicantRow): string {
-  return `${r.first_name} ${r.last_name}`.trim() || r.email.split("@")[0] || "Unknown";
-}
 
 /**
  * The clock every date on this page reads.
@@ -792,90 +774,6 @@ function Pagination({
  * the desktop row — rank + identity, job, score, stage, applied — just laid
  * out vertically so nothing needs horizontal scrolling. Opens the same drawer.
  */
-/**
- * "Worth a look" — the COMPANY's rule, deliberately unlike "Top match".
- *
- * Top match is the model's own opinion (score >= 90) and wears a FILLED lime
- * sticker. This is a threshold somebody chose, so it wears a purple OUTLINE
- * chip on a faint purple wash. Filled vs outline, lime vs purple: the two must
- * never be mistakable, because one is "the AI rates this person highly" and the
- * other is "this cleared a bar you set" — different claims, different recourse.
- *
- * The × is the first of three dismiss entry points and appears on row hover so
- * it is not a permanent invitation to clear the thing you just asked for.
- */
-/**
- * The flag, as a MARK. It takes no props and it never will.
- *
- * ── Why the dismiss button is gone rather than optional ──────
- *
- * It used to accept `onDismiss`, and passing it rendered a <button> inside the
- * chip. Both places the chip is used are rows that are themselves <button>s, so
- * that one optional prop decided whether the markup was valid — and invalid is
- * not a cosmetic state here. The parser generates implied end tags on a nested
- * <button> and pops the outer one, so everything after the chip became a
- * SIBLING of the row: the server tree and the client tree disagreed, hydration
- * failed, and React left the mangled server DOM orphaned below the page.
- *
- * A component whose validity depends on where it is rendered is a trap, and no
- * signature can express "only if my ancestor is not a button" — the type system
- * cannot see the DOM. So the capability is removed instead of guarded: with no
- * prop to pass, the mistake is unspeakable rather than merely discouraged, and
- * a reader does not have to know the rule to stay on the right side of it.
- *
- * Dismissal lives in the drawer's Worth-a-look banner, which is a real region
- * rather than a chip and can hold a button safely. Both call sites open that
- * drawer on click, so it is one click from either.
- */
-function WorthALookChip() {
-  return (
-    <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-remotiv-purple/45 bg-remotiv-purple/[0.06] py-0.5 pl-[7px] pr-[7px] text-[9.5px] font-extrabold uppercase tracking-[0.06em] text-remotiv-purple">
-      Worth a look
-    </span>
-  );
-}
-
-/**
- * "Added by team" — this person was filed by hand and did not apply.
- *
- * SLATE, deliberately, and not purple. Purple is this dashboard's primary
- * action colour: it marks the things worth clicking — Open CV, Add candidate,
- * Worth a look. This is a fact about where the row came from, with nothing
- * behind it to click, so borrowing that colour would promise an action it does
- * not have. Slate is the same neutral the Applied stage pill already uses.
- *
- * Says "team", not "manual" or "you": the row records no author, so naming one
- * would be an invention. And "manual", sitting a column from CV score, reads
- * as manually scored.
- *
- * Beside the job title rather than on the name line, which already carries Top
- * match and Worth a look and truncates the name behind them.
- */
-function AddedByTeamChip() {
-  return (
-    <span
-      title="Added by someone on your team. They didn't apply through the job board, and weren't emailed."
-      className="inline-flex shrink-0 items-center rounded-lg bg-[var(--ai-slate-tint)] px-2 py-[5px] text-[10.5px] font-bold uppercase tracking-[0.05em] text-[var(--ai-slate-ink)]"
-    >
-      Added by team
-    </span>
-  );
-}
-
-/**
- * The reason, which replaces the email sub-line on a flagged row.
- *
- * A flag without its reason is just a badge — the recruiter cannot tell whether
- * it fired on a CV at 82 or an interview at 95, and those warrant different
- * next moves. The stored sentence names the score and the mark it cleared.
- */
-function FlagReasonLine({ reason }: { reason: string | null }) {
-  return (
-    <p className="m-0 mt-0.5 truncate text-[12.5px] font-medium text-remotiv-purple">
-      {reason?.trim() || "Met your auto-shortlist mark."}
-    </p>
-  );
-}
 
 function ApplicantCard({
   row,
@@ -6039,161 +5937,184 @@ export function ApplicantsClient({
             aria-busy={!topOnly && pageView.updating}
             className={`transition-opacity ${!topOnly && pageView.updating ? "opacity-50" : ""}`}
           >
-            {paged.length > 0 && (
-              <div data-twin-narrow className="min-[1049px]:hidden">
-                {paged.map((r, i) => (
-                  <ApplicantCard
-                    key={r.id}
-                    row={r}
-                    rank={pageStart + i}
-                    isTop={topMatchIds.has(r.id)}
-                    selected={openId === r.id}
-                    onOpen={() => openApplicant(r.id)}
-                    clock={clock}
-                  />
-                ))}
-              </div>
-            )}
-
-            {/* Desktop table — unchanged above the breakpoint. overflow-x-auto is
-              kept as a belt-and-braces guard; at >=1049px the grid fits. */}
-            <div data-twin-wide className="hidden overflow-x-auto min-[1049px]:block">
-              <div className="min-w-[960px]">
-                <div
-                  className={`${GRID} border-b border-[var(--ai-line)] bg-[var(--ai-inset)] py-[11px] text-[10.5px] font-bold uppercase tracking-[0.08em] text-[var(--ai-t3)]`}
-                >
-                  <span>#</span>
-                  <span>Candidate</span>
-                  <span>Job</span>
-                  <span>CV score</span>
-                  <span>Stage</span>
-                  <span>Applied</span>
-                  <span />
-                </div>
-
-                {paged.map((r, i) => {
-                  const tint = getTint(r.id);
-                  const applied = fmtApplied(r.created_at, clock);
-                  const stage = stageOf(r);
-                  const pill = stagePill(stage);
-                  const isTop = topMatchIds.has(r.id);
-                  const rank = pageStart + i;
-
-                  return (
-                    <button
+            {split ? (
+              /* Split (commit 4): the Split list item at every width, no table
+                 and no card twin. The panel beside it comes in commit 5; until
+                 then a row opens the live drawer, as today. */
+              paged.length > 0 && (
+                <div data-split-list>
+                  {paged.map((r) => (
+                    <SplitListItem
                       key={r.id}
-                      type="button"
-                      data-applicant-id={r.id}
-                      onClick={() => openApplicant(r.id)}
-                      className={`${GRID} group/row group relative w-full cursor-pointer border-b border-[var(--ai-line-soft)] py-[13px] text-left transition-all last:border-b-0 hover:z-[2] hover:bg-[#FCFBFA] hover:shadow-[0_6px_22px_rgba(20,16,32,0.07)] ${
-                        openId === r.id
-                          ? "bg-[var(--ai-purple-tint)]"
-                          : showsWorthALook(r)
-                            ? "bg-remotiv-purple/[0.035]"
-                            : "bg-[var(--ai-surface)]"
-                      }`}
-                    >
-                      {/* Always on for a flagged row — the accent is what makes a
-                          flag findable while scrolling, so it does not wait for a
-                          hover the way the default row's does. */}
-                      <span
-                        aria-hidden
-                        className={`absolute inset-y-0 left-0 w-[3px] bg-remotiv-purple transition-opacity ${
-                          openId === r.id || showsWorthALook(r)
-                            ? "opacity-100"
-                            : "opacity-0 group-hover:opacity-100"
-                        }`}
+                      row={r}
+                      ring={<ScoreRing score={r.score} />}
+                      applied={fmtApplied(r.created_at, clock).main}
+                      isTop={topMatchIds.has(r.id)}
+                      selected={openId === r.id}
+                      onOpen={() => openApplicant(r.id)}
+                    />
+                  ))}
+                </div>
+              )
+            ) : (
+              <>
+                {paged.length > 0 && (
+                  <div data-twin-narrow className="min-[1049px]:hidden">
+                    {paged.map((r, i) => (
+                      <ApplicantCard
+                        key={r.id}
+                        row={r}
+                        rank={pageStart + i}
+                        isTop={topMatchIds.has(r.id)}
+                        selected={openId === r.id}
+                        onOpen={() => openApplicant(r.id)}
+                        clock={clock}
                       />
-                      <span
-                        className={`font-heading text-sm font-extrabold tabular-nums tracking-[-0.02em] transition-colors group-hover:text-remotiv-purple ${
-                          isTop ? "text-[var(--ai-purple-ink)]" : "text-[var(--ai-t4)]"
-                        }`}
-                      >
-                        {/* `rank` is already 1-based — `rangeStart` is, because
-                          the pager's "21–40" reads off the same number. */}
-                        {String(rank).padStart(2, "0")}
-                      </span>
+                    ))}
+                  </div>
+                )}
 
-                      <div className="flex min-w-0 items-center gap-3">
-                        <span
-                          className="flex size-10 shrink-0 items-center justify-center rounded-full text-[13px] font-bold"
-                          style={{
-                            background: tint.bg,
-                            color: tint.fg,
-                            boxShadow: isTop
-                              ? "0 0 0 2px var(--ai-surface), 0 0 0 3.5px #49D7A7"
-                              : "0 0 0 2px var(--ai-surface), 0 0 0 3.5px rgba(20,16,32,0.07)",
-                          }}
-                        >
-                          {initials(r.first_name, r.last_name, r.email)}
-                        </span>
-                        <div className="min-w-0">
-                          {/* .nm is a flex container, so truncation lives on the
-                              INNER span — otherwise the Top-match flag clips. */}
-                          <p className="m-0 flex min-w-0 items-center gap-2 text-[14.5px] font-bold leading-tight tracking-[-0.01em] text-[var(--ai-t1)]">
-                            <span className="min-w-0 truncate">{fullName(r)}</span>
-                            {isTop && (
-                              <span className="shrink-0 rounded-[5px] bg-remotiv-lime px-[7px] py-0.5 text-[9.5px] font-extrabold uppercase tracking-[0.06em] text-[#2F3A00]">
-                                Top match
-                              </span>
-                            )}
-                            {/* Display-only, exactly as ApplicantCard renders it.
-                              Passing onDismiss puts a <button> inside this row's
-                              <button>, which is invalid HTML: the parser closes
-                              the row early and reparents everything after the
-                              chip — reason, job, score, stage, date — as
-                              siblings. The server tree and the client tree then
-                              disagree, hydration fails, and React leaves the
-                              mangled server DOM orphaned below the page. Only
-                              FLAGGED rows carried the chip, which is why only
-                              they broke. Dismissal lives in the drawer's
-                              Worth-a-look banner, one click away on the row the
-                              reader is already pointing at. */}
-                            {showsWorthALook(r) && <WorthALookChip />}
-                          </p>
-                          {showsWorthALook(r) ? (
-                            <FlagReasonLine reason={r.shortlist.reason} />
-                          ) : (
-                            <p className="m-0 mt-0.5 truncate text-[12.5px] text-[var(--ai-t3)]">
-                              {r.email}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* min-w-0 on the flex parent and truncate on the title, so
-                        a long role name shortens rather than pushing the chip
-                        out of the cell. The chip never shrinks — it is two
-                        words or it is wrong. */}
-                      <div className="flex min-w-0 items-center gap-1.5">
-                        <span className="min-w-0 truncate rounded-lg border border-[var(--ai-line-soft)] bg-[var(--ai-inset)] px-2.5 py-[5px] text-[12.5px] font-semibold text-[var(--ai-t2)]">
-                          {r.job_title}
-                        </span>
-                        {r.added_manually && <AddedByTeamChip />}
-                      </div>
-
-                      <ScoreRing score={r.score} />
-
-                      <span
-                        className={`inline-flex items-center gap-1.5 justify-self-start whitespace-nowrap rounded-full px-3 py-[5px] text-xs font-bold ${pill.cls}`}
-                      >
-                        <span className={`size-[5px] shrink-0 rounded-full ${pill.dot}`} />
-                        {pipelineStageLabel(stage)}
-                      </span>
-
-                      <span className="whitespace-nowrap text-[13px] text-[var(--ai-t2)]">
-                        {applied.main}
-                        <small className="mt-px block text-[11.5px] text-[var(--ai-t4)]">
-                          {applied.sub}
-                        </small>
-                      </span>
-
+                {/* Desktop table — unchanged above the breakpoint. overflow-x-auto is
+                kept as a belt-and-braces guard; at >=1049px the grid fits. */}
+                <div data-twin-wide className="hidden overflow-x-auto min-[1049px]:block">
+                  <div className="min-w-[960px]">
+                    <div
+                      className={`${GRID} border-b border-[var(--ai-line)] bg-[var(--ai-inset)] py-[11px] text-[10.5px] font-bold uppercase tracking-[0.08em] text-[var(--ai-t3)]`}
+                    >
+                      <span>#</span>
+                      <span>Candidate</span>
+                      <span>Job</span>
+                      <span>CV score</span>
+                      <span>Stage</span>
+                      <span>Applied</span>
                       <span />
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+                    </div>
+
+                    {paged.map((r, i) => {
+                      const tint = getTint(r.id);
+                      const applied = fmtApplied(r.created_at, clock);
+                      const stage = stageOf(r);
+                      const pill = stagePill(stage);
+                      const isTop = topMatchIds.has(r.id);
+                      const rank = pageStart + i;
+
+                      return (
+                        <button
+                          key={r.id}
+                          type="button"
+                          data-applicant-id={r.id}
+                          onClick={() => openApplicant(r.id)}
+                          className={`${GRID} group/row group relative w-full cursor-pointer border-b border-[var(--ai-line-soft)] py-[13px] text-left transition-all last:border-b-0 hover:z-[2] hover:bg-[#FCFBFA] hover:shadow-[0_6px_22px_rgba(20,16,32,0.07)] ${
+                            openId === r.id
+                              ? "bg-[var(--ai-purple-tint)]"
+                              : showsWorthALook(r)
+                                ? "bg-remotiv-purple/[0.035]"
+                                : "bg-[var(--ai-surface)]"
+                          }`}
+                        >
+                          {/* Always on for a flagged row — the accent is what makes a
+                            flag findable while scrolling, so it does not wait for a
+                            hover the way the default row's does. */}
+                          <span
+                            aria-hidden
+                            className={`absolute inset-y-0 left-0 w-[3px] bg-remotiv-purple transition-opacity ${
+                              openId === r.id || showsWorthALook(r)
+                                ? "opacity-100"
+                                : "opacity-0 group-hover:opacity-100"
+                            }`}
+                          />
+                          <span
+                            className={`font-heading text-sm font-extrabold tabular-nums tracking-[-0.02em] transition-colors group-hover:text-remotiv-purple ${
+                              isTop ? "text-[var(--ai-purple-ink)]" : "text-[var(--ai-t4)]"
+                            }`}
+                          >
+                            {/* `rank` is already 1-based — `rangeStart` is, because
+                            the pager's "21–40" reads off the same number. */}
+                            {String(rank).padStart(2, "0")}
+                          </span>
+
+                          <div className="flex min-w-0 items-center gap-3">
+                            <span
+                              className="flex size-10 shrink-0 items-center justify-center rounded-full text-[13px] font-bold"
+                              style={{
+                                background: tint.bg,
+                                color: tint.fg,
+                                boxShadow: isTop
+                                  ? "0 0 0 2px var(--ai-surface), 0 0 0 3.5px #49D7A7"
+                                  : "0 0 0 2px var(--ai-surface), 0 0 0 3.5px rgba(20,16,32,0.07)",
+                              }}
+                            >
+                              {initials(r.first_name, r.last_name, r.email)}
+                            </span>
+                            <div className="min-w-0">
+                              {/* .nm is a flex container, so truncation lives on the
+                                INNER span — otherwise the Top-match flag clips. */}
+                              <p className="m-0 flex min-w-0 items-center gap-2 text-[14.5px] font-bold leading-tight tracking-[-0.01em] text-[var(--ai-t1)]">
+                                <span className="min-w-0 truncate">{fullName(r)}</span>
+                                {isTop && (
+                                  <span className="shrink-0 rounded-[5px] bg-remotiv-lime px-[7px] py-0.5 text-[9.5px] font-extrabold uppercase tracking-[0.06em] text-[#2F3A00]">
+                                    Top match
+                                  </span>
+                                )}
+                                {/* Display-only, exactly as ApplicantCard renders it.
+                                Passing onDismiss puts a <button> inside this row's
+                                <button>, which is invalid HTML: the parser closes
+                                the row early and reparents everything after the
+                                chip — reason, job, score, stage, date — as
+                                siblings. The server tree and the client tree then
+                                disagree, hydration fails, and React leaves the
+                                mangled server DOM orphaned below the page. Only
+                                FLAGGED rows carried the chip, which is why only
+                                they broke. Dismissal lives in the drawer's
+                                Worth-a-look banner, one click away on the row the
+                                reader is already pointing at. */}
+                                {showsWorthALook(r) && <WorthALookChip />}
+                              </p>
+                              {showsWorthALook(r) ? (
+                                <FlagReasonLine reason={r.shortlist.reason} />
+                              ) : (
+                                <p className="m-0 mt-0.5 truncate text-[12.5px] text-[var(--ai-t3)]">
+                                  {r.email}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* min-w-0 on the flex parent and truncate on the title, so
+                          a long role name shortens rather than pushing the chip
+                          out of the cell. The chip never shrinks — it is two
+                          words or it is wrong. */}
+                          <div className="flex min-w-0 items-center gap-1.5">
+                            <span className="min-w-0 truncate rounded-lg border border-[var(--ai-line-soft)] bg-[var(--ai-inset)] px-2.5 py-[5px] text-[12.5px] font-semibold text-[var(--ai-t2)]">
+                              {r.job_title}
+                            </span>
+                            {r.added_manually && <AddedByTeamChip />}
+                          </div>
+
+                          <ScoreRing score={r.score} />
+
+                          <span
+                            className={`inline-flex items-center gap-1.5 justify-self-start whitespace-nowrap rounded-full px-3 py-[5px] text-xs font-bold ${pill.cls}`}
+                          >
+                            <span className={`size-[5px] shrink-0 rounded-full ${pill.dot}`} />
+                            {pipelineStageLabel(stage)}
+                          </span>
+
+                          <span className="whitespace-nowrap text-[13px] text-[var(--ai-t2)]">
+                            {applied.main}
+                            <small className="mt-px block text-[11.5px] text-[var(--ai-t4)]">
+                              {applied.sub}
+                            </small>
+                          </span>
+
+                          <span />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="flex items-center justify-between gap-4 border-t border-[var(--ai-line)] bg-[var(--ai-inset)] px-5 py-[13px]">
