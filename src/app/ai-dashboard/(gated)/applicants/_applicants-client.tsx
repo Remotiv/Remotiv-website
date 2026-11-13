@@ -182,6 +182,7 @@ import {
   type StepTarget,
   seedList,
   settleList,
+  splitJobFor,
   stepRow,
   stepTarget,
 } from "./list-state";
@@ -3413,6 +3414,7 @@ export function ApplicantsClient({
   initialTopScored,
   assignableJobs,
   initialCounts,
+  initialCompanyCounts = null,
   companyName,
   replyToAddress,
   manualTemplates,
@@ -3421,6 +3423,7 @@ export function ApplicantsClient({
   renderedAt,
   quotaBanner,
   split = false,
+  landingJobId = null,
 }: {
   viewerRole: CompanyRole;
   /**
@@ -3468,6 +3471,13 @@ export function ApplicantsClient({
    * arrives as a null FIELD. Either way the surfaces draw an em dash, never 0.
    */
   initialCounts: ApplicantCounts | null;
+  /**
+   * Split only: the company-wide figures the hero states while one job is
+   * shown (commit 8 - the hero stays company-wide until commit 9 removes it).
+   * Null when the server served All jobs, where `initialCounts` already is
+   * company-wide, or when the read failed.
+   */
+  initialCompanyCounts?: ApplicantCounts | null;
   companyName: string;
   replyToAddress: string | null;
   manualTemplates: ManualTemplate[];
@@ -3488,6 +3498,11 @@ export function ApplicantsClient({
   quotaBanner: ReactNode;
   /** The Applicants Split flag for this company (applicants-split-flag.ts). Off: the live page. */
   split?: boolean;
+  /**
+   * Split only (commit 8): the job the server landed this page on because the
+   * URL named none. Null: all jobs. See splitJobFor in list-state.ts.
+   */
+  landingJobId?: string | null;
 }) {
   // Same predicate the server action enforces (owner / admin / recruiter).
   // Hiring managers review candidates but do not spend the company's scoring
@@ -3532,7 +3547,16 @@ export function ApplicantsClient({
   // be defeated by a new wrapper identity for an unchanged query string, and
   // `request` has to be stable or the fetch effect below re-reads every render.
   const paramString = searchParams.toString();
-  const urlState = useMemo(() => decodeListUrl(new URLSearchParams(paramString)), [paramString]);
+  const urlState = useMemo(() => {
+    const params = new URLSearchParams(paramString);
+    const decoded = decodeListUrl(params);
+    // Split (commit 8): one job at a time. No ?job= means the server's
+    // landing job, ?job=all means all jobs; splitJobFor is shared with
+    // page.tsx so this equals the request the server served.
+    return split
+      ? { ...decoded, request: { ...decoded.request, jobId: splitJobFor(params, landingJobId) } }
+      : decoded;
+  }, [paramString, split, landingJobId]);
   /*
    * The request, stable for as long as its VALUE is.
    *
@@ -3562,12 +3586,12 @@ export function ApplicantsClient({
    */
   const writeUrl = useCallback(
     (next: ListUrlState, mode: "push" | "replace") => {
-      const qs = encodeListUrl(next, window.location.search);
+      const qs = encodeListUrl(next, window.location.search, { explicitAllJobs: split });
       const url = qs ? `${pathname}?${qs}` : pathname;
       if (mode === "push") window.history.pushState(null, "", url);
       else window.history.replaceState(null, "", url);
     },
-    [pathname],
+    [pathname, split],
   );
 
   /**
@@ -3596,7 +3620,16 @@ export function ApplicantsClient({
        *     changed on every filter move, which restarted the search debounce
        *     timer below each time any unrelated filter moved.
        */
-      const live = decodeListUrl(new URLSearchParams(window.location.search));
+      const liveParams = new URLSearchParams(window.location.search);
+      const decodedLive = decodeListUrl(liveParams);
+      // Split: the job shown, written out, so no write ever falls back to the
+      // landing job or to the ?q= rule by accident (commit 8).
+      const live = split
+        ? {
+            ...decodedLive,
+            request: { ...decodedLive.request, jobId: splitJobFor(liveParams, landingJobId) },
+          }
+        : decodedLive;
       writeUrl(
         {
           request: { ...live.request, ...fields, page: fields.page ?? 1 },
@@ -3605,7 +3638,7 @@ export function ApplicantsClient({
         mode,
       );
     },
-    [writeUrl],
+    [writeUrl, split, landingJobId],
   );
 
   /*
@@ -3678,7 +3711,7 @@ export function ApplicantsClient({
    * job B → job A leaves two outstanding requests both carrying key A, so the
    * key alone would let the older one land on top of the newer.
    */
-  const refreshCounts = useCallback((jobId: string | null) => {
+  const readCounts = useCallback((jobId: string | null) => {
     const key = countsKey(jobId);
     const seq = ++countsSeq.current;
     setCounts((prev) => requestCounts(prev, key, seq));
@@ -3691,6 +3724,46 @@ export function ApplicantsClient({
       });
   }, []);
 
+  /*
+   * Split only: the company-wide figures the hero states while one job is
+   * shown. The stage tabs keep the job's own counts above. `companyFresh` is
+   * false until they are read, and again after a mutation made in All jobs
+   * (whose own counts are the company-wide ones), so a job switch reads them
+   * only when they are missing or stale, never on every switch.
+   */
+  const [companyCounts, setCompanyCounts] = useState<CountsState>(() =>
+    seedCounts(countsKey(null), initialCompanyCounts),
+  );
+  const companySeq = useRef(0);
+  const companyFresh = useRef(initialCompanyCounts !== null);
+  const readCompanyCounts = useCallback(() => {
+    const key = countsKey(null);
+    const seq = ++companySeq.current;
+    companyFresh.current = true;
+    setCompanyCounts((prev) => requestCounts(prev, key, seq));
+    fetchApplicantCounts({})
+      .then((read) => {
+        setCompanyCounts((prev) =>
+          settleCounts(prev, { key, seq, counts: read.ok ? read.value : null }),
+        );
+      })
+      .catch(() => {
+        setCompanyCounts((prev) => settleCounts(prev, { key, seq, counts: null }));
+      });
+  }, []);
+  const heroView = split && jobFilter !== "all" ? countsView(companyCounts) : view;
+
+  /** After a mutation: the shown job's figures, and under Split the hero's company-wide ones. */
+  const refreshCounts = useCallback(
+    (jobId: string | null) => {
+      readCounts(jobId);
+      if (!split) return;
+      if (jobId === null) companyFresh.current = false;
+      else readCompanyCounts();
+    },
+    [split, readCounts, readCompanyCounts],
+  );
+
   // Skips the very first run: the server already answered for "all", and
   // re-asking on mount would spend nine head-counts to learn what the page was
   // rendered with.
@@ -3700,8 +3773,9 @@ export function ApplicantsClient({
       countsPrimed.current = true;
       return;
     }
-    refreshCounts(jobFilter === "all" ? null : jobFilter);
-  }, [jobFilter, refreshCounts]);
+    readCounts(jobFilter === "all" ? null : jobFilter);
+    if (split && jobFilter !== "all" && !companyFresh.current) readCompanyCounts();
+  }, [jobFilter, split, readCounts, readCompanyCounts]);
 
   /*
    * The Flagged badge, from a server aggregate.
@@ -4302,6 +4376,38 @@ export function ApplicantsClient({
     () => assignableJobs.map((j) => [j.id, j.title]),
     [assignableJobs],
   );
+  /** Split's job select: Open, then Closed (on_hold, closed, archived), newest first in each (commit 8). */
+  const openJobs = useMemo(() => assignableJobs.filter((j) => j.open), [assignableJobs]);
+  const closedJobs = useMemo(() => assignableJobs.filter((j) => !j.open), [assignableJobs]);
+  /** The job select's options after "All jobs": grouped under Split, flat on the live page. */
+  const jobSelectOptions = split ? (
+    <>
+      {openJobs.length > 0 && (
+        <optgroup label="Open">
+          {openJobs.map((j) => (
+            <option key={j.id} value={j.id}>
+              {j.title}
+            </option>
+          ))}
+        </optgroup>
+      )}
+      {closedJobs.length > 0 && (
+        <optgroup label="Closed">
+          {closedJobs.map((j) => (
+            <option key={j.id} value={j.id}>
+              {j.title}
+            </option>
+          ))}
+        </optgroup>
+      )}
+    </>
+  ) : (
+    jobOptions.map(([id, title]) => (
+      <option key={id} value={id}>
+        {title}
+      </option>
+    ))
+  );
 
   /**
    * The ten best scored, with the optimistic overlays applied to them too.
@@ -4416,6 +4522,19 @@ export function ApplicantsClient({
     fetchCompanyApplicant(id)
       .then((read) => {
         if (cancelled) return;
+        // Split (commit 8): an applicant the URL names, on a job other than
+        // the one shown, switches the job with a URL REPLACE (no history
+        // entry). One list read, the one the new job needs; the detail read
+        // is this one. Never in All jobs, never for an auto-selected row
+        // (those come from the page, so they are on the shown job).
+        const linkedJob = read.ok ? read.value?.applicant?.job_id : null;
+        if (linkedJob) {
+          const live = new URLSearchParams(window.location.search);
+          const shown = splitJobFor(live, landingJobId);
+          if (shown !== null && shown !== linkedJob && live.get("applicant") === id) {
+            setFilters({ jobId: linkedJob }, "replace");
+          }
+        }
         setSplitRead({
           id,
           ok: read.ok,
@@ -4437,7 +4556,7 @@ export function ApplicantsClient({
     return () => {
       cancelled = true;
     };
-  }, [panelId]);
+  }, [panelId, landingJobId, setFilters]);
 
   const splitRow = panelId
     ? (rows.find((r) => r.id === panelId) ??
@@ -5248,6 +5367,21 @@ export function ApplicantsClient({
     };
   })();
 
+  /** The live empty message: the list's, and Split's whole page when there are no jobs. */
+  const emptyState = (
+    <div className="flex flex-col items-center px-6 pb-16 pt-[60px] text-center">
+      <div className="mb-[18px] flex size-[66px] items-center justify-center rounded-[20px] bg-[var(--ai-purple-tint)] text-remotiv-purple">
+        <Users className="size-7" strokeWidth={1.7} />
+      </div>
+      <h3 className="font-heading text-[19px] font-extrabold tracking-[-0.02em]">
+        {emptyCopy.title}
+      </h3>
+      <p className="m-0 mt-1.5 max-w-[340px] text-[13.5px] leading-relaxed text-[var(--ai-t3)]">
+        {emptyCopy.text}
+      </p>
+    </div>
+  );
+
   const splitProps: SplitPanelProps | null = splitRow
     ? {
         row: splitRow,
@@ -5322,7 +5456,7 @@ export function ApplicantsClient({
               {/* Present tense: CV scoring is shipped and on by default per job,
                   and the default sort is by score. The old future tense contradicted
                   the welcome modal one screen earlier. */}
-              {ledeCount(view.total)}
+              {ledeCount(heroView.total)}
               Each new application is <LimeHighlight>scored against the job</LimeHighlight>, unless
               you&apos;ve switched scoring off for that role.
             </p>
@@ -5385,27 +5519,27 @@ export function ApplicantsClient({
             one's. */}
         <DashboardHero
           eyebrow="Total applicants"
-          value={countLabel(view.total)}
+          value={countLabel(heroView.total)}
           delta={
-            view.newThisWeek !== null && view.newThisWeek > 0 ? (
-              <HeroDelta>+{view.newThisWeek} this week</HeroDelta>
+            heroView.newThisWeek !== null && heroView.newThisWeek > 0 ? (
+              <HeroDelta>+{heroView.newThisWeek} this week</HeroDelta>
             ) : null
           }
           subline={
-            view.updating
+            heroView.updating
               ? "Updating totals…"
-              : `Across ${countLabel(view.openRoles)} open ${view.openRoles === 1 ? "role" : "roles"}`
+              : `Across ${countLabel(heroView.openRoles)} open ${heroView.openRoles === 1 ? "role" : "roles"}`
           }
         >
           <div
-            aria-busy={view.updating}
+            aria-busy={heroView.updating}
             className={`flex flex-wrap items-stretch transition-opacity min-[840px]:flex-nowrap ${
-              view.updating ? "opacity-50" : ""
+              heroView.updating ? "opacity-50" : ""
             }`}
           >
             {FUNNEL_STEPS.map((step, i) => {
-              const value = view.stages[step.stage];
-              const pct = stagePercent(value, view.total);
+              const value = heroView.stages[step.stage];
+              const pct = stagePercent(value, heroView.total);
               return (
                 <div
                   key={step.stage}
@@ -5500,11 +5634,7 @@ export function ApplicantsClient({
                   className={`${TOOLBAR_SELECT} max-w-[45%] shrink min-[630px]:max-w-none`}
                 >
                   <option value="all">All jobs</option>
-                  {jobOptions.map(([id, title]) => (
-                    <option key={id} value={id}>
-                      {title}
-                    </option>
-                  ))}
+                  {jobSelectOptions}
                 </select>
 
                 <div className="flex min-w-[160px] flex-1 items-center gap-2 rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-3 py-[7px] text-[var(--ai-t3)] focus-within:border-remotiv-purple min-[630px]:w-[210px] min-[630px]:flex-none">
@@ -5552,19 +5682,7 @@ export function ApplicantsClient({
             </div>
 
             <SplitListColumn split={split} fullWidth={paged.length === 0}>
-              {paged.length === 0 && (
-                <div className="flex flex-col items-center px-6 pb-16 pt-[60px] text-center">
-                  <div className="mb-[18px] flex size-[66px] items-center justify-center rounded-[20px] bg-[var(--ai-purple-tint)] text-remotiv-purple">
-                    <Users className="size-7" strokeWidth={1.7} />
-                  </div>
-                  <h3 className="font-heading text-[19px] font-extrabold tracking-[-0.02em]">
-                    {emptyCopy.title}
-                  </h3>
-                  <p className="m-0 mt-1.5 max-w-[340px] text-[13.5px] leading-relaxed text-[var(--ai-t3)]">
-                    {emptyCopy.text}
-                  </p>
-                </div>
-              )}
+              {paged.length === 0 && emptyState}
 
               {/* Stacked cards below the table breakpoint — the 7-column grid needs
               960 design px, which simply doesn't exist on a phone. Squeezing it
@@ -5805,7 +5923,9 @@ export function ApplicantsClient({
                   page={safePage}
                   pageCount={pageCount}
                   total={total}
-                  grandTotal={view.grandTotal}
+                  // Split shows one job by default, so "filtered from" the whole
+                  // company would sit on every page (commit 8); hidden there.
+                  grandTotal={split ? null : view.grandTotal}
                   /* `pageStart` is already the 1-based index of the page's first
                  row — `rangeStart` computes it from the page number, where the
                  old local was a 0-based offset into an in-memory array and
@@ -6181,5 +6301,33 @@ export function ApplicantsClient({
 
   // Split only: the page-scoped AA text tokens (ai-dashboard.css). With the
   // flag off the page renders exactly as before, with no wrapper at all.
-  return split ? <div className="ai-split-tokens">{renderedPage}</div> : renderedPage;
+  /*
+   * Split with no jobs to show (none yet, or a scoped role on no hiring team):
+   * no toolbar, no list, no panel, just the live title and the live empty
+   * message, full width (v9 state 17; commit 8).
+   */
+  /*
+   * Split with no jobs to show (none yet, or a scoped role on no hiring team):
+   * no toolbar, no list, no panel, just the live title and the live empty
+   * message, full width (v9 state 17; commit 8).
+   */
+  const noJobsPage = (
+    <PageContainer>
+      <h1 className="mb-5 font-heading text-[32px] font-extrabold leading-none tracking-[-0.035em]">
+        Applicants
+      </h1>
+      <div
+        data-split-no-jobs
+        className="rounded-[20px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_6px_30px_rgba(20,16,32,0.06)]"
+      >
+        {emptyState}
+      </div>
+    </PageContainer>
+  );
+
+  return split ? (
+    <div className="ai-split-tokens">{assignableJobs.length === 0 ? noJobsPage : renderedPage}</div>
+  ) : (
+    renderedPage
+  );
 }

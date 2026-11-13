@@ -629,6 +629,11 @@ export type ApplicantCounts = {
 export type AssignableJob = {
   id: string;
   title: string;
+  /**
+   * Open and not archived: the Split job select's "Open" group (commit 8).
+   * on_hold (Draft), closed and archived jobs go under "Closed".
+   */
+  open: boolean;
 };
 
 /**

@@ -463,7 +463,16 @@ function isPipelineStage(value: string | null): value is PipelineStage {
  * then holds, and so does `encode(decode(encode(s))) === encode(s)`; both are
  * tested, because a codec that is not a round trip turns Back into a mutation.
  */
-export function encodeListUrl(state: ListUrlState, current: string): string {
+export function encodeListUrl(
+  state: ListUrlState,
+  current: string,
+  /**
+   * Applicants Split (commit 8): there, no ?job= means the server's landing
+   * job, so "All jobs" has to be written out as ?job=all. Off by default:
+   * the live page's URLs are unchanged.
+   */
+  opts: { explicitAllJobs?: boolean } = {},
+): string {
   const params = new URLSearchParams(current);
   // Cleared first, then written in a fixed order: setting in place would leave
   // ours wherever they happened to be and make the same state produce two
@@ -474,6 +483,7 @@ export function encodeListUrl(state: ListUrlState, current: string): string {
   const search = r.search.trim().slice(0, SEARCH_PARAM_MAX);
   if (search) params.set("q", search);
   if (r.jobId) params.set("job", r.jobId);
+  else if (opts.explicitAllJobs) params.set("job", ALL_JOBS);
   if (r.stage) params.set("stage", r.stage);
   if (r.flaggedOnly) params.set("flagged", "1");
   if (r.sort !== "best") params.set("sort", r.sort);
@@ -481,6 +491,44 @@ export function encodeListUrl(state: ListUrlState, current: string): string {
   if (state.topOnly) params.set("top", "1");
 
   return params.toString();
+}
+
+/** The ?job= value for "All jobs" under Applicants Split (commit 8). */
+export const ALL_JOBS = "all";
+
+/**
+ * Which job the Split list shows (commit 8), as a ListRequest.jobId: a job id,
+ * or null for all jobs.
+ *
+ *   ?job=all             all jobs, chosen explicitly
+ *   ?job=<uuid>          that job
+ *   ?q= and no ?job=     all jobs: a search link (topbar, search results) must
+ *                        never hide someone in another job
+ *   no ?job= at all      the landing job the server chose for this page load
+ *                        (a deep-linked applicant's own job, else the open
+ *                        job with the newest application)
+ *
+ * The server and the client both call this, so the page the server serves and
+ * the client's first request are the same request and nothing is read twice.
+ * Under Split every filter write spells the job out, so only a URL as it was
+ * first loaded (or a link from elsewhere) ever lacks one.
+ */
+export function splitJobFor(params: ParamReader, landingJobId: string | null): string | null {
+  const job = params.get("job");
+  if (job === ALL_JOBS) return null;
+  if (job && JOB_ID_PATTERN.test(job)) return job;
+  if ((params.get("q") ?? "").trim()) return null;
+  return landingJobId;
+}
+
+/** True when the URL already decides the Split job, so no landing job is needed. */
+export function splitJobIsExplicit(params: ParamReader): boolean {
+  const job = params.get("job");
+  return (
+    job === ALL_JOBS ||
+    Boolean(job && JOB_ID_PATTERN.test(job)) ||
+    Boolean((params.get("q") ?? "").trim())
+  );
 }
 
 export const PANEL_PARAM_NAMES = ["applicant", "tab"] as const;

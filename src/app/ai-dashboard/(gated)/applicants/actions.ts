@@ -1372,7 +1372,7 @@ export async function fetchAssignableJobs(): Promise<Read<AssignableJob[]>> {
   // recruiter can no longer open.
   let q = service
     .from("jobs")
-    .select("id, title")
+    .select("id, title, status, archived_at")
     .eq("company_id", ctx.companyId)
     .is("deleted_at", null);
   if (scope.scoped) q = q.in("id", scope.jobIds);
@@ -1387,11 +1387,94 @@ export async function fetchAssignableJobs(): Promise<Read<AssignableJob[]>> {
   }
 
   return answered(
-    ((data ?? []) as { id: string; title: string | null }[]).map((j) => ({
+    (
+      (data ?? []) as {
+        id: string;
+        title: string | null;
+        status: string | null;
+        archived_at: string | null;
+      }[]
+    ).map((j) => ({
       id: j.id,
       title: j.title?.trim() || "Untitled role",
+      // The Split job select's "Open" group (commit 8): open and not archived.
+      open: j.status === "open" && !j.archived_at,
     })),
   );
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The job the Applicants Split list lands on when the URL names none
+ * (commit 8). Null means all jobs, which is also the answer when the viewer
+ * has no jobs at all (the page then shows its empty state).
+ *
+ *   1. A deep-linked applicant's own job, so a link from a notification
+ *      opens in the right job without a second list read.
+ *   2. The open job (status 'open', not archived; on_hold does not count)
+ *      with the newest application: company_id_snapshot, ordered by
+ *      created_at descending, limit 1.
+ *   3. Failing that, the job with the newest application of any status.
+ *   4. Failing that (no applications at all), the newest open job, else the
+ *      newest job.
+ *
+ * Every read is scoped to the company and, for a job-scoped role, to the
+ * jobs on its hiring teams.
+ */
+export async function resolveSplitLandingJob(applicantId: string | null): Promise<string | null> {
+  const ctx = await getCompanyContext();
+  const scope = await getJobScope(ctx);
+  if (scope.scoped && scope.jobIds.length === 0) return null;
+  const service = createServiceClient();
+  const inScope = (jobId: string | null | undefined): jobId is string =>
+    Boolean(jobId) && (!scope.scoped || scope.jobIds.includes(jobId as string));
+
+  if (applicantId && UUID_PATTERN.test(applicantId)) {
+    const { data } = await service
+      .from("job_applications")
+      .select("job_id")
+      .eq("id", applicantId)
+      .eq("company_id_snapshot", ctx.companyId)
+      .maybeSingle();
+    const job = (data as { job_id: string | null } | null)?.job_id;
+    if (inScope(job)) return job;
+  }
+
+  let jq = service
+    .from("jobs")
+    .select("id, status, archived_at")
+    .eq("company_id", ctx.companyId)
+    .is("deleted_at", null);
+  if (scope.scoped) jq = jq.in("id", scope.jobIds);
+  const { data: jobRows, error } = await jq.order("created_at", { ascending: false });
+  if (error) {
+    console.error("[applicants] resolveSplitLandingJob jobs read failed:", error.code ?? "error");
+    return null;
+  }
+  const jobs = (jobRows ?? []) as {
+    id: string;
+    status: string | null;
+    archived_at: string | null;
+  }[];
+  if (jobs.length === 0) return null;
+  const openIds = jobs.filter((j) => j.status === "open" && !j.archived_at).map((j) => j.id);
+  const allIds = jobs.map((j) => j.id);
+
+  const newestIn = async (ids: string[]): Promise<string | null> => {
+    if (ids.length === 0) return null;
+    const { data } = await service
+      .from("job_applications")
+      .select("job_id")
+      .eq("company_id_snapshot", ctx.companyId)
+      .in("job_id", ids)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return (data as { job_id: string | null } | null)?.job_id ?? null;
+  };
+
+  return (await newestIn(openIds)) ?? (await newestIn(allIds)) ?? openIds[0] ?? allIds[0];
 }
 
 // ── Mutations ────────────────────────────────────────────────

@@ -9,9 +9,16 @@ import {
   fetchAssignableJobs,
   fetchCompanyApplicants,
   fetchTopScoredApplicants,
+  resolveSplitLandingJob,
 } from "./actions";
 import { ApplicantsClient } from "./_applicants-client";
-import { decodeListUrl, listParamsFrom, listQueryFor } from "./list-state";
+import {
+  decodeListUrl,
+  listParamsFrom,
+  listQueryFor,
+  splitJobFor,
+  splitJobIsExplicit,
+} from "./list-state";
 import { loadApplicantsUsage } from "@/app/ai-dashboard/lib/company-usage-view";
 import { QuotaBanner } from "./_quota-banner";
 
@@ -43,10 +50,27 @@ export default async function ApplicantsPage({
    * whole refresh path is one tested function rather than a conversion here
    * and a decode there.
    */
-  const served = decodeListUrl(listParamsFrom(await searchParams));
+  const params = listParamsFrom(await searchParams);
+  const decoded = decodeListUrl(params);
+  /*
+   * Applicants Split (commit 8): one job at a time. With no ?job= in the URL
+   * the list lands on a job chosen here, before the reads, so the page served
+   * is already that job's and the client's first request matches it (no
+   * second read). getCompanyContext is cache()d per request, so the
+   * Promise.all below reuses this call. Flag off: `served` is exactly what it
+   * was, and no landing read happens.
+   */
+  const splitOn = isApplicantsSplitOn((await getCompanyContext()).companyId);
+  const landingJobId =
+    splitOn && !splitJobIsExplicit(params)
+      ? await resolveSplitLandingJob(params.get("applicant"))
+      : null;
+  const served = splitOn
+    ? { ...decoded, request: { ...decoded.request, jobId: splitJobFor(params, landingJobId) } }
+    : decoded;
   const servedQuery = listQueryFor(served.request);
 
-  const [ctx, applicants, topScored, manualTemplates, assignableJobs, quota, counts] =
+  const [ctx, applicants, topScored, manualTemplates, assignableJobs, quota, counts, heroCounts] =
     await Promise.all([
       getCompanyContext(),
       /*
@@ -98,6 +122,10 @@ export default async function ApplicantsPage({
        * field for the same reason.
        */
       fetchApplicantCounts(served.request.jobId ? { jobId: served.request.jobId } : {}),
+      // Split only: the hero stays company-wide while one job is shown (until
+      // commit 9 removes it). In this wave, so it adds no latency; skipped when
+      // the page shows All jobs, whose counts above already are company-wide.
+      splitOn && served.request.jobId ? fetchApplicantCounts({}) : null,
     ]);
 
   /*
@@ -178,6 +206,7 @@ export default async function ApplicantsPage({
       // Null, not zeros: "0 applicants" over a company with two thousand of
       // them is believed instantly, because nothing about it looks broken.
       initialCounts={counts.ok ? counts.value : null}
+      initialCompanyCounts={heroCounts?.ok ? heroCounts.value : null}
       companyName={ctx.company.name}
       replyToAddress={replyToAddress}
       manualTemplates={manualTemplates}
@@ -185,7 +214,8 @@ export default async function ApplicantsPage({
       showScoringTip={showScoringTip}
       renderedAt={now}
       quotaBanner={quota && <QuotaBanner view={quota} />}
-      split={isApplicantsSplitOn(ctx.companyId)}
+      split={splitOn}
+      landingJobId={landingJobId}
     />
   );
 }

@@ -24,14 +24,21 @@ test("the page hands the client the company's Split flag", () => {
     page,
     /import \{ isApplicantsSplitOn \} from "@\/app\/ai-dashboard\/lib\/applicants-split-flag";/,
   );
-  assert.match(page, /split=\{isApplicantsSplitOn\(ctx\.companyId\)\}/);
+  // Computed once, before the reads, because commit 8 needs it to pick the
+  // landing job (getCompanyContext is cache()d per request).
+  assert.match(
+    page,
+    /const splitOn = isApplicantsSplitOn\(\(await getCompanyContext\(\)\)\.companyId\);/,
+  );
+  assert.match(page, /split=\{splitOn\}/);
 });
 
 test("the client wraps the page in the token class only when split is on", () => {
   assert.match(client, /split = false,/, "split defaults to off");
+  // The 0-jobs page (commit 8) goes through the same wrapper.
   assert.match(
     client,
-    /return split \? <div className="ai-split-tokens">\{renderedPage\}<\/div> : renderedPage;/,
+    /return split \? \(\s*<div className="ai-split-tokens">\s*\{assignableJobs\.length === 0 \? noJobsPage : renderedPage\}\s*<\/div>\s*\) : \(\s*renderedPage\s*\);/,
   );
   assert.equal((client.match(/ai-split-tokens/g) ?? []).length, 1, "the class is used once");
 });
