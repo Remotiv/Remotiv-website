@@ -64,9 +64,10 @@ test("the copy: success toast and the failure sentence, hyphens only", () => {
 test("the button is offered only where the server rule allows it", () => {
   const body = shortlistHandler();
   assert.match(body, /!canShortlist\(viewerRole, row\.pipeline_stage\)/);
-  assert.match(SRC, /shortlisting=\{shortlistingId === splitRow\.id\}/);
+  // One set of props feeds both the panel and the sheet (commit 7).
+  assert.match(SRC, /shortlisting: shortlistingId === splitRow\.id,/);
   assert.match(
     SRC,
-    /shortlistError=\{shortlistError\?\.id === splitRow\.id \? shortlistError\.message : null\}/,
+    /shortlistError: shortlistError\?\.id === splitRow\.id \? shortlistError\.message : null,/,
   );
 });

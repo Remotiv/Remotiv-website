@@ -139,21 +139,7 @@ export function SplitListColumn({
   );
 }
 
-export function SplitPanel({
-  row,
-  header,
-  scoreDetail,
-  screening,
-  applied,
-  onDetails,
-  onEmail,
-  dismissing,
-  onDismissFlag,
-  viewerRole,
-  shortlisting,
-  shortlistError,
-  onShortlist,
-}: {
+export type SplitPanelProps = {
   row: CompanyApplicantRow;
   /** The drawer's identity row, rendered by the client. */
   header: ReactNode;
@@ -172,7 +158,47 @@ export function SplitPanel({
   /** The last Shortlist attempt for this applicant failed: the sentence to show. */
   shortlistError: string | null;
   onShortlist: () => void;
-}) {
+};
+
+/**
+ * The panel itself: the 1100+ page column. A region, never a dialog (see the
+ * module note); below 1100 the same content opens as a full-screen sheet in
+ * _split-sheet.tsx, which is the one that traps focus (commit 7).
+ */
+export function SplitPanel(props: SplitPanelProps) {
+  return (
+    // A <section> with a name IS role="region" (Biome rejects the explicit
+    // attribute as redundant); split-panel.test.ts pins both halves.
+    <section
+      aria-label={`${fullName(props.row)} - applicant detail`}
+      data-split-panel
+      className={PANEL_FRAME}
+    >
+      <SplitPanelContent {...props} />
+    </section>
+  );
+}
+
+/**
+ * What the panel and the sheet both show: the top row (Shortlist, Details),
+ * the identity row, and the scrolling body of cards. Shared so the sheet below
+ * 1100 is the same content, not a copy (commit 7).
+ */
+export function SplitPanelContent({
+  row,
+  header,
+  scoreDetail,
+  screening,
+  applied,
+  onDetails,
+  onEmail,
+  dismissing,
+  onDismissFlag,
+  viewerRole,
+  shortlisting,
+  shortlistError,
+  onShortlist,
+}: SplitPanelProps) {
   const showShortlist = canShortlist(viewerRole, row.pipeline_stage);
   const screeningView = screeningCard(screening);
   const screeningAnswerCount = screeningCount(screening);
@@ -185,13 +211,7 @@ export function SplitPanel({
   const hasDetails = Boolean(location || experienceText || row.notice_period);
 
   return (
-    // A <section> with a name IS role="region" (Biome rejects the explicit
-    // attribute as redundant); split-panel.test.ts pins both halves.
-    <section
-      aria-label={`${fullName(row)} - applicant detail`}
-      data-split-panel
-      className={PANEL_FRAME}
-    >
+    <>
       <header className="shrink-0 border-b border-[var(--ai-line)] bg-[var(--ai-surface)] px-[22px] pt-4">
         <div className="mb-3.5 flex items-center gap-[9px]">
           {showShortlist && (
@@ -285,6 +305,6 @@ export function SplitPanel({
           </div>
         </div>
       </div>
-    </section>
+    </>
   );
 }

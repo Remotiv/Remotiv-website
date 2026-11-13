@@ -153,15 +153,16 @@ describe("2. the URL is written on a click, never on auto-select", () => {
     assert.match(m[0], /setSplitId\(id\);\s*syncPanelUrl\(id, panelTab\);/);
   });
 
-  test("a Split row calls selectSplit at 1100+ and the live drawer below it", () => {
+  test("a Split row calls selectSplit at 1100+ and opens the sheet below it (commit 7)", () => {
     assert.match(
       CLIENT_SRC,
-      /onOpen=\{\(\) => \(splitWide \? selectSplit\(r\.id\) : openApplicant\(r\.id\)\)\}/,
+      /onOpen=\{\(\) => \(splitWide \? selectSplit\(r\.id\) : openSheet\(r\.id\)\)\}/,
     );
   });
 
   test("Details opens the drawer in state, without a URL write of its own", () => {
-    assert.match(CLIENT_SRC, /onDetails=\{\(\) => setOpenId\(splitRow\.id\)\}/);
+    // One set of props feeds both the panel and the sheet (commit 7).
+    assert.match(CLIENT_SRC, /onDetails: \(\) => setOpenId\(splitRow\.id\),/);
   });
 });
 

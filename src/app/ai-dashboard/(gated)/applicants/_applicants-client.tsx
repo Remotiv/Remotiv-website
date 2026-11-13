@@ -127,7 +127,9 @@ import {
   SplitLayout,
   SplitListColumn,
   SplitPanel,
+  type SplitPanelProps,
 } from "./_split-panel";
+import { SplitSheet } from "./_split-sheet";
 import { StageTabs } from "./_stage-tabs";
 import {
   addApplicationComment,
@@ -3897,6 +3899,17 @@ export function ApplicantsClient({
       if (deepLinkId) setSplitId(deepLinkId);
       return;
     }
+    // Split below 1100 (commit 7): ?applicant= names the sheet's applicant.
+    // When it goes (browser Back, or a close that replaced the URL), the sheet
+    // and any drawer opened on top of it close together.
+    if (split) {
+      setSheetId(deepLinkId);
+      if (!deepLinkId) {
+        setOpenId(null);
+        sheetPushed.current = false;
+      }
+      return;
+    }
     setOpenId(deepLinkId);
   }, [deepLinkId, split]);
 
@@ -3907,6 +3920,15 @@ export function ApplicantsClient({
    */
   const [splitId, setSplitId] = useState<string | null>(null);
   const splitWide = useSplitWide() && split;
+
+  /**
+   * Below 1100 (flag on): the applicant open in the full-screen sheet
+   * (commit 7). `sheetPushed` says whether WE added the history entry for it.
+   * Back then pops exactly that entry; a sheet opened from a deep link has no
+   * entry of ours, so closing it replaces the URL and never leaves the page.
+   */
+  const [sheetId, setSheetId] = useState<string | null>(null);
+  const sheetPushed = useRef(false);
 
   /**
    * Which pane the panel is showing. Seeded from ?tab= by the same effect
@@ -3959,11 +3981,91 @@ export function ApplicantsClient({
 
   const closePanel = useCallback(() => {
     setOpenId(null);
-    // Split at 1100+: closing the drawer returns to the panel, and the URL
-    // still names the panel's applicant, so it is left alone.
-    if (isSplitWide(split)) return;
+    // Split: the drawer only ever opens over the panel (1100+) or the sheet
+    // (below), and the URL names THEIR applicant, so closing the drawer leaves
+    // it alone. Below 1100 that keeps the sheet open under it (commit 7).
+    if (split) return;
     syncPanelUrl(null, panelTab);
   }, [syncPanelUrl, panelTab, split]);
+
+  /**
+   * A row click below 1100 (flag on): open the sheet with ONE pushed history
+   * entry, so the browser's Back closes it. Stepping through applicants later
+   * (the drawer's prev/next) replaces that entry, never adds another.
+   *
+   * A URL that already names an applicant (the panel's, after the window
+   * narrowed) is replaced away first: otherwise Back would land on it and
+   * reopen the sheet for someone else.
+   */
+  const openSheet = useCallback(
+    (id: string) => {
+      setSheetId(id);
+      const to = (applicantId: string | null) => {
+        const qs = encodePanelUrl(window.location.search, applicantId, panelTab);
+        return qs ? `${pathname}?${qs}` : pathname;
+      };
+      if (sheetPushed.current) {
+        window.history.replaceState(null, "", to(id));
+        return;
+      }
+      if (new URLSearchParams(window.location.search).has("applicant")) {
+        window.history.replaceState(null, "", to(null));
+      }
+      window.history.pushState(null, "", to(id));
+      sheetPushed.current = true;
+    },
+    [pathname, panelTab],
+  );
+
+  /**
+   * "Back to applicants" and Escape. Pops our own entry when there is one (the
+   * deep-link effect then closes the sheet); otherwise the sheet came from a
+   * deep link, and the URL is replaced so the user stays on the page.
+   */
+  const closeSheet = useCallback(() => {
+    if (sheetPushed.current) {
+      sheetPushed.current = false;
+      window.history.back();
+      return;
+    }
+    setSheetId(null);
+    setOpenId(null);
+    syncPanelUrl(null, panelTab);
+  }, [syncPanelUrl, panelTab]);
+
+  /*
+   * Browser Back (and our own history.back()) below 1100. Read from the
+   * location itself on popstate: useSearchParams does not report the change
+   * when the entry popped is one we pushed (measured on staging: the URL lost
+   * ?applicant= and the sheet stayed open). The sheet and any drawer opened on
+   * top of it follow the URL together.
+   */
+  useEffect(() => {
+    if (!split) return;
+    const onPop = () => {
+      if (isSplitWide(split)) return;
+      const id = new URLSearchParams(window.location.search).get("applicant");
+      setSheetId(id);
+      if (!id) {
+        setOpenId(null);
+        sheetPushed.current = false;
+      }
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [split]);
+
+  /*
+   * Widened past 1100 with the sheet open: the sheet closes and its applicant
+   * becomes the panel's selection (the URL already names them). Narrowing never
+   * opens a sheet by itself: only a click or a deep link does.
+   */
+  useEffect(() => {
+    if (!splitWide || !sheetId) return;
+    setSplitId(sheetId);
+    setSheetId(null);
+    sheetPushed.current = false;
+  }, [splitWide, sheetId]);
 
   /** A click on a row in the Split list: the one place the panel writes the URL. */
   const selectSplit = useCallback(
@@ -4297,6 +4399,9 @@ export function ApplicantsClient({
    * uses, keyed to the id it was started for so a late answer for the previous
    * row never paints under the next one.
    */
+  /** Whose details the Split shows: the panel's at 1100+, the sheet's below (commit 7). */
+  const panelId = splitWide ? splitId : split ? sheetId : null;
+
   const [splitRead, setSplitRead] = useState<{
     id: string;
     ok: boolean;
@@ -4305,9 +4410,9 @@ export function ApplicantsClient({
     applicant: CompanyApplicantRow | null;
   } | null>(null);
   useEffect(() => {
-    if (!splitWide || !splitId) return;
+    if (!panelId) return;
     let cancelled = false;
-    const id = splitId;
+    const id = panelId;
     fetchCompanyApplicant(id)
       .then((read) => {
         if (cancelled) return;
@@ -4332,17 +4437,16 @@ export function ApplicantsClient({
     return () => {
       cancelled = true;
     };
-  }, [splitWide, splitId]);
+  }, [panelId]);
 
-  const splitRow =
-    splitWide && splitId
-      ? (rows.find((r) => r.id === splitId) ??
-        topRows.find((r) => r.id === splitId) ??
-        withStageOverride(splitRead?.id === splitId ? splitRead.applicant : null))
-      : null;
+  const splitRow = panelId
+    ? (rows.find((r) => r.id === panelId) ??
+      topRows.find((r) => r.id === panelId) ??
+      withStageOverride(splitRead?.id === panelId ? splitRead.applicant : null))
+    : null;
   const splitDetail = splitRow && splitRead?.id === splitRow.id ? splitRead.scoreDetail : null;
 
-  /** The Composer's one recipient: the drawer's applicant, else the panel's. */
+  /** The Composer's one recipient: the drawer's applicant, else the panel's or the sheet's. */
   const composerRow = openRow ?? splitRow;
 
   /**
@@ -5144,40 +5248,53 @@ export function ApplicantsClient({
     };
   })();
 
-  const splitPanel = splitRow ? (
-    <SplitPanel
-      key={splitRow.id}
-      row={splitRow}
-      header={
-        <ApplicantIdentityRow
-          row={splitRow}
-          clock={clock}
-          headerScore={splitDetail ?? splitRow.score}
-          viewerRole={viewerRole}
-          saving={savingId === splitRow.id}
-          onStageChange={(next) => {
-            void handleStageChange(splitRow.id, next, splitRow);
-          }}
-          stageSelectId="split-applicant-stage"
-        />
+  const splitProps: SplitPanelProps | null = splitRow
+    ? {
+        row: splitRow,
+        header: (
+          <ApplicantIdentityRow
+            row={splitRow}
+            clock={clock}
+            headerScore={splitDetail ?? splitRow.score}
+            viewerRole={viewerRole}
+            saving={savingId === splitRow.id}
+            onStageChange={(next) => {
+              void handleStageChange(splitRow.id, next, splitRow);
+            }}
+            stageSelectId="split-applicant-stage"
+          />
+        ),
+        scoreDetail: splitDetail,
+        screening: selectScreening(splitRead?.screening ?? null, splitRow.id),
+        applied: fmtApplied(splitRow.created_at, clock),
+        onDetails: () => setOpenId(splitRow.id),
+        onEmail: () => setComposerOpen(true),
+        dismissing,
+        onDismissFlag: (id: string) => {
+          void dismissFlag(id);
+        },
+        viewerRole,
+        shortlisting: shortlistingId === splitRow.id,
+        shortlistError: shortlistError?.id === splitRow.id ? shortlistError.message : null,
+        onShortlist: () => {
+          void handleShortlist(splitRow);
+        },
       }
-      scoreDetail={splitDetail}
-      screening={selectScreening(splitRead?.screening ?? null, splitRow.id)}
-      applied={fmtApplied(splitRow.created_at, clock)}
-      onDetails={() => setOpenId(splitRow.id)}
-      onEmail={() => setComposerOpen(true)}
-      dismissing={dismissing}
-      onDismissFlag={(id) => {
-        void dismissFlag(id);
-      }}
-      viewerRole={viewerRole}
-      shortlisting={shortlistingId === splitRow.id}
-      shortlistError={shortlistError?.id === splitRow.id ? shortlistError.message : null}
-      onShortlist={() => {
-        void handleShortlist(splitRow);
-      }}
-    />
-  ) : null;
+    : null;
+
+  /** 1100+: the page column beside the list. */
+  const splitPanel =
+    splitProps && splitWide ? <SplitPanel key={splitProps.row.id} {...splitProps} /> : null;
+  /**
+   * Below 1100: the same content as a full-screen sheet, open only on demand
+   * (commit 7). Its key is prefixed: the live drawer, a sibling in the same
+   * parent, is keyed by the bare applicant id, and two siblings sharing a key
+   * left the sheet's DOM behind when Back closed both at once.
+   */
+  const splitSheet =
+    splitProps && !splitWide && sheetId ? (
+      <SplitSheet key={`sheet-${splitProps.row.id}`} {...splitProps} onClose={closeSheet} />
+    ) : null;
 
   const renderedPage = (
     <PageContainer>
@@ -5511,8 +5628,8 @@ export function ApplicantsClient({
                           ring={<ScoreRing score={r.score} />}
                           applied={fmtApplied(r.created_at, clock).main}
                           isTop={topMatchIds.has(r.id)}
-                          selected={(splitWide ? splitId : openId) === r.id}
-                          onOpen={() => (splitWide ? selectSplit(r.id) : openApplicant(r.id))}
+                          selected={(splitWide ? splitId : (sheetId ?? openId)) === r.id}
+                          onOpen={() => (splitWide ? selectSplit(r.id) : openSheet(r.id))}
                         />
                       ))}
                     </div>
@@ -5702,6 +5819,8 @@ export function ApplicantsClient({
           </div>
         </SplitLayout>
       </div>
+
+      {splitSheet}
 
       {openRow && (
         <ApplicantDrawer

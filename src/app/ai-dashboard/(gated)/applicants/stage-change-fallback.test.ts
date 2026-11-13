@@ -61,6 +61,7 @@ test("off-page rows show the saved stage: top-10 rows and both fallbacks carry t
   assert.match(SRC, /withStageOverride\(offPageRow\?\.id === openId \? offPageRow : null\)/);
   assert.match(
     SRC,
-    /withStageOverride\(splitRead\?\.id === splitId \? splitRead\.applicant : null\)/,
+    // panelId: the panel's applicant at 1100+, the sheet's below (commit 7).
+    /withStageOverride\(splitRead\?\.id === panelId \? splitRead\.applicant : null\)/,
   );
 });

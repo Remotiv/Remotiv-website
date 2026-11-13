@@ -63,6 +63,8 @@ test("A6-17: failures toast with the error tone on the pages that report action 
 
 const OVERLAYS = [
   [`${G}applicants/_applicants-client.tsx`, 3],
+  // The Split details below 1100: a full-screen sheet, modal on purpose (commit 7).
+  [`${G}applicants/_split-sheet.tsx`, 1],
   [`${G}team/_team-client.tsx`, 4],
   [`${G}jobs/_jobs-client.tsx`, 1],
   [`${G}jobs/new/_wizard-client.tsx`, 1],

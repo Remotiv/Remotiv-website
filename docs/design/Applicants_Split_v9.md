@@ -115,6 +115,8 @@ Plus the main frames: **Desktop** (1440 px window, interactive: click a list row
 
 **The old 1049 px table/card switch is removed for this page** - there is no table at any width. Remove both the Tailwind classes and the data-twin rule in the root `layout.tsx:101` together.
 
+> **Build note (commit 7):** the root `layout.tsx:101` data-twin rule stays - Jobs and Team still use it. Only this page's table and cards go, and they go in commit 10 with the flag (with the flag on, Split never renders them).
+
 ## 6. Out of scope (unchanged, not redesigned)
 
 - The live side drawer and all 6 tabs (opened by "Details").
