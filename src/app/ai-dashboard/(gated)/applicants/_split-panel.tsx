@@ -18,6 +18,7 @@ import {
 } from "./_drawer-parts";
 import { fullName } from "./_list-row-parts";
 import { type Screening, screeningCard, screeningCount } from "./screening-state";
+import type { SplitUnscored } from "./split-unscored";
 
 /**
  * The Applicants Split right panel (Applicants Split, commit 5c; the spec is
@@ -52,6 +53,10 @@ const PANEL_FRAME =
 
 const TOP_BTN =
   "inline-flex items-center justify-center gap-[7px] whitespace-nowrap rounded-[11px] px-4 py-2.5 text-[13.5px] font-bold transition-colors";
+
+/** v9 `.pc.unsc`: the live card surface, centred, 30px 22px, a 1.5px border the state colours. */
+const UNSCORED_FRAME =
+  "mb-5 rounded-[20px] border-[1.5px] bg-[var(--ai-surface)] px-[22px] py-[30px] text-center shadow-[0_6px_30px_rgba(20,16,32,0.06)]";
 
 /** Shortlist applies from Applied and Screening only (v9 section 1). */
 const SHORTLIST_FROM: readonly PipelineStage[] = ["applied", "screening"];
@@ -145,6 +150,8 @@ export type SplitPanelProps = {
   header: ReactNode;
   /** Null until the panel's read for this row lands, or when it failed. */
   scoreDetail: ApplicantScoreDetail | null;
+  /** The unscored block for this applicant (split-unscored.ts); null when it has a number. */
+  unscored: SplitUnscored;
   screening: Screening;
   applied: { main: string };
   /** Opens the live drawer for this applicant. */
@@ -188,6 +195,7 @@ export function SplitPanelContent({
   row,
   header,
   scoreDetail,
+  unscored,
   screening,
   applied,
   onDetails,
@@ -277,8 +285,33 @@ export function SplitPanelContent({
           <WorthALookBanner row={row} dismissing={dismissing} onDismissFlag={onDismissFlag} />
         )}
 
-        {/* The model's own scorecard only, as on the drawer's Review tab. An
-            unscored row shows no score block here; Details carries it. */}
+        {unscored === "loading" ? (
+          <div
+            aria-hidden
+            data-split-unscored="loading"
+            className={`${UNSCORED_FRAME} border-transparent`}
+          >
+            <div className="mx-auto h-4 w-40 animate-pulse rounded-full bg-[var(--ai-inset)]" />
+            <div className="mx-auto mt-3 h-3 w-full max-w-[360px] animate-pulse rounded-full bg-[var(--ai-inset)]" />
+          </div>
+        ) : (
+          unscored && (
+            <div
+              data-split-unscored={unscored.dashed ? "dashed" : "solid"}
+              className={`${UNSCORED_FRAME} ${unscored.dashed ? "border-dashed border-[var(--ai-line-strong)]" : "border-transparent"}`}
+            >
+              <h3 className="m-0 mb-1.5 font-heading text-[15px] font-bold text-[var(--ai-t1)]">
+                {unscored.heading}
+              </h3>
+              <p className="m-0 mx-auto max-w-[420px] text-[13px] leading-[1.6] text-[var(--ai-t2)]">
+                {unscored.body}
+              </p>
+            </div>
+          )
+        )}
+
+        {/* The model's own scorecard only, as on the drawer's Review tab. With
+            no number, the unscored block above says why instead. */}
         {scoreDetail?.ai_status === "scored" && (
           <>
             {scoreDetail.summary && (

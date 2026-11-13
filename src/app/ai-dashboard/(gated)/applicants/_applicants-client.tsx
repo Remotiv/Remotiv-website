@@ -193,6 +193,7 @@ import {
   selectScreening,
 } from "./screening-state";
 import { autoSplitSelection, SPLIT_MIN_WIDTH_QUERY } from "./split-selection";
+import { splitUnscored } from "./split-unscored";
 import { TAB_FADE_PX, tabScrollLeft } from "./tab-scroll";
 
 // ── Constants ────────────────────────────────────────────────
@@ -4512,6 +4513,7 @@ export function ApplicantsClient({
     id: string;
     ok: boolean;
     scoreDetail: ApplicantScoreDetail | null;
+    scoring: ApplicantScoringFacts | null;
     screening: ScreeningState;
     applicant: CompanyApplicantRow | null;
   } | null>(null);
@@ -4539,6 +4541,7 @@ export function ApplicantsClient({
           id,
           ok: read.ok,
           scoreDetail: read.ok ? (read.value?.scoreDetail ?? null) : null,
+          scoring: read.ok ? (read.value?.scoring ?? null) : null,
           screening: { id, answers: read.ok && read.value ? read.value.screening_answers : null },
           applicant: read.ok ? (read.value?.applicant ?? null) : null,
         });
@@ -4549,6 +4552,7 @@ export function ApplicantsClient({
           id,
           ok: false,
           scoreDetail: null,
+          scoring: null,
           screening: { id, answers: null },
           applicant: null,
         });
@@ -5399,6 +5403,7 @@ export function ApplicantsClient({
           />
         ),
         scoreDetail: splitDetail,
+        unscored: splitUnscored({ row: splitRow, read: splitRead, canEdit: canRescore }),
         screening: selectScreening(splitRead?.screening ?? null, splitRow.id),
         applied: fmtApplied(splitRow.created_at, clock),
         onDetails: () => setOpenId(splitRow.id),
