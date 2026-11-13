@@ -247,10 +247,12 @@ export function SplitPanel({
         {header}
       </header>
 
-      {/* overscroll-none, not -contain: both stop the panel's scroll from
-          handing off to the page, but -contain still lets the body itself
-          bounce, which showed as a blank gap above the first card (5f). */}
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-none bg-[var(--ai-inset)] px-[22px] pb-7 pt-[18px]">
+      {/* Normal scroll chaining, on purpose: at its top or bottom the wheel
+          moves the page, so the page can be scrolled with the pointer over
+          the panel. overscroll-none here (5f) trapped the wheel in the panel
+          and left the page scrollable only from the list column (5g). The
+          page-level no-bounce rule in ai-dashboard.css stays. */}
+      <div className="min-h-0 flex-1 overflow-y-auto bg-[var(--ai-inset)] px-[22px] pb-7 pt-[18px]">
         {showsWorthALook(row) && (
           <WorthALookBanner row={row} dismissing={dismissing} onDismissFlag={onDismissFlag} />
         )}

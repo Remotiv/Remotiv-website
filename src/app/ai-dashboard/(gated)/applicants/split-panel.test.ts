@@ -181,13 +181,15 @@ describe("3. height from --vh-full", () => {
     assert.doesNotMatch(code(PANEL_SRC), /h-screen|\d+vh\b|100dvh/);
   });
 
-  test("the panel body scrolls on its own, without chaining or bouncing (5f)", () => {
-    assert.match(PANEL_SRC, /min-h-0 flex-1 overflow-y-auto overscroll-none/);
-    assert.doesNotMatch(
-      code(PANEL_SRC),
-      /overscroll-contain/,
-      "-contain still lets the body bounce",
-    );
+  test("the panel body scrolls on its own and hands off to the page at its ends (5g)", () => {
+    const body = PANEL_SRC.match(/className="(min-h-0 flex-1 overflow-y-auto[^"]*)"/)?.[1];
+    assert.ok(body, "the panel body's class string moved - re-point this pin");
+    assert.match(body, /\boverflow-y-auto\b/);
+    // No overscroll-* on the body: -none or -contain stop the wheel at the
+    // panel's top or bottom, and the page could then only be scrolled from the
+    // list column (found on Rocket Search with a trackpad, 5g).
+    assert.doesNotMatch(body, /overscroll-/, body);
+    assert.doesNotMatch(code(PANEL_SRC), /overscroll-(none|contain|y-none|y-contain)/);
   });
 
   test("the bottom gap the height leaves is the page container's bottom padding", () => {
