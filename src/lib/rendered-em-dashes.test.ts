@@ -503,7 +503,7 @@ export const RENDERED_EM_DASHES = {
   "app/services/dedicated-team/page.tsx": { count: 14, note: "marketing or public page" },
   "app/admin/_components/contacts-dashboard.tsx": { count: 13, note: "admin UI" },
   "app/ai-dashboard/(gated)/messages/_messages-client.tsx": {
-    count: 11,
+    count: 9,
     note: "AI dashboard copy",
   },
   "app/ai-dashboard/(gated)/settings/_settings-client.tsx": {
@@ -549,7 +549,7 @@ export const RENDERED_EM_DASHES = {
   "app/admin/_components/overview-dashboard.tsx": { count: 3, note: "admin UI" },
   "app/admin/client-batches/actions.ts": { count: 3, note: "admin UI" },
   "app/admin/search/_search-client.tsx": { count: 3, note: "admin UI" },
-  "app/ai-dashboard/(gated)/messages/actions.ts": { count: 3, note: "AI dashboard copy" },
+  "app/ai-dashboard/(gated)/messages/actions.ts": { count: 2, note: "AI dashboard copy" },
   "app/browse-talent/page.tsx": { count: 3, note: "marketing or public page" },
   "app/client/actions.ts": { count: 3, note: "client portal" },
   "app/contact/page.tsx": { count: 3, note: "marketing or public page" },

@@ -15,7 +15,9 @@ export type MessageTab = (typeof MESSAGE_TAB_KEYS)[number];
 export const MESSAGE_KIND_LABELS: Record<MessageKind, string> = {
   written: "Written",
   automatic: "Automatic",
-  scheduled: "Scheduled",
+  // Not "Scheduled": nothing books a send for later. A queued row has started
+  // sending and is not confirmed yet, and its worker may have died (#85).
+  scheduled: "Pending",
   failed: "Failed",
 };
 

@@ -1,8 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { actionFailed } from "@/app/ai-dashboard/lib/action-errors";
-import { REDACTED_LINK } from "@/lib/candidate-links";
 import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
@@ -14,12 +12,6 @@ import {
 } from "@/app/ai-dashboard/lib/job-scope";
 import { buildCandidateHtml, deliverEmail } from "@/lib/email/candidate/deliver";
 import { MANUAL_DEFAULTS } from "@/lib/email/candidate/templates";
-import {
-  LOG_ONLY_EVENTS,
-  type LoggedEvent,
-  MESSAGE_EVENTS,
-  type MessageEvent,
-} from "@/lib/email/candidate/types";
 import {
   buildPlaceholders,
   escapeHtml,
@@ -37,6 +29,7 @@ import {
 } from "@/lib/whatsapp/number-owners";
 import {
   AUTOMATIC_EVENT_FILTER,
+  CANCELLED_STATUS,
   FAILED_STATUS,
   KNOWN_STATUSES,
   SCHEDULED_STATUS,
@@ -131,7 +124,7 @@ const ORPHAN_COLUMN = "application_id";
 /**
  * How a stored row reads in the UI.
  *
- * Order matters: a queued row is Scheduled whatever its event, and a failed
+ * Order matters: a queued row is Pending whatever its event, and a failed
  * row is Failed even though it was written by a person — the recruiter needs
  * to see that it did not arrive before they see who wrote it.
  *
@@ -139,6 +132,10 @@ const ORPHAN_COLUMN = "application_id";
  * counts it, so the pill and the Automatic tab agree about the same row.
  */
 function kindOf(event: string | null, status: string): MessageKind {
+  // The key stays "scheduled" (tabs, counts and two outside test pins use it);
+  // what a person reads is "Pending" (MESSAGE_KIND_LABELS). Nothing writes
+  // scheduled_for, so a queued row is a send that started and is not yet
+  // confirmed, possibly one whose worker died, never a send booked for later.
   if (status === "queued") return "scheduled";
   if (status === "failed") return "failed";
   return event === "manual" ? "written" : "automatic";
@@ -229,22 +226,6 @@ async function canSeeApplication(
   const row = data as { job_id: string | null } | null;
   if (!row) return false;
   return roleAllowsJobAction(ctx, row.job_id ?? "");
-}
-
-/**
- * Narrow a stored event string back to the union, defaulting to 'manual'.
- *
- * LOG_ONLY_EVENTS is checked alongside MESSAGE_EVENTS because
- * communication_logs.event is a wider vocabulary than message_templates.event —
- * `interview_reminder` is written by the reminder handler and has no template
- * row. Without it, re-sending a scheduled reminder from the Messages page would
- * relabel it 'manual' on the way back out, filing an automatic message under
- * Written and writing the replacement row against the wrong event.
- */
-function asEvent(value: string | null): LoggedEvent {
-  const candidate = value ?? "";
-  const known: readonly string[] = [...MESSAGE_EVENTS, ...LOG_ONLY_EVENTS];
-  return known.includes(candidate) ? (candidate as LoggedEvent) : "manual";
 }
 
 function fullName(first: string | null, last: string | null, fallback: string): string {
@@ -1148,15 +1129,42 @@ export async function sendManualMessage(input: {
   return { success: true, data: { logId: outcome.logId } };
 }
 
+/** Fixed replies for "Request stop". No database text ever reaches them. */
+const STOP_REPLY = {
+  failed: "Couldn't request a stop for this message. Try again in a moment.",
+  sent: "This message has already been sent.",
+  // Never "did not go out": a send that ended in an error may still have been
+  // accepted by the provider before the error was recorded.
+  ended: "This message already ended with a send error, so there is nothing to stop.",
+} as const;
+
+/** The reply for a row that is no longer pending. Cancelled is success: stopping twice is a no-op. */
+function stopReplyFor(status: string): MutationResult<undefined> {
+  if (status === CANCELLED_STATUS) return { success: true, data: undefined };
+  if ((SENT_STATUSES as readonly string[]).includes(status)) {
+    return { success: false, error: STOP_REPLY.sent };
+  }
+  if (status === FAILED_STATUS) return { success: false, error: STOP_REPLY.ended };
+  return { success: false, error: STOP_REPLY.failed };
+}
+
 /**
- * Cancel a scheduled message before it sends.
+ * Mark a pending message as stopped (#85, step 1).
  *
- * Writes the SAME 'cancelled' tombstone the stage-change path already uses:
- * the dispatcher's first act is to look for a log row for this
- * (application, event) in ('queued','sent','skipped','cancelled') and return
- * if it finds one, so flipping this row to 'cancelled' makes the scheduled job
- * exit quietly when it fires. There is no background_jobs row to hunt down and
- * no second mechanism to keep in step.
+ * What this can and cannot do. A pending ('queued') row is written by the
+ * sender at the moment it starts sending, so there is never a row here whose
+ * send has not begun. Marking it cancelled cannot stop a provider call already
+ * in flight: that message may still reach the candidate, and the sender's own
+ * success write will turn the row to sent. It does stop a later re-attempt of
+ * an interrupted send, which reads 'cancelled' and exits. And until the
+ * senders' failure writes are guarded (#85 step 3), a provider failure can
+ * still overwrite 'cancelled' with 'failed'. So the copy on screen promises
+ * neither that the message will not arrive nor that it will not be retried.
+ *
+ * The write is conditional on the row still being 'queued'. ZERO ROWS means it
+ * moved on between the read and the write: nothing is changed, and the row is
+ * read once more so the reply says what it became. An ERROR is an error, with a
+ * fixed sentence. The two are never collapsed.
  */
 export async function cancelScheduledMessage(
   logId: string,
@@ -1181,19 +1189,40 @@ export async function cancelScheduledMessage(
     return { success: false, error: "That message isn't in your workspace." };
   }
 
-  // Only a message that has not gone out can be cancelled. A 'sent' row means
-  // the candidate has it; marking that cancelled would make the log lie.
-  if (row.status !== "queued") {
-    return { success: false, error: "This message has already been sent." };
+  if (row.status !== SCHEDULED_STATUS) return stopReplyFor(row.status);
+
+  const { data: stopped, error } = await service
+    .from("communication_logs")
+    .update({ status: CANCELLED_STATUS, error: "Cancelled from Messages." })
+    .eq("id", row.id)
+    .eq("company_id", ctx.companyId)
+    .eq("status", SCHEDULED_STATUS)
+    .select("id");
+
+  if (error) {
+    console.error("[messages] marking a pending message as stopped failed", {
+      code: error.code ?? "unknown",
+    });
+    return { success: false, error: STOP_REPLY.failed };
   }
 
-  const { error } = await service
-    .from("communication_logs")
-    .update({ status: "cancelled", error: "Cancelled from Messages." })
-    .eq("id", row.id)
-    .eq("company_id", ctx.companyId);
-
-  if (error) return { success: false, error: actionFailed("cancel that scheduled message", error) };
+  if ((stopped ?? []).length === 0) {
+    console.warn("[messages] a pending message changed before it could be marked as stopped");
+    const { data: now, error: rereadError } = await service
+      .from("communication_logs")
+      .select("status")
+      .eq("id", row.id)
+      .eq("company_id", ctx.companyId)
+      .maybeSingle();
+    if (rereadError) {
+      console.error("[messages] re-reading a message after a lost stop failed", {
+        code: rereadError.code ?? "unknown",
+      });
+      return { success: false, error: STOP_REPLY.failed };
+    }
+    const current = (now as { status: string } | null)?.status;
+    return current ? stopReplyFor(current) : { success: false, error: STOP_REPLY.failed };
+  }
 
   revalidatePath("/ai-dashboard/messages");
   return { success: true, data: undefined };
@@ -1222,93 +1251,24 @@ export async function fetchMessageJobs(): Promise<{ id: string; title: string }[
   }));
 }
 
-/** Log a scheduled message that the sender chose to send immediately. */
-export async function sendScheduledNow(
-  logId: string,
-): Promise<MutationResult<undefined>> {
-  const ctx = await getCompanyContext();
-  const service = createServiceClient();
-
-  const { data } = await service
-    .from("communication_logs")
-    .select("id, status, application_id, event, to_address, subject, body")
-    .eq("id", logId)
-    .eq("company_id", ctx.companyId)
-    .maybeSingle();
-
-  const row = data as {
-    id: string;
-    status: string;
-    application_id: string | null;
-    event: string | null;
-    to_address: string | null;
-    subject: string | null;
-    body: string | null;
-  } | null;
-
-  if (!row) return { success: false, error: "That message isn't in your workspace." };
-  if (!(await canSeeApplication(ctx, row.application_id ?? ""))) {
-    return { success: false, error: "That message isn't in your workspace." };
-  }
-  if (row.status !== "queued") {
-    return { success: false, error: "This message has already been sent." };
-  }
-  /*
-   * The stored body is what gets re-sent, and stored bodies have their
-   * interview and booking tokens removed (deliverEmail → redactCandidateLinks).
-   * No queued message carries such a link today - those sends are immediate -
-   * so this is a guard against a future one, not a live path: re-sending it
-   * would deliver a dead link, which is worse than refusing.
-   */
-  if ((row.body ?? "").includes(REDACTED_LINK)) {
-    return {
-      success: false,
-      error:
-        "This message carried a one-time link that isn't kept on file. Send a fresh one from the applicant instead.",
-    };
-  }
-
-  const { data: companyData } = await service
-    .from("companies")
-    .select("name, candidate_reply_email")
-    .eq("id", ctx.companyId)
-    .maybeSingle();
-  const company = companyData as {
-    name: string | null;
-    candidate_reply_email: string | null;
-  } | null;
-
-  const to = (row.to_address ?? "").trim().toLowerCase();
-  if (!to) return { success: false, error: "This message has no recipient." };
-
-  /*
-   * The queued row is retired as 'cancelled' first, then the send writes its
-   * own row. Cancelling before sending is deliberate: it is exactly what the
-   * scheduled job checks for, so even if the send below fails, the two-day job
-   * can no longer fire and deliver a duplicate.
-   */
-  await service
-    .from("communication_logs")
-    .update({ status: "cancelled", error: "Superseded — sent immediately." })
-    .eq("id", row.id)
-    .eq("company_id", ctx.companyId);
-
-  const outcome = await deliverEmail(service, {
-    companyId: ctx.companyId,
-    applicationId: row.application_id ?? "",
-    event: asEvent(row.event),
-    to,
-    subject: row.subject ?? "",
-    html: row.body ?? "",
-    companyName: (company?.name ?? "").trim(),
-    replyTo: (company?.candidate_reply_email ?? "").trim() || null,
-    note: `Sent immediately by ${ctx.memberName} instead of waiting for the scheduled time.`,
-    // The sender sees a failure on screen, so the failure bell skips them (#71A).
-    actorMemberId: ctx.memberId,
-  });
-
-  if (!outcome.ok) return { success: false, error: outcome.message };
-
-  revalidatePath("/ai-dashboard/messages");
-  return { success: true, data: undefined };
+/**
+ * "Send now" is withdrawn (#85, step 1). It was never a scheduling feature:
+ * nothing writes scheduled_for, so every queued row is a send already in
+ * progress or one whose worker died. On a recruiter's row the button sent a
+ * second copy while the first could still be in flight; on an automatic row it
+ * cancelled the message and then refused its own resend as a duplicate.
+ *
+ * It reads nothing, writes nothing and sends nothing. It is kept only so a
+ * page loaded before this change, or the viewer button an AVI-owned test still
+ * pins (app/interview/[token]/a11y-wiring.test.ts, A6-6), gets a plain refusal
+ * rather than a missing server action.
+ *
+ * DEPRECATED AND TEMPORARY (#85). Delete this export one production release
+ * after #85 step 3 has shipped, provided nothing in the Messages UI still
+ * references it. Tracked as its own item: "Remove deprecated sendScheduledNow
+ * server action."
+ */
+export async function sendScheduledNow(_logId: string): Promise<MutationResult<undefined>> {
+  await getCompanyContext();
+  return { success: false, error: "Sending early isn't available. Nothing was sent or changed." };
 }

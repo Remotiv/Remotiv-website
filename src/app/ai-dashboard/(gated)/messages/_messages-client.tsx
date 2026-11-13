@@ -53,11 +53,19 @@ const PILL: Record<MessageKind, { cls: string; dot: string }> = {
   failed: { cls: "bg-[var(--ai-danger-tint)] text-[var(--ai-danger)]", dot: "bg-[#E0524B]" },
 };
 
+/**
+ * What the old "Cancel send" really does (#85, step 1). Marking a pending row
+ * cannot stop a send already in flight, and until #85 step 3 guards the
+ * provider failure writes, a failure can still overwrite this mark, so the
+ * label claims only a request.
+ */
+const STOP_LABEL = "Request stop";
+
 const TABS: ReadonlyArray<{ key: MessageTab; label: string }> = [
   { key: "all", label: "All" },
   { key: "written", label: "Written" },
   { key: "automatic", label: "Automatic" },
-  { key: "scheduled", label: "Scheduled" },
+  { key: "scheduled", label: MESSAGE_KIND_LABELS.scheduled },
   { key: "failed", label: "Failed" },
 ];
 
@@ -245,7 +253,14 @@ export function MessagesClient({
       all: Math.max(0, a.all - 1),
       scheduled: Math.max(0, a.scheduled - 1),
     }));
-    setToast({ message: `Scheduled email to ${row.candidateName} cancelled`, tone: "success" });
+    // Promises neither non-arrival nor no retry: a send already started may
+    // still arrive, and until #85 step 3 guards the provider failure writes, a
+    // failure can still overwrite this mark and change the row's status.
+    setToast({
+      message:
+        "Stop requested. A message already being processed may still arrive, and its status may change.",
+      tone: "success",
+    });
   }
 
   async function handleSendNow(row: MessageRow) {
@@ -284,8 +299,8 @@ export function MessagesClient({
       }
     : tab === "scheduled"
       ? {
-          title: "Nothing scheduled",
-          text: "Scheduled emails — like pending rejections — appear here until they send.",
+          title: "Nothing pending",
+          text: "Messages that have started sending but aren't confirmed yet appear here.",
         }
       : agg.all === 0
         ? {
@@ -363,11 +378,11 @@ export function MessagesClient({
             caption={`${split.automatic}%`}
           />
           <HeroCell
-            label="Scheduled"
+            label={MESSAGE_KIND_LABELS.scheduled}
             dot="var(--ai-amber-dot)"
             value={agg.scheduled}
             width={agg.scheduled ? 6 : 0}
-            caption={agg.scheduled ? "Pending rejections" : "Nothing pending"}
+            caption={agg.scheduled ? "Not confirmed yet" : "Nothing pending"}
           />
           <HeroCell
             label="Failed"
@@ -583,14 +598,6 @@ export function MessagesClient({
                       {scheduled ? (
                         <>
                           <MenuItem
-                            icon={<Send className="size-4" strokeWidth={1.7} />}
-                            label="Send now"
-                            onClick={() => {
-                              setMenuFor(null);
-                              void handleSendNow(row);
-                            }}
-                          />
-                          <MenuItem
                             icon={<Eye className="size-4" strokeWidth={1.7} />}
                             label="Preview message"
                             onClick={() => {
@@ -601,7 +608,7 @@ export function MessagesClient({
                           <div className="my-[5px] h-px bg-[var(--ai-line)]" />
                           <MenuItem
                             icon={<CircleX className="size-4" strokeWidth={1.7} />}
-                            label="Cancel send"
+                            label={STOP_LABEL}
                             danger
                             onClick={() => {
                               setMenuFor(null);
@@ -828,9 +835,11 @@ function MessageViewer({
   onClose: () => void;
   onFollowUp: () => void;
   /**
-   * The row kebab that also offers these is hidden below 1100px, so for every
-   * phone and tablet this viewer is the ONLY way to send a scheduled message
-   * now or cancel it (Phase 6, A6-6).
+   * The row kebab that also offers "Request stop" is hidden below 1100px, so
+   * for every phone and tablet this viewer is the only way to reach it (Phase 6,
+   * A6-6). onSendNow is withdrawn on the server (#85, step 1) and the row menu
+   * no longer offers it; this prop and its button stay only because an
+   * AVI-owned test pins them, and the server refuses whatever they send.
    */
   onSendNow?: () => void;
   onCancelSend?: () => void;
@@ -844,7 +853,7 @@ function MessageViewer({
   const provenance = row.sentByName
     ? `Written by ${row.sentByName}`
     : row.kind === "scheduled"
-      ? "Scheduled · automatic"
+      ? `${MESSAGE_KIND_LABELS.scheduled} · automatic`
       : row.kind === "written"
         ? "Written by your team"
         : "Sent automatically";
@@ -895,7 +904,7 @@ function MessageViewer({
                       </>
                     )}
                     <span>
-                      {row.kind === "scheduled" ? "Sends " : ""}
+                      {row.kind === "scheduled" ? "Started " : ""}
                       {when.rel}
                     </span>
                   </p>
@@ -927,12 +936,12 @@ function MessageViewer({
             {row.kind === "scheduled" ? (
               <>
                 <Clock className="size-3.5 shrink-0 text-[var(--ai-t4)]" strokeWidth={1.9} />
-                Not sent yet · {when.exact}
+                Not confirmed yet · {when.exact}
               </>
             ) : row.kind === "failed" ? (
               <>
                 <CircleX className="size-3.5 shrink-0 text-[var(--ai-danger)]" strokeWidth={1.9} />
-                Didn&apos;t send
+                Ended with a send error
               </>
             ) : (
               <>
@@ -956,9 +965,12 @@ function MessageViewer({
                 className="inline-flex items-center gap-2 rounded-[11px] border border-[var(--ai-danger)]/40 bg-[var(--ai-surface)] px-[17px] py-2.5 text-[13.5px] font-semibold text-[var(--ai-danger)] transition-colors hover:bg-[var(--ai-danger-tint)]"
               >
                 <CircleX className="size-[15px]" strokeWidth={2} />
-                Cancel send
+                {STOP_LABEL}
               </button>
             )}
+            {/* Retired in #85 step 1: the server refuses this, so it sends nothing. Remove
+                it once app/interview/[token]/a11y-wiring.test.ts A6-6 drops its Send-now
+                assertions. */}
             {row.kind === "scheduled" && onSendNow && (
               <button
                 type="button"
