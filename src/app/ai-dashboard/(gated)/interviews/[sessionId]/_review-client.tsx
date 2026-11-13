@@ -1533,7 +1533,7 @@ function NothingRecorded({ session }: { session: InterviewSessionDetail }) {
       </p>
       {session.applicationId && (
         <Link
-          href={`/ai-dashboard/applicants?open=${session.applicationId}`}
+          href={`/ai-dashboard/applicants?applicant=${session.applicationId}`}
           className="inline-flex items-center gap-2 rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-[18px] py-[11px] text-[13.5px] font-semibold text-[var(--ai-t2)] transition-colors hover:border-[var(--ai-sidebar)] hover:bg-[var(--ai-sidebar)] hover:text-white"
         >
           <Users className="size-[15px]" strokeWidth={1.9} />
