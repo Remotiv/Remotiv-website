@@ -122,9 +122,10 @@ export default async function ApplicantsPage({
        * field for the same reason.
        */
       fetchApplicantCounts(served.request.jobId ? { jobId: served.request.jobId } : {}),
-      // Split only: the hero stays company-wide while one job is shown (until
-      // commit 9 removes it). In this wave, so it adds no latency; skipped when
-      // the page shows All jobs, whose counts above already are company-wide.
+      // Split only: the hero stays company-wide while one job is shown (kept
+      // under Split for good, see Applicants_Split_v9.md). In this wave, so it
+      // adds no latency; skipped when the page shows All jobs, whose counts
+      // above already are company-wide.
       splitOn && served.request.jobId ? fetchApplicantCounts({}) : null,
     ]);
 

@@ -130,6 +130,16 @@ describe("wiring", () => {
     assert.match(hero, /ledeCount\(heroView\.total\)/);
     assert.doesNotMatch(hero, /(?<![A-Za-z])view\./, "a hero figure still reads the job's counts");
   });
+  test("the live top of the page (title, lede, hero) renders under Split too: nothing hides it", () => {
+    const top = client.slice(
+      client.indexOf("font-heading text-[32px] font-extrabold"),
+      client.indexOf("</DashboardHero>"),
+    );
+    assert.match(top, />\s*Applicants\s*</);
+    assert.match(top, /scored against the job/);
+    assert.match(top, /<DashboardHero/);
+    assert.doesNotMatch(top, /\bsplit\b/, "the title, lede or hero is gated on the Split flag");
+  });
   test("company-wide counts: re-read after a mutation, and on a job switch only when missing or stale", () => {
     assert.match(
       client,

@@ -27,6 +27,8 @@ Product = a rule in the brief changes, needs your OK and backend data. Visual = 
 | Visual | Selected stage tab | Colour only | Adds aria-pressed and weight 700 |  |
 | Product | Viewer has no jobs | Live empty message inside the table panel | No job header, toolbar or split - "Applicants" title + the live message full width | Uses the live copy |
 
+> **Build decision (after commit 8, 2026-11-13):** the "Page header" and "Summary block" rows above are NOT built. Under Split the top of the page stays exactly as live: the "Applicants" title, the lede sentence, Export page + Review top 10, and the dark summary block. The summary block is company-wide: while one job is shown it states the whole company's figures (commit 8); in All jobs it states the same figures. The stage tabs below show the shown job's own counts. No job header, no logo. The fixed-height layout is not built either: the 5g scrolling stays: the panel is sticky and its body scrolls on its own, handing off to the page at its ends; the list scrolls with the page.
+
 ## 2. Right panel vs the live drawer
 
 Same = live component and sizes, no change. Different = a change to build.
