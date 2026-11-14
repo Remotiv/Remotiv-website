@@ -367,7 +367,7 @@ function ApplicantRow({ row, index }: { row: RecentApplicant; index: number }) {
   const tint = getTint(row.id);
   return (
     <Link
-      href="/ai-dashboard/applicants?job=all"
+      href={`/ai-dashboard/applicants?applicant=${row.id}`}
       className="group relative grid grid-cols-[30px_minmax(0,1fr)_auto] items-center gap-[13px] border-b border-[var(--ai-line-soft)] px-5 py-3 transition-colors before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-remotiv-purple before:opacity-0 before:transition-opacity before:content-[''] last:border-b-0 hover:bg-[#FCFBFA] hover:before:opacity-100"
     >
       <span className="font-heading text-[13px] font-extrabold tabular-nums text-[var(--ai-t4)] transition-colors group-hover:text-remotiv-purple">
@@ -407,7 +407,7 @@ function RoleCard({ role, index, max }: { role: LiveRole; index: number; max: nu
   const visual = jobVisual(role.title, role.category);
   return (
     <Link
-      href="/ai-dashboard/applicants?job=all"
+      href={`/ai-dashboard/applicants?job=${role.id}`}
       className="block rounded-[18px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-[18px] py-[17px] transition-[box-shadow,border-color,transform] hover:-translate-y-0.5 hover:border-[var(--ai-line-strong)] hover:shadow-[0_12px_32px_rgba(20,16,32,0.09)]"
     >
       <div className="mb-[13px] flex items-center gap-2.5">
@@ -496,7 +496,7 @@ export function OverviewClient({
       title: "Applicants awaiting review",
       body: `${awaitingReview === 1 ? "One applicant is" : `${awaitingReview} applicants are`} still sitting at Applied. Move them along the pipeline so nothing stalls.`,
       cta: "Review applicants",
-      href: "/ai-dashboard/applicants?job=all",
+      href: "/ai-dashboard/applicants?job=all&stage=applied",
       icon: FileText,
       tintBg: "var(--ai-purple-tint)",
       tintFg: "var(--ai-purple-ink)",

@@ -438,7 +438,7 @@ async function buildAttention(
           ? "Nobody has moved them on since they applied."
           : "None of them have been moved on since they applied.",
       cta: "Review",
-      href: "/ai-dashboard/applicants?job=all",
+      href: "/ai-dashboard/applicants?job=all&stage=applied",
     });
   }
 
