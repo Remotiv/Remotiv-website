@@ -53,3 +53,6 @@ scripts/staging/seed-manifest.json
 
 # #90: import script reports hold candidate emails - never commit
 import-report-*.csv
+
+# #62: the production schema dump (structure only); regenerable, never committed.
+scripts/staging/.schema/

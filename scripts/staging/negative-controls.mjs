@@ -42,6 +42,7 @@
 import { execFile } from "node:child_process";
 import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { checkSchemaDump } from "./schema-dump.mjs";
 
 const ROOT = new URL("../../", import.meta.url);
 // fileURLToPath, not .pathname: this checkout's path contains spaces, which a
@@ -1376,6 +1377,24 @@ const REVERSIONS = [
 
 const FILES = [...new Set(REVERSIONS.map((r) => r.file))];
 const TESTS = [...new Set(REVERSIONS.map((r) => r.test))];
+
+/*
+ * #62: the schema dump, checked BEFORE a single backup is written. Two baseline
+ * suites read it, so a missing or outdated dump would only surface as BASELINE
+ * RED after every target had a .probe-bak beside it. Refusing here writes
+ * nothing and runs nothing, and says so, so no reader can take the exit for a
+ * pass.
+ */
+const schema = checkSchemaDump();
+if (schema.refusal) {
+  console.error(schema.refusal);
+  console.error(
+    `\n0 of ${REVERSIONS.length} mutation controls executed. No baseline suite ran, and no file ` +
+      "was backed up or modified.",
+  );
+  process.exit(1);
+}
+for (const w of schema.warnings) console.warn(`schema dump warning: ${w}`);
 
 /*
  * Asynchronous on purpose (#58). With the synchronous child call the whole

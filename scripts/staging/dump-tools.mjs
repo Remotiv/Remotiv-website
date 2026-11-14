@@ -1,8 +1,8 @@
 /**
  * Review and strip a production schema dump, as pure functions over its text.
  *
- *   node scripts/staging/review-dump.mjs /tmp/remotiv-prod-schema.sql
- *   node scripts/staging/strip-dump.mjs  /tmp/remotiv-prod-schema.sql
+ *   node scripts/staging/review-dump.mjs scripts/staging/.schema/prod-schema.sql
+ *   node scripts/staging/strip-dump.mjs  scripts/staging/.schema/prod-schema.sql
  *
  * Two jobs, deliberately separate:
  *

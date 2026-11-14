@@ -1,7 +1,7 @@
 /**
  * Print the review of a schema dump, with every host and path masked.
  *
- *   node scripts/staging/review-dump.mjs /tmp/remotiv-prod-schema.sql
+ *   node scripts/staging/review-dump.mjs scripts/staging/.schema/prod-schema.sql
  *
  * Read-only. Exits 1 when any blocking class has a hit, so a shell step that
  * chains into the strip stops here. See dump-tools.mjs for what each class is.

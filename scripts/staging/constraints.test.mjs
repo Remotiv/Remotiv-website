@@ -10,9 +10,9 @@
  */
 
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import { enumViolations, parseCheckEnums } from "./constraints.mjs";
+import { loadSchemaDump } from "./schema-dump.mjs";
 import {
   CHIP_STATUSES,
   MESSAGE_EVENT_MANUAL,
@@ -22,14 +22,8 @@ import {
   SCORE_STATUSES,
 } from "./seed-plan.mjs";
 
-const DUMP_PATH = process.env.REMOTIV_SCHEMA_DUMP ?? "/tmp/remotiv-prod-schema.sql";
-const dump = () => {
-  assert.ok(
-    existsSync(DUMP_PATH),
-    `the production schema dump is not at ${DUMP_PATH}; see README step 1`,
-  );
-  return readFileSync(DUMP_PATH, "utf8");
-};
+/** Throws the full refusal (missing, outdated, data, credential) rather than skipping. */
+const dump = () => loadSchemaDump();
 
 const FAB = `CREATE TABLE public.communication_logs (
     id uuid NOT NULL,

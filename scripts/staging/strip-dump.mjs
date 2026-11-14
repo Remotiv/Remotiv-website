@@ -1,8 +1,8 @@
 /**
  * Apply the approved mechanical edits to a schema dump and write a sibling file.
  *
- *   node scripts/staging/strip-dump.mjs /tmp/remotiv-prod-schema.sql
- *   → /tmp/remotiv-prod-schema.restorable.sql
+ *   node scripts/staging/strip-dump.mjs scripts/staging/.schema/prod-schema.sql
+ *   → scripts/staging/.schema/prod-schema.restorable.sql
  *
  * Refuses, writing nothing, while review-dump.mjs still reports a blocking
  * finding. Prints what it removed and what it prepended, masked. The output

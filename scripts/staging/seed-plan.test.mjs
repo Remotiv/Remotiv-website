@@ -21,6 +21,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { loadSchemaDump } from "./schema-dump.mjs";
 import {
   APPLICANT_PAGE_SIZE,
   APPLICATION_TIE_BLOCK,
@@ -67,19 +68,12 @@ const read = (rel) => {
 /**
  * The production schema dump, which is the ONLY schema authority (AGENTS.md).
  * schema.sql at the workspace root was proven wrong in both directions and is
- * never read here. The dump lives outside the repo; a missing dump is a RED
- * pin, not a skipped one, because a pin that silently stops reading its
- * source is a pin that agrees with anything.
+ * never read here. The dump is git-ignored, never committed (schema-dump.mjs
+ * says where); a missing or outdated dump is a RED pin, not a skipped one,
+ * because a pin that silently stops reading its source is a pin that agrees
+ * with anything.
  */
-const DUMP_PATH = process.env.REMOTIV_SCHEMA_DUMP ?? "/tmp/remotiv-prod-schema.sql";
-const dump = () => {
-  assert.ok(
-    existsSync(DUMP_PATH),
-    `the production schema dump is not at ${DUMP_PATH}. Take it as README-steps.md step 1 ` +
-      `describes, or point REMOTIV_SCHEMA_DUMP at it. schema.sql is never used.`,
-  );
-  return readFileSync(DUMP_PATH, "utf8");
-};
+const dump = () => loadSchemaDump();
 
 const COMPANY = "00000000-0000-4000-8000-000000000001";
 const COMPANY_NAME = "Staging Fixture";
@@ -240,7 +234,7 @@ test("pin: the score status vocabulary matches the live CHECK constraint", () =>
  * the first version of this plan would have failed at the jobs insert on four
  * NOT NULL columns and a status outside the CHECK. These pins read the dump's
  * CREATE TABLE and refuse a plan the database would refuse. The dump is the
- * real production dump at DUMP_PATH, taken 2026-10-26; the stale schema.sql is
+ * real production dump (schema-dump.mjs), taken 2026-10-26; the stale schema.sql is
  * never read (see dump() above and AGENTS.md).
  */
 

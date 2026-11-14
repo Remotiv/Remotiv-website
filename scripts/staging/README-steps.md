@@ -49,17 +49,57 @@ or world readable and falls back to prompting:
 chmod 600 ~/.pg_service.conf ~/.pgpass
 ```
 
-Then the dump names only the service, and carries no connection parameter at all:
+Then the dump names only the service, and carries no connection parameter at all.
+Run it from the repository root:
 
 ```bash
+mkdir -p scripts/staging/.schema
 PGSERVICE=remotiv-prod pg_dump \
   --schema-only \
   --no-owner \
   --no-publications \
   --no-subscriptions \
   --schema=public \
-  --file=/tmp/remotiv-prod-schema.sql
+  --file=scripts/staging/.schema/prod-schema.sql
 ```
+
+**Where it lands, and why there (#62).** `scripts/staging/.schema/prod-schema.sql`
+is git-ignored (`.gitignore`, `scripts/staging/.schema/`) and is never committed,
+uploaded or pasted. It used to go to `/tmp`, which macOS clears; a cleared `/tmp`
+turned `constraints.test.mjs` and `seed-plan.test.mjs` red, and with them every
+negative control. `REMOTIV_SCHEMA_DUMP` still overrides the path for every reader;
+`scripts/staging/schema-dump.mjs` is the one place that resolves it.
+
+**Structure only, never data.** `--schema-only` is the only mode. Never
+`--data-only`, never `--inserts`, never a dump without `--schema-only`: the file
+lives in the working tree, and a data dump would put candidate rows there.
+
+**What the readers check before they use it.** `constraints.test.mjs`,
+`seed-plan.test.mjs` and `negative-controls.mjs` (before it writes a single
+`.probe-bak`) refuse the dump, with one message naming the file and this
+command, when:
+
+- it is **missing**;
+- it is **outdated**: it lacks an object in `REQUIRED_OBJECTS`
+  (`schema-dump.mjs`), which is the `communication_logs.attempt_started_at`
+  column that migration 058, the newest applied migration, creates, plus the
+  `communication_logs` event and status CHECK constraints and the
+  `effective_score` generated column that the suites and the restore gate read.
+  When a newer migration is applied, add its object there;
+- it carries **data** statements (`COPY ... FROM stdin`, `INSERT INTO`,
+  `pg_catalog.setval`, `-- Data for Name:`) outside function bodies;
+- it carries **credential-shaped** text (private keys, JWTs, URLs with a
+  password, provider key prefixes, `password = '...'`-style assignments).
+  Only the line number is printed, never the text.
+
+Email-shaped text is a warning, not a refusal, since a policy or function can
+name an address; only line numbers are printed.
+
+Passing these checks does **not** prove the dump matches production. They are
+offline, so they can only refuse a dump that is provably older than the repo;
+anything applied by hand after the dump was taken is invisible to them. Only a
+fresh dump proves parity. (`seed.mjs` resolves the same path but keeps its own
+read; it refuses only a missing file.)
 
 Why not simply put the URL in a variable and pass that: because it does not
 help. The shell expands `"$PROD_DIRECT_URL"` before `exec`, so the expanded
@@ -107,7 +147,7 @@ stripped before the restore, never disabled after: a staging database that
 restores a webhook and fires it at a real endpoint has already done the damage.
 
 ```bash
-npm run staging:review-dump -- /tmp/remotiv-prod-schema.sql
+npm run staging:review-dump -- scripts/staging/.schema/prod-schema.sql
 ```
 
 It prints counts (tables, RLS, policies, indexes, triggers, functions,
@@ -124,8 +164,8 @@ restore gate. Every host is masked to `<ref>.supabase.co` and every URL path to
 ### The restore GATE: effective_score
 
 ```bash
-grep -c 'GENERATED ALWAYS AS' /tmp/remotiv-prod-schema.sql   # 0 means STOP
-grep -n 'effective_score' /tmp/remotiv-prod-schema.sql
+grep -c 'GENERATED ALWAYS AS' scripts/staging/.schema/prod-schema.sql   # 0 means STOP
+grep -n 'effective_score' scripts/staging/.schema/prod-schema.sql
 ```
 
 `application_scores.effective_score` is the GENERATED column Best Match orders
@@ -308,10 +348,10 @@ Only after step 2 shows no blocking findings and the effective_score gate open,
 and step 3's sentinel exists.
 
 ```bash
-npm run staging:strip-dump -- /tmp/remotiv-prod-schema.sql
+npm run staging:strip-dump -- scripts/staging/.schema/prod-schema.sql
 ```
 
-This writes `/tmp/remotiv-prod-schema.restorable.sql` and prints what it
+This writes `scripts/staging/.schema/prod-schema.restorable.sql` and prints what it
 removed and what it prepended. It refuses, writing nothing, while step 2 still
 has a blocking finding, the effective_score column is absent, or an index uses
 an access method or operator class from no known extension. The mechanical
@@ -377,7 +417,7 @@ and the pooler host, or libpq finds no password and prompts. Then:
 
 ```bash
 PGSERVICE=remotiv-staging psql --single-transaction --set ON_ERROR_STOP=on \
-  -f /tmp/remotiv-prod-schema.restorable.sql
+  -f scripts/staging/.schema/prod-schema.restorable.sql
 ```
 
 **What actually makes this restore safe.** It is not the absence of `--clean`.

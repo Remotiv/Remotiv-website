@@ -70,6 +70,7 @@ import {
   signInStagingAccount,
 } from "./guard.mjs";
 import { sessionCookieHeader } from "./probe-session.mjs";
+import { SCHEMA_DUMP_PATH } from "./schema-dump.mjs";
 import {
   buildPlan,
   CHIP_STATUSES,
@@ -153,9 +154,6 @@ const ENUM_WANTED = {
   "interview_sessions.status": CHIP_STATUSES,
   "interview_answers.transcript_status": [TRANSCRIPT_STATUS],
 };
-
-/** The schema dump the staging DB was restored from; the enum authority. */
-const SCHEMA_DUMP_PATH = process.env.REMOTIV_SCHEMA_DUMP ?? "/tmp/remotiv-prod-schema.sql";
 
 /**
  * Every enumerated value the seed will write, checked against the live CHECK
