@@ -414,8 +414,8 @@ const REVERSIONS = [
   {
     name: "the 500-page sweeps go back to a 20-minute budget",
     file: HARNESS,
-    from: "  // about 50 minutes, and every resume adds a page. Not 20, and not 60.\n  test.setTimeout(120 * 60_000);\n  await signIn(page);\n  await page.goto(`${BASE}/ai-dashboard/applicants?sort=newest`, {",
-    to: "  test.setTimeout(20 * 60_000);\n  await signIn(page);\n  await page.goto(`${BASE}/ai-dashboard/applicants?sort=newest`, {",
+    from: "  // about 50 minutes, and every resume adds a page. Not 20, and not 60.\n  test.setTimeout(120 * 60_000);\n  await signIn(page);\n  await page.goto(`${BASE}/ai-dashboard/applicants?sort=newest&job=all`, {",
+    to: "  test.setTimeout(20 * 60_000);\n  await signIn(page);\n  await page.goto(`${BASE}/ai-dashboard/applicants?sort=newest&job=all`, {",
     test: WIRING_TEST,
     expect: "the 500-page sweeps have a 120-minute budget",
   },
