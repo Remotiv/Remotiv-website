@@ -298,7 +298,7 @@ export function WeeklyClient({ initialWeek }: { initialWeek: WeekReport }) {
               </p>
             </div>
             <Link
-              href="/ai-dashboard/applicants"
+              href="/ai-dashboard/applicants?job=all"
               className="shrink-0 whitespace-nowrap text-[12.5px] font-bold text-remotiv-purple hover:underline"
             >
               All applicants →
@@ -324,7 +324,7 @@ export function WeeklyClient({ initialWeek }: { initialWeek: WeekReport }) {
               return (
                 <Link
                   key={m.applicationId}
-                  href="/ai-dashboard/applicants"
+                  href="/ai-dashboard/applicants?job=all"
                   className="group relative grid grid-cols-[26px_minmax(0,1fr)_96px_20px] items-center gap-3 border-b border-[var(--ai-line-soft)] px-5 py-3 last:border-b-0 hover:bg-[#FCFBFA]"
                 >
                   <span className="pointer-events-none absolute inset-y-0 left-0 w-[3px] bg-remotiv-purple opacity-0 transition-opacity group-hover:opacity-100" />
@@ -396,7 +396,7 @@ export function WeeklyClient({ initialWeek }: { initialWeek: WeekReport }) {
 
           {week.topTotal > week.top.length && (
             <Link
-              href="/ai-dashboard/applicants"
+              href="/ai-dashboard/applicants?job=all"
               className="block border-t border-[var(--ai-line)] bg-[var(--ai-inset)] px-5 py-3 text-[12.5px] font-semibold text-[var(--ai-t3)] hover:text-remotiv-purple"
             >
               +{week.topTotal - week.top.length} more scored{" "}

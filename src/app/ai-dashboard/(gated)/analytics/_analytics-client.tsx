@@ -307,7 +307,7 @@ function Funnel({ data, range }: { data: AnalyticsResult; range: AnalyticsRange 
             <b className="font-extrabold">{bottleneck.label} is your bottleneck.</b> Candidates wait{" "}
             {bottleneck.avgDays} days there — longer than any other stage.{" "}
             <Link
-              href="/ai-dashboard/applicants"
+              href="/ai-dashboard/applicants?job=all"
               className="font-extrabold text-[#7A4E05] underline underline-offset-2"
             >
               See who is waiting

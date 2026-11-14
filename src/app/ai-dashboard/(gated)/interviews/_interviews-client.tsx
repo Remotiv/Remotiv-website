@@ -224,7 +224,7 @@ export function InterviewsClient({ initial }: { initial: Read<InterviewListResul
             Question set
           </Link>
           <Link
-            href="/ai-dashboard/applicants"
+            href="/ai-dashboard/applicants?job=all"
             className="inline-flex items-center justify-center gap-[9px] rounded-[14px] border border-remotiv-purple bg-remotiv-purple px-[22px] py-[13px] text-sm font-bold text-white shadow-[0_8px_24px_rgba(126,71,255,0.3)] transition-colors hover:bg-[var(--ai-purple-hover,#6D38F0)]"
           >
             <Plus className="size-4" strokeWidth={2.4} />

@@ -1022,7 +1022,7 @@ function buildInsights(input: {
       figure: `${input.bottleneck.avgDays} days`,
       after: " on average, more than any other stage.",
       cta: "See the stage",
-      href: "/ai-dashboard/applicants",
+      href: "/ai-dashboard/applicants?job=all",
     });
   }
 
