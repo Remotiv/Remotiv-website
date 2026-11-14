@@ -529,9 +529,11 @@ test("the running app identifies itself as the approved staging project (browser
 /**
  * Collect ids by paging the real list, one page at a time.
  *
- * Scoped to ONE twin: the applicant list is rendered twice ([data-twin-narrow]
- * and [data-twin-wide]) with one hidden by CSS. An unscoped sweep returns every
- * id twice and reads as a pagination defect. No fallback when the attribute is
+ * Scoped to ONE list. Applicants renders its rows once, in the Split list
+ * ([data-split-list]); before Split it rendered them twice ([data-twin-narrow]
+ * and [data-twin-wide]) with one hidden by CSS, and any such page read
+ * unscoped returns every id twice, which reads as a pagination defect. No
+ * fallback when the attribute is
  * absent: requireAttribute throws, and it must never fall back to counting
  * rows. Ids and ordinals only, never row text.
  */
@@ -711,17 +713,19 @@ test("REGRESSION: Applicants/newest shows exactly the seeded id set", async ({ p
   // about 50 minutes, and every resume adds a page. Not 20, and not 60.
   test.setTimeout(120 * 60_000);
   await signIn(page);
-  await page.goto(`${BASE}/ai-dashboard/applicants?sort=newest`, {
+  await page.goto(`${BASE}/ai-dashboard/applicants?sort=newest&job=all`, {
     waitUntil: "domcontentloaded",
   });
+  // ?job=all: under Split a page with no ?job= lands on one job, and this
+  // sweep is over every applicant in the company.
 
   const expected = manifest.applicationIdsAll;
   const { seen, perPage, pages } = await collectIdsAcrossPages(page, {
-    scope: "[data-twin-wide]",
+    scope: "[data-split-list]",
     attr: "data-applicant-id",
     label: "applicants/newest",
     expectedTotal: expected.length,
-    pageUrl: (n) => `${BASE}/ai-dashboard/applicants?sort=newest&page=${n}`,
+    pageUrl: (n) => `${BASE}/ai-dashboard/applicants?sort=newest&job=all&page=${n}`,
   });
 
   // Not a count comparison. The seed puts 500 applicants on each identical
@@ -740,15 +744,18 @@ test("REGRESSION: Best Match returns the same set through its ties", async ({ pa
   // about 50 minutes, and every resume adds a page. Not 20, and not 60.
   test.setTimeout(120 * 60_000);
   await signIn(page);
-  await page.goto(`${BASE}/ai-dashboard/applicants?sort=best`, { waitUntil: "domcontentloaded" });
+  // ?job=all, as above: the whole company, not the landing job.
+  await page.goto(`${BASE}/ai-dashboard/applicants?sort=best&job=all`, {
+    waitUntil: "domcontentloaded",
+  });
 
   const expected = manifest.applicationIdsAll;
   const { seen } = await collectIdsAcrossPages(page, {
-    scope: "[data-twin-wide]",
+    scope: "[data-split-list]",
     attr: "data-applicant-id",
     label: "applicants/best-match",
     expectedTotal: expected.length,
-    pageUrl: (n) => `${BASE}/ai-dashboard/applicants?sort=best&page=${n}`,
+    pageUrl: (n) => `${BASE}/ai-dashboard/applicants?sort=best&job=all&page=${n}`,
   });
 
   // The seed gives thousands of applications only five distinct scores and
@@ -795,7 +802,7 @@ test("REGRESSION: the largest job's applicants all appear (2,500 at full scale)"
     .toBe(bigJobId);
 
   const { seen } = await collectIdsAcrossPages(page, {
-    scope: "[data-twin-wide]",
+    scope: "[data-split-list]",
     attr: "data-applicant-id",
     label: "applicants/one-job",
     expectedTotal: expected.length,
@@ -899,7 +906,9 @@ test("#25: the real scoped allow-list returns exactly the seeded set", async ({ 
  */
 test("CORRECTNESS: Applicants chips reconcile against the seeded total", async ({ page }) => {
   await signIn(page);
-  await page.goto(`${BASE}/ai-dashboard/applicants`, { waitUntil: "domcontentloaded" });
+  // ?job=all: the chips must count the whole company, and under Split a page
+  // with no ?job= lands on one job.
+  await page.goto(`${BASE}/ai-dashboard/applicants?job=all`, { waitUntil: "domcontentloaded" });
 
   const chips = await readChips(page, {
     strip: "[data-stage-strip]",

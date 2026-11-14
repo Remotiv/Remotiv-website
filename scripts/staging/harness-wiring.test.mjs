@@ -444,3 +444,47 @@ test("signIn reads the login form's OWN banner, scoped, and reads the fill back"
   const click = fn[0].indexOf('getByRole("button", { name: "Sign In" }).click()');
   assert.ok(fills > 0 && click > fills, "the readback must precede the click");
 });
+
+/**
+ * Applicants under Split (before commit 10's switch-on): the rows live once,
+ * in [data-split-list], and a page with no ?job= lands on ONE job. So every
+ * Applicants sweep reads the Split list, and every whole-company check (both
+ * 500-page sweeps and the chips) opens with ?job=all, resume URLs included.
+ */
+test("Applicants sweeps read the Split list; whole-company checks open All jobs", () => {
+  assert.doesNotMatch(src, /scope: "\[data-twin-(wide|narrow)\]"/, "a sweep still reads a twin");
+  for (const label of ["applicants/newest", "applicants/best-match", "applicants/one-job"]) {
+    const call = src.match(
+      new RegExp(`scope: "([^"]+)",\\s*attr: "data-applicant-id",\\s*label: "${label}"`),
+    );
+    assert.ok(call, `${label} call site not found`);
+    assert.equal(call[1], "[data-split-list]", `${label} must read the Split list`);
+  }
+  for (const [label, sort] of [
+    ["applicants/newest", "newest"],
+    ["applicants/best-match", "best"],
+  ]) {
+    const site = src.match(new RegExp(`label: "${label}",[\\s\\S]*?\\}\\);`));
+    assert.match(
+      site[0],
+      new RegExp(
+        `pageUrl: \\(n\\) => \`\\$\\{BASE\\}/ai-dashboard/applicants\\?sort=${sort}&job=all&page=\\$\\{n\\}\``,
+      ),
+      `${label}: the resume URL must stay on All jobs`,
+    );
+    assert.ok(
+      src.includes(`await page.goto(\`\${BASE}/ai-dashboard/applicants?sort=${sort}&job=all\`, {`),
+      `${label}: the first page must open All jobs`,
+    );
+  }
+  const chips = src.match(
+    /test\("CORRECTNESS: Applicants chips reconcile against the seeded total"[\s\S]*?\n\}\);/,
+  );
+  assert.ok(chips, "the chips test was not found");
+  assert.match(chips[0], /applicants\?job=all`/, "the chips must count All jobs");
+  assert.doesNotMatch(
+    src,
+    /\/ai-dashboard\/applicants`/,
+    "an Applicants page opens with no params",
+  );
+});
