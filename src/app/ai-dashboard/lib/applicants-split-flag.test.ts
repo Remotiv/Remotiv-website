@@ -1,6 +1,6 @@
 /**
- * The Applicants Split switch: off by default, on only by the exact value,
- * narrowed by the optional pilot list.
+ * The Applicants Split switch (commit 10a): on by default for every company;
+ * APPLICANTS_SPLIT_DISABLED="1" exactly is the kill switch back to the old page.
  *
  *   node --test src/app/ai-dashboard/lib/applicants-split-flag.test.ts
  */
@@ -12,50 +12,43 @@ import { isApplicantsSplitOn } from "./applicants-split-flag.ts";
 const CO = "c0000000-0000-0000-0000-000000000001";
 const OTHER = "c0000000-0000-0000-0000-000000000002";
 
-test("off when the variable is missing, empty, or anything but exactly 1", () => {
-  for (const value of [undefined, "", "0", "true", "yes", " 1", "1 ", "01", "on"]) {
-    assert.equal(isApplicantsSplitOn(CO, { APPLICANTS_SPLIT_ENABLED: value }), false, `${value}`);
+test("on for every company by default, with no variables at all", () => {
+  for (const id of [CO, OTHER, null, undefined]) {
+    assert.equal(isApplicantsSplitOn(id, {}), true, `${id}`);
   }
 });
 
-test("on for every company when enabled and no pilot list is set", () => {
-  assert.equal(isApplicantsSplitOn(CO, { APPLICANTS_SPLIT_ENABLED: "1" }), true);
-  assert.equal(
-    isApplicantsSplitOn(OTHER, { APPLICANTS_SPLIT_ENABLED: "1", APPLICANTS_SPLIT_COMPANIES: "" }),
-    true,
-  );
-  assert.equal(
-    isApplicantsSplitOn(OTHER, {
-      APPLICANTS_SPLIT_ENABLED: "1",
-      APPLICANTS_SPLIT_COMPANIES: " , ",
-    }),
-    true,
-    "a list of only separators names nobody, so it does not narrow",
-  );
+test("the kill switch is exactly 1, and it turns Split off for everyone", () => {
+  for (const id of [CO, OTHER, null]) {
+    assert.equal(isApplicantsSplitOn(id, { APPLICANTS_SPLIT_DISABLED: "1" }), false, `${id}`);
+  }
 });
 
-test("the pilot list narrows on to the companies it names", () => {
-  const env = { APPLICANTS_SPLIT_ENABLED: "1", APPLICANTS_SPLIT_COMPANIES: ` ${CO} , x ` };
-  assert.equal(isApplicantsSplitOn(CO, env), true);
-  assert.equal(isApplicantsSplitOn(OTHER, env), false);
-  assert.equal(isApplicantsSplitOn(null, env), false);
-  assert.equal(isApplicantsSplitOn(undefined, env), false);
+test("anything else leaves Split on", () => {
+  for (const value of [undefined, "", "0", "true", "yes", " 1", "1 ", "01", "on"]) {
+    assert.equal(isApplicantsSplitOn(CO, { APPLICANTS_SPLIT_DISABLED: value }), true, `${value}`);
+  }
 });
 
-test("the pilot list cannot turn Split on by itself", () => {
-  assert.equal(isApplicantsSplitOn(CO, { APPLICANTS_SPLIT_COMPANIES: CO }), false);
+test("the old opt-in variables do nothing now, in either direction", () => {
+  assert.equal(isApplicantsSplitOn(CO, { APPLICANTS_SPLIT_ENABLED: "0" }), true);
+  assert.equal(isApplicantsSplitOn(OTHER, { APPLICANTS_SPLIT_COMPANIES: CO }), true);
   assert.equal(
-    isApplicantsSplitOn(CO, { APPLICANTS_SPLIT_ENABLED: "0", APPLICANTS_SPLIT_COMPANIES: CO }),
+    isApplicantsSplitOn(CO, { APPLICANTS_SPLIT_ENABLED: "1", APPLICANTS_SPLIT_DISABLED: "1" }),
     false,
+    "the kill switch wins over a leftover opt-in",
   );
 });
 
-test("with no env argument it reads process.env, and is off here", () => {
-  const saved = process.env.APPLICANTS_SPLIT_ENABLED;
-  delete process.env.APPLICANTS_SPLIT_ENABLED;
+test("with no env argument it reads process.env, and is on here", () => {
+  const saved = process.env.APPLICANTS_SPLIT_DISABLED;
+  delete process.env.APPLICANTS_SPLIT_DISABLED;
   try {
+    assert.equal(isApplicantsSplitOn(CO), true);
+    process.env.APPLICANTS_SPLIT_DISABLED = "1";
     assert.equal(isApplicantsSplitOn(CO), false);
   } finally {
-    if (saved !== undefined) process.env.APPLICANTS_SPLIT_ENABLED = saved;
+    if (saved === undefined) delete process.env.APPLICANTS_SPLIT_DISABLED;
+    else process.env.APPLICANTS_SPLIT_DISABLED = saved;
   }
 });

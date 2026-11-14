@@ -3498,7 +3498,7 @@ export function ApplicantsClient({
   renderedAt: number;
   /** The recruiter's quota notices, already rendered on the server, or null. */
   quotaBanner: ReactNode;
-  /** The Applicants Split flag for this company (applicants-split-flag.ts). Off: the live page. */
+  /** Split on (the default) or off by the kill switch (applicants-split-flag.ts). Off: the old page. */
   split?: boolean;
   /**
    * Split only (commit 8): the job the server landed this page on because the

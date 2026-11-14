@@ -434,7 +434,7 @@ function toRow(r: ApplicantQueryRow, score?: ScoreSummaryRow): CompanyApplicantR
  * on the server, so the answers themselves never reach the browser. About
  * 1.7 KB a row from the database for at most a page of rows; no AI call.
  *
- * Runs only while the Split flag is on for this company (applicants-split-flag.ts).
+ * Runs only while Split is on: the default, unless the kill switch is set (applicants-split-flag.ts).
  *
  * A failed read is not a failed list: every row keeps `screening: null`, which
  * the list shows as no screening line, and the code is logged. Counts that are
@@ -445,7 +445,7 @@ async function withScreeningCounts(
   companyId: string,
   rows: CompanyApplicantRow[],
 ): Promise<CompanyApplicantRow[]> {
-  // Only the Split list shows the counts. With the flag off the live page
+  // Only the Split list shows the counts. With the kill switch on, the old page
   // pays nothing: no read, and every row keeps screening: null.
   if (rows.length === 0 || !isApplicantsSplitOn(companyId)) return rows;
   const { data, error } = await service

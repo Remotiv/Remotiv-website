@@ -104,13 +104,14 @@ const ctx = {
 const isCounts = (q) => q.calls.find((c) => c[0] === "select")?.[1] === "id, screening_answers";
 
 /**
- * The counts read runs only with the Split flag on, so every case here turns
- * it on, except the one that proves the flag-off path, and restores it after.
+ * The counts read runs only while Split is on (the default since commit 10a),
+ * so every case here clears the kill switch, except the one that proves the
+ * old page's path with APPLICANTS_SPLIT_DISABLED=1, and restores it after.
  */
 async function run(action, { failCounts = false, split = true } = {}) {
-  const saved = process.env.APPLICANTS_SPLIT_ENABLED;
-  if (split) process.env.APPLICANTS_SPLIT_ENABLED = "1";
-  else delete process.env.APPLICANTS_SPLIT_ENABLED;
+  const saved = process.env.APPLICANTS_SPLIT_DISABLED;
+  if (split) delete process.env.APPLICANTS_SPLIT_DISABLED;
+  else process.env.APPLICANTS_SPLIT_DISABLED = "1";
   const respond = fakeListDb(WORLD);
   const service = fakeService((table, calls) => {
     if (failCounts && table === "job_applications" && isCounts({ calls })) {
@@ -127,8 +128,8 @@ async function run(action, { failCounts = false, split = true } = {}) {
     return { read: await action({}), service, logged };
   } finally {
     console.error = quiet;
-    if (saved === undefined) delete process.env.APPLICANTS_SPLIT_ENABLED;
-    else process.env.APPLICANTS_SPLIT_ENABLED = saved;
+    if (saved === undefined) delete process.env.APPLICANTS_SPLIT_DISABLED;
+    else process.env.APPLICANTS_SPLIT_DISABLED = saved;
   }
 }
 
@@ -203,14 +204,14 @@ test("the verdict rides on the row only when the model itself produced it", asyn
   assert.equal(rows["app-00005"].score.verdict, null, "no score row");
 });
 
-test("flag off: no counts read runs, every row has screening null, the live page is unchanged", async () => {
+test("kill switch on (APPLICANTS_SPLIT_DISABLED=1): no counts read runs, every row has screening null, the old page is unchanged", async () => {
   for (const action of [fetchCompanyApplicants, fetchTopScoredApplicants]) {
     const { read, service, logged } = await run(action, { split: false });
     assert.equal(read.ok, true);
     assert.equal(
       service.queries.filter((x) => x.table === "job_applications" && isCounts(x)).length,
       0,
-      "a counts read ran with the flag off",
+      "a counts read ran with the kill switch on",
     );
     for (const r of rowsOf(read)) assert.equal(r.screening, null);
     assert.deepEqual(logged, []);
