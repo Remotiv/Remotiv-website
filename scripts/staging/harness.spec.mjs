@@ -542,6 +542,9 @@ const readIds = (page, scope, attr) =>
     .locator(`${scope} [${attr}]`)
     .evaluateAll((els, a) => els.map((el) => el.getAttribute(a)), attr);
 
+/** The Applicants list's error state: its Try again button (fix 1). */
+const LIST_ERROR_STATE = "[data-list-try-again]";
+
 /**
  * After Next: wait until the rows are no longer the page just read.
  *
@@ -554,13 +557,28 @@ const readIds = (page, scope, attr) =>
  * surfaces paged 50/50 and 25/25 with nothing repeated.
  *
  * If the rows never move, that is NAMED here, not reported as a duplicate.
+ *
+ * Moved means NEW rows, not a different count: a list that went empty has not
+ * reached the next page, and counting it as moved is how the first Split run
+ * of the newest sweep stopped at page 32 with no resume. If the list shows its
+ * own error state (a failed read, after the app's one silent retry), this
+ * stops at once with an error marked `listErrorState`, and the sweep resumes
+ * by URL, counted and listed under FLAKES OBSERVED.
  */
 async function waitForRowsToMove(page, { scope, attr, before, label }) {
+  let state = "waiting";
   await expect
     .poll(
       async () => {
+        if ((await page.locator(LIST_ERROR_STATE).count()) > 0) {
+          state = "error";
+          return state;
+        }
         const now = await readIds(page, scope, attr);
-        return now.length !== before.length || now.some((id, i) => id !== before[i]);
+        const moved =
+          now.length > 0 && (now.length !== before.length || now.some((id, i) => id !== before[i]));
+        state = moved ? "moved" : "waiting";
+        return state;
       },
       {
         timeout: 60_000,
@@ -570,7 +588,15 @@ async function waitForRowsToMove(page, { scope, attr, before, label }) {
           `moved and the list did not. This is NOT a duplicate-row finding; do not read it as #23.`,
       },
     )
-    .toBe(true);
+    .not.toBe("waiting");
+  if (state === "error") {
+    const e = new Error(
+      `${label}: the list showed its error state after Next (a failed read, after the app's ` +
+        `own retry). This is NOT a gap and NOT #23.`,
+    );
+    e.listErrorState = true;
+    throw e;
+  }
 }
 
 /**
@@ -649,8 +675,11 @@ async function collectIdsAcrossPages(page, { scope, attr, label, expectedTotal, 
       } catch (e) {
         if (!pageUrl || resumes >= MAX_RESUMES) throw e;
         resumes += 1;
+        const why = e.listErrorState
+          ? "the list showed its error state after Next"
+          : "rows did not move after Next";
         const note =
-          `${label}: rows did not move after Next at page ${pageNo}; resumed by URL at page ` +
+          `${label}: ${why} at page ${pageNo}; resumed by URL at page ` +
           `${pageNo + 1} (resume ${resumes} of ${MAX_RESUMES})`;
         flakes.push(note);
         console.log(`  FLAKE ${note}`);

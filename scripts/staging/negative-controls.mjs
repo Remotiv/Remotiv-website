@@ -130,6 +130,22 @@ const REVERSIONS = [
     expect: "requireFilled REFUSES a fill that did not land",
   },
   {
+    name: "the move check goes back to counting an emptied list as moved",
+    file: HARNESS,
+    from: "          now.length > 0 && (now.length !== before.length || now.some((id, i) => id !== before[i]));",
+    to: "          now.length !== before.length || now.some((id, i) => id !== before[i]);",
+    test: WIRING_TEST,
+    expect: "the paging loop waits for the rows to change after Next",
+  },
+  {
+    name: "the list's error state is no longer a resume",
+    file: HARNESS,
+    from: "    e.listErrorState = true;",
+    to: "    e.listErrorState = false;",
+    test: WIRING_TEST,
+    expect: "the list's error state after Next is one counted resume by URL",
+  },
+  {
     name: "the paging loop goes back to networkidle and re-reads the previous page",
     file: HARNESS,
     from: "    await waitForRowsToMove(page, { scope, attr, before: raw, label });",

@@ -347,7 +347,8 @@ test("the paging loop waits for the rows to change after Next, never for network
   assert.ok(wait, "waitForRowsToMove not found");
   assert.match(
     wait[0],
-    /now\.length !== before\.length \|\| now\.some\(\(id, i\) => id !== before\[i\]\)/,
+    /now\.length > 0 && \(now\.length !== before\.length \|\| now\.some\(\(id, i\) => id !== before\[i\]\)\)/,
+    "a move needs rows: a list that went empty has not reached the next page",
   );
   assert.match(
     wait[0],
@@ -487,4 +488,30 @@ test("Applicants sweeps read the Split list; whole-company checks open All jobs"
     /\/ai-dashboard\/applicants`/,
     "an Applicants page opens with no params",
   );
+});
+
+/**
+ * The Applicants list's error state (a failed read, after the app's one
+ * silent retry) is not waited out for 60 s and not read as a move: it stops
+ * the move check at once, and the sweep resumes by URL, counted against
+ * MAX_RESUMES and listed under FLAKES OBSERVED with its own reason.
+ */
+test("the list's error state after Next is one counted resume by URL, under FLAKES OBSERVED", () => {
+  assert.match(src, /const LIST_ERROR_STATE = "\[data-list-try-again\]";/);
+  const wait = src.match(/async function waitForRowsToMove\([\s\S]*?\n\}/);
+  assert.ok(wait, "waitForRowsToMove not found");
+  assert.match(
+    wait[0],
+    /if \(\(await page\.locator\(LIST_ERROR_STATE\)\.count\(\)\) > 0\) \{\s*state = "error";/,
+  );
+  assert.match(wait[0], /\.not\.toBe\("waiting"\);/);
+  assert.match(wait[0], /e\.listErrorState = true;\s*throw e;/);
+  const loop = src.match(/async function collectIdsAcrossPages\([\s\S]*?\n\}/);
+  assert.match(loop[0], /if \(!pageUrl \|\| resumes >= MAX_RESUMES\) throw e;\s*resumes \+= 1;/);
+  assert.match(
+    loop[0],
+    /const why = e\.listErrorState\s*\? "the list showed its error state after Next"/,
+  );
+  assert.match(loop[0], /flakes\.push\(note\);/);
+  assert.match(loop[0], /await page\.goto\(pageUrl\(pageNo \+ 1\)/);
 });
