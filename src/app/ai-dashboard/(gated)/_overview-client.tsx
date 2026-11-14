@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { type ReactNode, useSyncExternalStore } from "react";
 import {
   ArrowRight,
   FileText,
@@ -76,7 +76,31 @@ function initials(name: string): string {
   return name.slice(0, 2).toUpperCase() || "?";
 }
 
-/** Local time of day for the signed-in member — computed, never stored. */
+const NEVER_CHANGES = () => () => {};
+
+/**
+ * false on the server and during the first client render, true afterwards.
+ *
+ * The same check as the Applicants page's: useSyncExternalStore's
+ * getServerSnapshot makes the hydrating render see the server value, so the
+ * first client pass matches the HTML by construction.
+ */
+function useIsHydrated(): boolean {
+  return useSyncExternalStore(
+    NEVER_CHANGES,
+    () => true,
+    () => false,
+  );
+}
+
+/**
+ * Local time of day for the signed-in member — computed, never stored.
+ *
+ * Called only after hydration. The server renders in UTC and the browser in
+ * the member's own zone, so calling it during the server render put "Good
+ * evening" in the HTML and "Good morning" in the browser: React error #418 on
+ * every load where the two hours fell on different sides of 12:00 or 18:00.
+ */
 function greeting(): string {
   const h = new Date().getHours();
   if (h < 12) return "Good morning";
@@ -470,6 +494,7 @@ export function OverviewClient({
   /** The usage meter, already rendered on the server, or null for this viewer. */
   usageMeter: ReactNode;
 }) {
+  const hydrated = useIsHydrated();
   const {
     totalApplicants,
     newThisWeek,
@@ -590,7 +615,7 @@ export function OverviewClient({
       <div className="mb-5 flex flex-col items-start justify-between gap-4 min-[630px]:flex-row min-[630px]:items-end min-[630px]:gap-6">
         <div>
           <h1 className="font-heading text-[32px] font-extrabold leading-none tracking-[-0.035em]">
-            {greeting()}, {firstName(memberName)}
+            {hydrated ? greeting() : "Welcome back"}, {firstName(memberName)}
           </h1>
           <p className="mt-2.5 max-w-[560px] text-[14.5px] leading-relaxed text-[var(--ai-t2)]">
             {lede}
