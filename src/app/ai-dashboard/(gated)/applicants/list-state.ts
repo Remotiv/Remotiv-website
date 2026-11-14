@@ -179,6 +179,24 @@ export function requestList(state: ListState, key: ListKey, seq: number): ListSt
 }
 
 /**
+ * A page read, asked once more if the first attempt fails.
+ *
+ * The list read is read-only, so asking again is safe. `attempt` must resolve
+ * to null on any failure (a failed Read or a rejected request), never throw.
+ * The second attempt runs only while `stillWanted()` - the request is still
+ * the newest - so a superseded request is never retried. Null after both
+ * attempts is the failure the caller settles; the error state shows only then.
+ */
+export async function readWithOneRetry<T>(
+  attempt: () => Promise<T | null>,
+  stillWanted: () => boolean,
+): Promise<T | null> {
+  const first = await attempt();
+  if (first !== null || !stillWanted()) return first;
+  return attempt();
+}
+
+/**
  * A response came back. Applied only if it answers the newest request.
  *
  * Both the key and the sequence are checked, for the reason settleCounts

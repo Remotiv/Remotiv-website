@@ -177,6 +177,7 @@ import {
   listView,
   populationIndex,
   rangeStart,
+  readWithOneRetry,
   requestList,
   SEARCH_DEBOUNCE_MS,
   type StepTarget,
@@ -4172,14 +4173,34 @@ export function ApplicantsClient({
     const key = listKey(r);
     const seq = ++listSeq.current;
     setList((prev) => requestList(prev, key, seq));
-    fetchCompanyApplicants(listQueryFor(r))
-      .then((read) => {
-        setList((prev) => settleList(prev, { key, seq, page: read.ok ? read.value : null }));
-      })
-      .catch(() => {
-        setList((prev) => settleList(prev, { key, seq, page: null }));
-      });
+    // One silent retry before the error state: the read is read-only, and a
+    // single dropped read must not strand the page (the 500-page sweep stopped
+    // on one). The list stays in its loading state across both attempts.
+    readWithOneRetry(
+      () =>
+        fetchCompanyApplicants(listQueryFor(r)).then(
+          (read) => (read.ok ? read.value : null),
+          () => null,
+        ),
+      () => listSeq.current === seq,
+    ).then((page) => {
+      setList((prev) => settleList(prev, { key, seq, page }));
+    });
   }, []);
+
+  /*
+   * The sequence number of a read started by the error state's Try again.
+   * While that read is in flight the error copy stays up, with the button busy:
+   * the rows are already cleared, so without this the page would fall through
+   * to "Nothing in this view" for the length of the read. Any other request
+   * moves `expected` on and the ordinary states return.
+   */
+  const [retrySeq, setRetrySeq] = useState<number | null>(null);
+  const retrying = retrySeq !== null && list.expected === retrySeq && list.pending;
+  const tryAgain = useCallback(() => {
+    refreshList(request);
+    setRetrySeq(listSeq.current);
+  }, [refreshList, request]);
 
   const listPrimed = useRef(false);
   useEffect(() => {
@@ -5319,11 +5340,18 @@ export function ApplicantsClient({
      * verdict into this same field — so one field covers both and there is no
      * second source of truth to drift.
      */
-    if (pageView.failed) {
-      return {
-        title: "We couldn't run that search",
-        text: "A different spelling won't help - this is on our side, not your query. Reload the page to try again.",
-      };
+    if (pageView.failed || retrying) {
+      // The search wording only when a search is set: without one, "search"
+      // and "spelling" describe something the reader never did.
+      return urlSearch
+        ? {
+            title: "We couldn't run that search",
+            text: "A different spelling won't help - this is on our side, not your query. Reload the page to try again.",
+          }
+        : {
+            title: "We couldn't load applicants.",
+            text: "This is on our side, not a filter you set. Try again, or reload the page if it keeps happening.",
+          };
     }
     /*
      * The term IN THE URL, because this copy describes the rows on screen and
@@ -5383,6 +5411,18 @@ export function ApplicantsClient({
       <p className="m-0 mt-1.5 max-w-[340px] text-[13.5px] leading-relaxed text-[var(--ai-t3)]">
         {emptyCopy.text}
       </p>
+      {(pageView.failed || retrying) && (
+        <button
+          type="button"
+          onClick={tryAgain}
+          disabled={retrying}
+          aria-busy={retrying}
+          data-list-try-again
+          className="mt-5 inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-4 py-[11px] text-[13.5px] font-semibold text-[var(--ai-t2)] transition-colors hover:border-[var(--ai-sidebar)] hover:bg-[var(--ai-sidebar)] hover:text-white disabled:cursor-wait disabled:opacity-60 disabled:hover:border-[var(--ai-line-strong)] disabled:hover:bg-[var(--ai-surface)] disabled:hover:text-[var(--ai-t2)]"
+        >
+          {retrying ? "Trying again…" : "Try again"}
+        </button>
+      )}
     </div>
   );
 
