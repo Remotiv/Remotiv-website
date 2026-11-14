@@ -144,17 +144,33 @@ test("pin: Messages hides cancelled and excludes orphans", () => {
   assert.match(src, /\.not\(ORPHAN_COLUMN, "is", null\)/, "the orphan filter is gone");
 });
 
+/*
+ * Re-pointed after 1274446 (#44) made every tab NAME its statuses and b1efdbe
+ * (#73) added the search disjunction. The function is matched to its first
+ * column-0 brace with no length cap: the old 600-character cap stopped matching
+ * when the function grew, which is a pin failing for its own reason, not the
+ * code's. split-and-failed.test.ts evaluates the same split against a fake
+ * PostgREST; this pin keeps the seed's assumptions tied to the source.
+ */
 test("pin: applyTab splits Written from Automatic on event === manual", () => {
   const src = read("src/app/ai-dashboard/(gated)/messages/actions.ts");
-  const m = pin(src, /function applyTab[\s\S]{0,600}?\n}/, "applyTab");
-  assert.match(m[0], /tab === "scheduled"\) return q\.eq\("status", "queued"\)/);
+  const statuses = read("src/app/ai-dashboard/(gated)/messages/message-status.ts");
+  const m = pin(src, /^function applyTab<[\s\S]*?\n}\n/m, "applyTab");
+  assert.match(m[0], /tab === "scheduled"\) return also\(q\.eq\("status", SCHEDULED_STATUS\)\);/);
+  assert.match(statuses, /^export const SCHEDULED_STATUS = "queued";$/m);
   assert.match(
     m[0],
-    /tab === "written"\) return q\.eq\("event", "manual"\)\.neq\("status", "queued"\)/,
+    /tab === "written"\) return also\(q\.in\("status", SPLIT_STATUSES\)\.eq\("event", "manual"\)\);/,
   );
   assert.match(
     m[0],
-    /tab === "automatic"\) return q\.neq\("event", "manual"\)\.neq\("status", "queued"\)/,
+    /tab === "automatic"\) \{\s*return q\s*\.in\("status", SPLIT_STATUSES\)\s*\.or\(anyOf \? `and\(or\(\$\{AUTOMATIC_EVENT_FILTER\}\),or\(\$\{anyOf\}\)\)` : AUTOMATIC_EVENT_FILTER\);/,
+  );
+  // NULL events are automatic, and nothing manual is: the exact complement of
+  // eq("event", "manual") under SQL NULL semantics, so the halves cannot overlap.
+  assert.match(
+    statuses,
+    /^export const AUTOMATIC_EVENT_FILTER = "event\.is\.null,event\.neq\.manual";$/m,
   );
   assert.equal(MESSAGE_EVENT_MANUAL, "manual");
 });
