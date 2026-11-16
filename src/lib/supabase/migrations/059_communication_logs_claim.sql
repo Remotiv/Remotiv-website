@@ -3,17 +3,23 @@
 --                 and the observed-state transitions, judged on the
 --                 database clock (#85)
 -- ----------------------------------------------------------------------------
--- NOT RUN YET. Run by hand in the Supabase SQL editor: one paste, one
--- execution, one transaction. Staging first, with the rehearsal at the end of
--- this file; production only after it passes. Nothing in the repository
--- executes it.
+-- APPLIED TO STAGING 16 Nov 2026, by Waleed, by hand in the Supabase SQL
+-- editor: one paste, one execution, one transaction. The invariant block
+-- passed. Rehearsal at the end of this file: Part A 27 of 27; Part B race
+-- held, one claim landed, and the loser returned too_fresh having observed
+-- the old stamp after blocking 15.7 seconds on the winner's lock. Fixtures
+-- removed, and the residue check returned 0 rows.
 --
--- APPLIED TO STAGING:
--- APPLIED TO PRODUCTION:
--- Fill each in when it happens: date, by whom. Between the two dates staging
--- has both functions and production has neither, a new, known
--- staging-versus-production difference (#68). Record it in #68 when staging is
--- applied, and close it there when production is.
+-- APPLIED TO PRODUCTION 16 Nov 2026, by Waleed, by hand in the Supabase SQL
+-- editor: one paste, one execution, one transaction. The invariant block
+-- passed, which proves 3 invoker functions, 0 anon or authenticated grants,
+-- 3 service_role grants, and no default on attempt_started_at.
+--
+-- Nothing in the repository executes it.
+--
+-- #68: applying staging first opened a staging-versus-production difference
+-- (staging had the functions, production did not). It closed the same day,
+-- 16 Nov 2026, when production was applied. It is not open.
 --
 -- AFTER PRODUCTION: one 059 object joins REQUIRED_OBJECTS in
 -- scripts/staging/schema-dump.mjs, and the production dump is re-taken
@@ -526,8 +532,10 @@ commit;
 --      rollback;
 --    Expect: permission denied for function insert_first_attempt_communication_log.
 --
--- 6. Fill in APPLIED TO STAGING at the top of this file, and record the new
---    staging-versus-production difference in #68.
+-- 6. DONE 16 Nov 2026: APPLIED TO STAGING filled in at the top of this file,
+--    and the staging-versus-production difference recorded in #68, which
+--    closed the same day when production was applied. The header has the
+--    detail.
 --
 -- ── PART A. The outcome cases, one transaction, always rolled back ──
 --
