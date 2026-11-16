@@ -141,13 +141,17 @@ export type YieldPlan = {
   updated_at: string;
 };
 
-/** The handler stopped for budget after real progress. Back on the queue now, attempts untouched. */
-export function planYield(note: string, now: number): YieldPlan {
+/**
+ * The handler stopped itself (JobYield). Back on the queue, attempts
+ * untouched: now for a budget yield, or `delayMs` from now for a wait. The
+ * delay was checked when the JobYield was built, so this never sees a bad one.
+ */
+export function planYield(note: string, now: number, delayMs = 0): YieldPlan {
   const iso = new Date(now).toISOString();
   return {
     status: "queued",
     last_error: `yielded: ${note}`.slice(0, LAST_ERROR_MAX),
-    run_after: iso,
+    run_after: new Date(now + delayMs).toISOString(),
     locked_by: null,
     locked_at: null,
     updated_at: iso,

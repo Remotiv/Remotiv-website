@@ -57,16 +57,67 @@ export class TerminalJobError extends Error {
 }
 
 /**
- * The handler stopped on purpose because the worker's remaining budget could
- * not fit the next provider call. Not a failure: the worker releases the job
- * for the next tick with attempts untouched. Safe to leave uncounted because
- * the start gate (lib/queue/budgets.ts) guarantees the FIRST paid call always
- * fits, so a yield always follows real progress.
+ * The longest a yield may push a job out. The same ceiling as BACKOFF_MAX_MS
+ * in transitions.ts, written out rather than imported so this file stays
+ * import-free; transitions.test.ts holds the two equal.
+ */
+export const MAX_YIELD_DELAY_MS = 60 * 60_000;
+
+/**
+ * Check a yield delay where the JobYield is built, and refuse a bad one.
+ *
+ * Never coerced. A bad delay that became 0 would be an invisible hot loop: an
+ * uncounted yield, run again on every tick, for ever. Refusing it here means
+ * the handler throws a TypeError or RangeError INSTEAD of a JobYield, and the
+ * worker treats that as an ordinary failure: counted, backed off, dead after
+ * max_attempts with a dead-job alert, and the bad value named in last_error.
+ * Loud and bounded. It also keeps an out-of-range value from reaching
+ * planYield, where an Invalid Date would throw inside the worker's catch.
+ */
+function checkedDelay(delayMs: unknown): number {
+  if (typeof delayMs !== "number") {
+    throw new TypeError(
+      `JobYield: delayMs must be a number of milliseconds, got ${typeof delayMs} ${String(delayMs)}`,
+    );
+  }
+  if (!Number.isInteger(delayMs) || delayMs < 0 || delayMs > MAX_YIELD_DELAY_MS) {
+    throw new RangeError(
+      `JobYield: delayMs must be a whole number from 0 to ${MAX_YIELD_DELAY_MS}, got ${String(delayMs)}`,
+    );
+  }
+  return delayMs;
+}
+
+/**
+ * The handler stopped on purpose, and the job goes back on the queue with
+ * attempts untouched. Two uses:
+ *
+ *   No delay (the default): the worker's remaining budget could not fit the
+ *   next provider call, and the job runs again on the next tick. Safe to leave
+ *   uncounted because the start gate (lib/queue/budgets.ts) guarantees the
+ *   FIRST paid call always fits, so this yield always follows real progress.
+ *
+ *   A delay: the job is waiting on state it does not control, and is not run
+ *   again before `delayMs` has passed. Uncounted too, so it is only for a wait
+ *   that something outside the job is guaranteed to end. A wait that could
+ *   last for ever belongs on the counted path, a plain throw.
+ *
+ * The delay is a fixed wait, not a time comparison: the queue only decides
+ * when to run the job again, and whatever the job is waiting on decides the
+ * rest.
+ *
+ * Leaving the delay out means no delay. Passing one that is undefined, or
+ * anything else that is not a whole number in range, is refused: see
+ * checkedDelay.
  */
 export class JobYield extends Error {
-  constructor(message: string) {
+  /** How long the queue waits before running the job again. 0: the next tick. */
+  readonly delayMs: number;
+  constructor(message: string, ...delay: [delayMs?: number]) {
+    const delayMs = delay.length === 0 ? 0 : checkedDelay(delay[0]);
     super(message);
     this.name = "JobYield";
+    this.delayMs = delayMs;
   }
 }
 

@@ -801,15 +801,16 @@ export async function failJob(
 }
 
 /**
- * The handler stopped itself for budget (JobYield) after real progress. Back
- * on the queue for the next tick with attempts untouched and a note saying
- * where it stopped. Conditional on the lease, like releaseJob.
+ * The handler stopped itself (JobYield): for budget after real progress, or to
+ * wait. Back on the queue with attempts untouched and a note saying where it
+ * stopped, runnable on the next tick or after the yield's delayMs. Conditional
+ * on the lease, like releaseJob.
  */
 export async function yieldJob(job: BackgroundJob, reason: JobYield): Promise<void> {
   const service = createServiceClient();
   const { error } = await service
     .from("background_jobs")
-    .update(planYield(reason.message, Date.now()))
+    .update(planYield(reason.message, Date.now(), reason.delayMs))
     .eq("id", job.id)
     .eq("status", "running")
     .eq("locked_by", job.locked_by ?? "");

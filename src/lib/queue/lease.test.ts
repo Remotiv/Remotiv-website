@@ -19,7 +19,7 @@ register(new URL("../../test-support/worker-route-test-hook.mjs", import.meta.ur
 
 const queue = await import("../jobs-queue.ts");
 const route = await import("../../app/api/jobs/worker/route.ts");
-const { TerminalJobError } = await import("./failure-class.ts");
+const { JobYield, TerminalJobError } = await import("./failure-class.ts");
 
 const SECRET = "worker-route-test-secret";
 process.env.CRON_SECRET = SECRET;
@@ -324,4 +324,70 @@ test("completeJob and failJob answer what the write did", async () => {
     assert.equal(await queue.failJob(mine, new Error("x")), "db_error");
   });
   assert.equal(db.jobs[0].status, "running", "neither error wrote anything");
+});
+
+/* ── the delayed yield, through the worker (#85, 3a-1) ────────── */
+
+/*
+ * yieldJob passes the yield's delay through, and the attempt is not counted.
+ * Negative controls: a yieldJob that drops reason.delayMs puts run_after at
+ * about now and fails the window check; one that sends the yield down failJob
+ * makes attempts 2 and fails the first assertion.
+ */
+test("a delayed yield goes back on the queue delayMs out, attempts untouched, nothing counted", async () => {
+  const delayMs = 16 * 60_000;
+  const row = job("send_message", { attempts: 1 });
+  const db = world([row]);
+  queue.registerHandler("send_message", async () => {
+    throw new JobYield("waiting on another attempt", delayMs);
+  });
+  const before = Date.now();
+  const { summary } = await quietTick();
+  const after = Date.now();
+
+  assert.equal(row.attempts, 1, "a yield is not an attempt");
+  assert.equal(row.status, "queued");
+  assert.equal(row.locked_by, null);
+  assert.equal(row.last_error, "yielded: waiting on another attempt");
+  const runAfter = Date.parse(row.run_after);
+  assert.ok(
+    runAfter >= before + delayMs && runAfter <= after + delayMs,
+    `run_after is delayMs from the yield (${row.run_after})`,
+  );
+  assert.equal(summary.yielded, 1);
+  assert.deepEqual([summary.succeeded, summary.failed, summary.dead], [0, 0, 0]);
+  assert.deepEqual([db.heartbeat.succeeded, db.heartbeat.failed, db.heartbeat.dead], [0, 0, 0]);
+  assert.equal(alerts("job_dead").length, 0);
+});
+
+/*
+ * A bad delay never becomes a yield. The constructor throws a RangeError in
+ * the handler, so the worker sees an ordinary failure: counted, backed off,
+ * and the bad value named in last_error. On the last attempt it is dead with
+ * an alert. Negative control: coerce the bad delay to 0 instead, and the job
+ * yields uncounted with run_after now, which fails every assertion below.
+ */
+test("a bad yield delay takes the counted failure path, never an uncounted yield", async () => {
+  const row = job("send_message", { attempts: 0 });
+  world([row]);
+  queue.registerHandler("send_message", async () => {
+    throw new JobYield("waiting on another attempt", -1);
+  });
+  const { summary } = await quietTick();
+  assert.equal(row.attempts, 1, "counted");
+  assert.equal(row.status, "queued");
+  assert.ok(row.run_after > PAST, "backed off");
+  assert.match(
+    row.last_error,
+    /JobYield: delayMs must be a whole number from 0 to 3600000, got -1/,
+  );
+  assert.equal(summary.yielded, 0);
+  assert.equal(summary.failed, 1);
+
+  const last = job("send_message", { attempts: 2 });
+  world([last]);
+  const { summary: final } = await quietTick();
+  assert.equal(last.status, "dead");
+  assert.equal(final.dead, 1);
+  assert.equal(alerts("job_dead").length, 1, "and a person is told");
 });
