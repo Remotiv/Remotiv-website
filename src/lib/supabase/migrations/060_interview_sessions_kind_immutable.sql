@@ -1,9 +1,10 @@
 -- ============================================================================
 -- Migration 060 - interview_sessions.kind is immutable, enforced at last (#103)
 -- ----------------------------------------------------------------------------
--- NOT RUN YET. Run by hand in the Supabase SQL editor: one paste, one
--- execution, one transaction. STAGING FIRST, with the negative controls below;
--- production only after they pass. Nothing in the repository executes it.
+-- APPLIED to staging and production 16 Nov 2026 (see below). Run by hand in
+-- the Supabase SQL editor: one paste, one execution, one transaction. STAGING
+-- FIRST, with the negative controls below; production only after they pass.
+-- Nothing in the repository executes it.
 --
 -- APPLIED TO STAGING: 16 Nov 2026, Waleed
 -- APPLIED TO PRODUCTION: 16 Nov 2026, Waleed

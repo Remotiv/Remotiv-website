@@ -2,12 +2,13 @@
 -- Migration 061 - application_scores: no AI write past the CV's retention
 --                 date (#91 item B)
 -- ----------------------------------------------------------------------------
--- NOT RUN YET. Run by hand in the Supabase SQL editor: one paste, one
--- execution, one transaction. STAGING FIRST, with the negative controls below;
--- production only after they pass. Nothing in the repository executes it.
+-- APPLIED to staging and production 16 Nov 2026 (see below). Run by hand in
+-- the Supabase SQL editor: one paste, one execution, one transaction. STAGING
+-- FIRST, with the negative controls below; production only after they pass.
+-- Nothing in the repository executes it.
 --
 -- APPLIED TO STAGING: 16 Nov 2026, Waleed (controls C0-C8 all PASS)
--- APPLIED TO PRODUCTION:
+-- APPLIED TO PRODUCTION: 16 Nov 2026, Waleed
 -- Fill each in when it happens: date, by whom.
 --
 -- ── Why ──────────────────────────────────────────────────────
