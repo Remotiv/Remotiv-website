@@ -50,7 +50,7 @@ export const PLANS: Record<"starter" | "pro" | "enterprise", Plan> = {
     features: [
       { label: "Everything in Starter" },
       { label: "300 Profiles/mo" },
-      { label: "Advanced filters — role, stack, seniority, availability, salary" },
+      { label: "Advanced filters - role, stack, seniority, availability, salary" },
       { label: "Save and shortlist candidates" },
       { label: "Priority support" },
     ],

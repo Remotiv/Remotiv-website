@@ -352,7 +352,7 @@ export async function saveClientFeedback(
 ): Promise<MutationResult<undefined>> {
   const ctx = await getCurrentClientOrAdmin();
   if (ctx.type === "admin") {
-    return { success: false, error: "Admin preview mode — cannot submit feedback" };
+    return { success: false, error: "Admin preview mode - cannot submit feedback" };
   }
   if (ctx.type === "none") {
     return { success: false, error: "Not authenticated" };
@@ -440,7 +440,7 @@ export async function updateClientStage(
 ): Promise<MutationResult<undefined>> {
   const ctx = await getCurrentClientOrAdmin();
   if (ctx.type === "admin") {
-    return { success: false, error: "Admin preview mode — cannot change stage" };
+    return { success: false, error: "Admin preview mode - cannot change stage" };
   }
   if (ctx.type === "none") {
     return { success: false, error: "Not authenticated" };
@@ -561,7 +561,7 @@ export async function addCandidateNote(
 
   const ctx = await getCurrentClientOrAdmin();
   if (ctx.type === "admin") {
-    return { success: false, error: "Admin preview mode — use the admin drawer's reply field to post" };
+    return { success: false, error: "Admin preview mode - use the admin drawer's reply field to post" };
   }
   if (ctx.type === "none") {
     return { success: false, error: "Not authenticated" };

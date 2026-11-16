@@ -30,7 +30,7 @@ const MEDIA_LABEL: Record<string, string> = {
 export function placeholderFor(messageType: string): { label: string; note: string } {
   const media = MEDIA_LABEL[messageType];
   if (media) {
-    return { label: media, note: "Not downloaded — only the message record is stored." };
+    return { label: media, note: "Not downloaded - only the message record is stored." };
   }
   return { label: "No text content", note: `Arrived as "${messageType}".` };
 }

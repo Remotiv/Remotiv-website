@@ -183,7 +183,7 @@ export async function sendTemplateMessage(input: {
       ok: false,
       kind: "config",
       message:
-        "WhatsApp is not configured — WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID is missing.",
+        "WhatsApp is not configured - WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID is missing.",
       code: null,
     };
   }

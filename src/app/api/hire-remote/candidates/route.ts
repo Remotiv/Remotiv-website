@@ -17,13 +17,15 @@ const ENGLISH_LEVEL_RANK: Record<string, number> = {
   Basic: 1,
 };
 
-// Bucket labels use the en-dash (U+2013) — they MUST match the EXP_FILTERS
-// array in _marketplace.tsx (which the client sends via the URL).
+// Bucket labels use a plain hyphen and MUST match the EXP_FILTERS array in
+// _marketplace.tsx, which the client sends via the URL (pinned by
+// exp-buckets.test.ts). Links made before the dash sweep carry an en dash
+// (U+2013); the `exp` read below folds it to a hyphen so they still filter.
 // `null` upper bound means unbounded (years_experience >= 10).
 const EXP_BUCKETS: Record<string, [number, number | null]> = {
-  "0–2 yrs": [0, 2],
-  "3–5 yrs": [3, 5],
-  "6–10 yrs": [6, 10],
+  "0-2 yrs": [0, 2],
+  "3-5 yrs": [3, 5],
+  "6-10 yrs": [6, 10],
   "10+ yrs": [10, null],
 };
 
@@ -64,7 +66,7 @@ export async function GET(request: NextRequest) {
     ? Math.max(0, Math.min(rateRaw, RATE_FILTER_MAX))
     : RATE_FILTER_MAX;
 
-  const exp = clip(sp.get("exp")) || "Any";
+  const exp = clip(sp.get("exp")).replace(/\u2013/g, "-") || "Any";
   const avail = clip(sp.get("avail")) || "Any";
   const english = clip(sp.get("english")) || "Any";
   const q = sanitiseOrValue(clip(sp.get("q"))).toLowerCase();

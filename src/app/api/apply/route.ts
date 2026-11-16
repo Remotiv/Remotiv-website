@@ -491,7 +491,7 @@ export async function POST(request: NextRequest) {
           title: stripInvalidPgChars(jobTitle),
           company: "Manual Entry",
           company_rating: 0,
-          location: "—",
+          location: " - ",
           contract_type: "Full time",
           work_type: "Remote",
           category: "Other",

@@ -144,7 +144,7 @@ export async function submitContact(data: ContactInput): Promise<Result> {
     notifyAllAdmins({
       event_type: "new_inquiry",
       title: `New inquiry from ${name}`,
-      message: `${service ?? "General inquiry"}${company ? ` · ${company}` : ""} — "${message.slice(0, 120)}${message.length > 120 ? "…" : ""}"`,
+      message: `${service ?? "General inquiry"}${company ? ` · ${company}` : ""} - "${message.slice(0, 120)}${message.length > 120 ? "…" : ""}"`,
       link: "/admin/contacts",
       metadata: { kind: "inquiry", email, service },
     }),

@@ -197,7 +197,7 @@ export async function submitHireRequest(data: HireRequestInput): Promise<Result>
     const result = await sendEmail({
       to: teamEmail,
       replyTo: email,
-      subject: `New hire request — ${candidateName} from ${company}`,
+      subject: `New hire request - ${candidateName} from ${company}`,
       html: renderHireRequestTeamEmail({
         fullName,
         email,
@@ -223,7 +223,7 @@ export async function submitHireRequest(data: HireRequestInput): Promise<Result>
   after(() =>
     notifyAllAdmins({
       event_type: "new_inquiry",
-      title: `New hire request — ${candidateName}`,
+      title: `New hire request - ${candidateName}`,
       message: `${fullName} from ${company} wants to hire ${candidateName} (${data.engagementType.replace("_", " ")}, ${budgetRange})`,
       link: "/admin/hire-requests",
       metadata: { kind: "hire_request", email, candidate_id: candidateId },

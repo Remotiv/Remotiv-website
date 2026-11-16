@@ -40,7 +40,7 @@ export function renderClaimVerificationEmail(data: {
 
     <!-- Footer -->
     <div style="text-align: center; margin-top: 24px; color: #888; font-size: 12px;">
-      <p style="margin: 0;">Remotiv — Hire Pakistan's top 1% talent.</p>
+      <p style="margin: 0;">Remotiv - Hire Pakistan's top 1% talent.</p>
       <p style="margin: 8px 0 0;">remotiv.work</p>
     </div>
 

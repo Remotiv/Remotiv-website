@@ -23,7 +23,7 @@ export function renderClaimSuccessEmail(data: {
 
       <h2 style="margin: 0 0 8px; color: #111; font-size: 22px; font-weight: 500;">Hi ${data.candidateName},</h2>
       <p style="margin: 0 0 24px; color: #555; font-size: 15px; line-height: 1.6;">
-        Congratulations — your Remotiv profile is now claimed and linked to your account. You can now log in to edit your details, upload your latest CV, and boost your AI match score.
+        Congratulations - your Remotiv profile is now claimed and linked to your account. You can now log in to edit your details, upload your latest CV, and boost your AI match score.
       </p>
 
       <!-- CTA -->
@@ -39,7 +39,7 @@ export function renderClaimSuccessEmail(data: {
 
     <!-- Footer -->
     <div style="text-align: center; margin-top: 24px; color: #888; font-size: 12px;">
-      <p style="margin: 0;">Remotiv — Hire Pakistan's top 1% talent.</p>
+      <p style="margin: 0;">Remotiv - Hire Pakistan's top 1% talent.</p>
       <p style="margin: 8px 0 0;">remotiv.work</p>
     </div>
 

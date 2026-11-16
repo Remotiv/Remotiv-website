@@ -34,7 +34,7 @@ export function renderCompanyInviteEmail(data: {
       </p>
 
       <p style="margin: 0 0 8px; color: #555; font-size: 15px; line-height: 1.6;">
-        Remotiv is where ${data.companyName} runs its hiring — post roles, screen applicants with AI, and review video interviews in one place. As a ${data.role} you'll be able to:
+        Remotiv is where ${data.companyName} runs its hiring - post roles, screen applicants with AI, and review video interviews in one place. As a ${data.role} you'll be able to:
       </p>
       <ul style="margin: 0 0 16px; padding: 0 0 0 20px; color: #555; font-size: 15px; line-height: 1.7;">
         <li style="margin: 0 0 4px;">See the roles your team is hiring for.</li>
@@ -43,7 +43,7 @@ export function renderCompanyInviteEmail(data: {
       </ul>
 
       <p style="margin: 0 0 24px; color: #555; font-size: 15px; line-height: 1.6;">
-        Accept your invitation to set up your account — it only takes a minute.
+        Accept your invitation to set up your account - it only takes a minute.
       </p>
 
       <!-- CTA -->
@@ -57,7 +57,7 @@ export function renderCompanyInviteEmail(data: {
       </p>
 
       <p style="margin: 16px 0 0; color: #888; font-size: 12px; line-height: 1.6;">
-        If you weren't expecting this invitation, you can safely ignore this email — no account is created until you accept.
+        If you weren't expecting this invitation, you can safely ignore this email - no account is created until you accept.
       </p>
 
     </div>
