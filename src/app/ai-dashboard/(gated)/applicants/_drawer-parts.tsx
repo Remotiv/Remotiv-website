@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   Check,
+  Minus,
   ChevronRight,
   ExternalLink,
   File,
@@ -284,16 +285,40 @@ const EVIDENCE_ICON = "mt-px grid size-4 shrink-0 place-items-center rounded-ful
  * and of a warning mark — both are the design's call, and both are now here.
  * The unmet mark is amber, not the red the missing-requirements rows use: a
  * must-have the CV did not mention is a gap to ask about, not a rejection.
+ *
+ * Must-haves have their own pair (v9 section 2, "Must-haves"): `met` is the
+ * live "Must-haves met" purple, `missing` is neutral slate with the item in
+ * grey and a plain "Not found in CV" beside it. Mint stays Strengths' colour
+ * and amber stays Risks'.
  */
 export function EvidenceRow({
   tone,
+  trailing,
   children,
 }: {
-  tone: "ok" | "warn" | "danger";
+  tone: "ok" | "warn" | "danger" | "met" | "missing";
+  /** A short label at the row's right edge, such as "Not found in CV". */
+  trailing?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <div className="flex gap-2.5 py-[7px] text-[12.5px] leading-[1.6] text-[var(--ai-t2)]">
+      {tone === "met" && (
+        <span
+          className={`${EVIDENCE_ICON} bg-[var(--ai-purple-tint)] text-[var(--ai-purple-ink)]`}
+          aria-hidden
+        >
+          <Check className="size-2.5" strokeWidth={2.4} />
+        </span>
+      )}
+      {tone === "missing" && (
+        <span
+          className={`${EVIDENCE_ICON} bg-[var(--ai-slate-tint)] text-[var(--ai-t4)]`}
+          aria-hidden
+        >
+          <Minus className="size-2.5" strokeWidth={2.4} />
+        </span>
+      )}
       {tone === "ok" && (
         <span
           className={`${EVIDENCE_ICON} bg-[var(--ai-mint-tint)] text-[var(--ai-mint-ink)]`}
@@ -319,6 +344,11 @@ export function EvidenceRow({
         </span>
       )}
       <div className="min-w-0 flex-1">{children}</div>
+      {trailing && (
+        <span className="shrink-0 whitespace-nowrap text-[11px] font-semibold text-[var(--ai-t3)]">
+          {trailing}
+        </span>
+      )}
     </div>
   );
 }
@@ -792,15 +822,19 @@ export function MustHaveRows({ scoreDetail }: { scoreDetail: ApplicantScoreDetai
   return (
     <>
       {scoreDetail.must_haves.map((mh) => (
-        <EvidenceRow key={mh.item} tone={mh.status === "evidenced" ? "ok" : "warn"}>
-          {mh.item}
-          {mh.status === "not_found" && (
+        <EvidenceRow
+          key={mh.item}
+          tone={mh.status === "evidenced" ? "met" : "missing"}
+          trailing={mh.status === "not_found" ? "Not found in CV" : undefined}
+        >
+          {mh.status === "evidenced" ? (
             <>
-              {" - "}
-              <b className="font-bold text-[var(--ai-t1)]">not evidenced</b>
+              {mh.item}
+              {mh.quote && <EvidenceQuote quote={mh.quote} />}
             </>
+          ) : (
+            <span className="text-[var(--ai-t3)]">{mh.item}</span>
           )}
-          {mh.status === "evidenced" && mh.quote && <EvidenceQuote quote={mh.quote} />}
         </EvidenceRow>
       ))}
       {/* The one box whose empty state is not self-evident.
