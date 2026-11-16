@@ -395,6 +395,10 @@ function toRow(r: ApplicantQueryRow, score?: ScoreSummaryRow): CompanyApplicantR
       !r.cv_url &&
       Boolean(r.cv_delete_after) &&
       new Date(r.cv_delete_after as string).getTime() <= Date.now(),
+    cv_retention_passed_on:
+      r.cv_delete_after && cvExpired({ cv_delete_after: r.cv_delete_after as string }, Date.now())
+        ? (r.cv_delete_after as string)
+        : null,
     /*
      * ── 'manual_upload' means more than one thing ──────────────
      *

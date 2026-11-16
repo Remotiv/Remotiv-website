@@ -90,11 +90,12 @@ import {
   ApplicationCard,
   CONFIDENCE_BADGE,
   CONFIDENCE_LABEL,
+  CvRetentionNote,
   DetailsCard,
   DrawerLabel,
   DrawerMiniRing,
-  EvidenceEmpty,
   EvidenceList,
+  EvidenceNoneFound,
   EvidenceQuote,
   EvidenceRow,
   evidenceMeta,
@@ -1290,6 +1291,9 @@ function ApplicantDrawer({
   const panelRef = useRef<HTMLDivElement>(null);
   const name = fullName(row);
   const applied = fmtApplied(row.created_at, clock);
+  // #91: from the CV's retention date the card's notes are cleared; the lists
+  // below are empty for that reason, not because the model found nothing.
+  const retentionPassedDay = fmtDay(row.cv_retention_passed_on, clock.local);
 
   // Escape, scroll lock, focus in, Tab containment, inert page behind, and
   // focus back to the row that opened it - all from the one modal primitive.
@@ -1910,6 +1914,8 @@ function ApplicantDrawer({
                   <ScoredDimensionsSection scoreDetail={scoreDetail} />
                 )}
 
+                {retentionPassedDay && <CvRetentionNote day={retentionPassedDay} />}
+
                 <div className="mb-7">
                   <ReviewSubhead title="Evidence" meta={evidenceMeta(scoreDetail)} />
                   {/* All four boxes, always. An absent box used to mean "the
@@ -1938,9 +1944,10 @@ function ApplicantDrawer({
                         </EvidenceRow>
                       ))}
                       {scoreDetail.strengths.length === 0 && (
-                        <EvidenceEmpty>
-                          Nothing in the CV was evidenced strongly enough to quote.
-                        </EvidenceEmpty>
+                        <EvidenceNoneFound
+                          kind="strengths"
+                          retentionPassed={retentionPassedDay !== null}
+                        />
                       )}
                     </EvidenceList>
 
@@ -1958,9 +1965,10 @@ function ApplicantDrawer({
                         </EvidenceRow>
                       ))}
                       {scoreDetail.missing_requirements.length === 0 && (
-                        <EvidenceEmpty>
-                          Every requirement the job states was evidenced somewhere in the CV.
-                        </EvidenceEmpty>
+                        <EvidenceNoneFound
+                          kind="missing"
+                          retentionPassed={retentionPassedDay !== null}
+                        />
                       )}
                     </EvidenceList>
 
@@ -1976,9 +1984,10 @@ function ApplicantDrawer({
                         </EvidenceRow>
                       ))}
                       {scoreDetail.concerns.length === 0 && (
-                        <EvidenceEmpty>
-                          No contradictions or gaps were raised against the CV.
-                        </EvidenceEmpty>
+                        <EvidenceNoneFound
+                          kind="concerns"
+                          retentionPassed={retentionPassedDay !== null}
+                        />
                       )}
                     </EvidenceList>
                   </div>

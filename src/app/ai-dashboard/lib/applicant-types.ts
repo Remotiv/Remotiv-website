@@ -107,6 +107,16 @@ export type CompanyApplicantRow = {
    */
   cv_expired: boolean;
   /**
+   * The CV's retention date once it has passed, else null (#91): null while the
+   * CV is live, and always on Remotiv's own pool, which has no date. It is the
+   * date, not proof that anything was deleted: the daily retention cleanup
+   * clears the AI's notes on the card after it and keeps the score, so the
+   * drawer says that instead of reading the emptied lists as findings. Unlike
+   * cv_expired it does not wait for the file to go: a file another record still
+   * holds stays, while the card's notes are cleared all the same.
+   */
+  cv_retention_passed_on: string | null;
+  /**
    * A recruiter filed this person by hand; they did not submit an application.
    *
    * How they ARRIVED, which is not where they ARE — pipeline_stage is still

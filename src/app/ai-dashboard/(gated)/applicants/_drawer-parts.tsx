@@ -371,6 +371,46 @@ export function EvidenceEmpty({ children }: { children: React.ReactNode }) {
   return <p className="m-0 py-[7px] text-[12.5px] leading-[1.6] text-[var(--ai-t3)]">{children}</p>;
 }
 
+/** What each evidence box says when the model found nothing for it. */
+export const EVIDENCE_NONE_FOUND = {
+  strengths: "Nothing in the CV was evidenced strongly enough to quote.",
+  missing: "Every requirement the job states was evidenced somewhere in the CV.",
+  concerns: "No contradictions or gaps were raised against the CV.",
+} as const;
+
+/**
+ * A box's "the model found none", unless the CV has passed its date (#91).
+ *
+ * From that date the retention cleanup empties every list on the card, so an
+ * empty list no longer means the model found nothing: it means the notes were
+ * cleared. Saying "every requirement was evidenced" about such a card would be
+ * a finding nobody made. CvRetentionNote says what happens instead, once.
+ */
+export function EvidenceNoneFound({
+  kind,
+  retentionPassed,
+}: {
+  kind: keyof typeof EVIDENCE_NONE_FOUND;
+  retentionPassed: boolean;
+}) {
+  if (retentionPassed) return null;
+  return <EvidenceEmpty>{EVIDENCE_NONE_FOUND[kind]}</EvidenceEmpty>;
+}
+
+/**
+ * The AI section's one line on a card whose CV has passed its date (#91). It
+ * states the date and what the cleanup does, never that a file was deleted:
+ * a file another record still holds is kept.
+ */
+export function CvRetentionNote({ day }: { day: string }) {
+  return (
+    <p className="m-0 mb-4 text-[12.5px] leading-[1.6] text-[var(--ai-t2)]">
+      This CV passed its retention date on {day}. The AI&apos;s notes on it are cleared during
+      retention cleanup; the score is kept.
+    </p>
+  );
+}
+
 /**
  * The Summary card's sub-line.
  *
