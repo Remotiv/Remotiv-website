@@ -47,14 +47,14 @@ const TEMPLATES: Record<Exclude<MessageEvent, "manual">, DefaultTemplate> = {
     body: `
 <p>Hi {{candidate_first_name}},</p>
 <p><strong>{{company_name}}</strong> has started reviewing your application for <strong>{{job_title}}</strong>.</p>
-<p>There's nothing you need to do right now — we'll let you know when there's an update.</p>`,
+<p>There's nothing you need to do right now - we'll let you know when there's an update.</p>`,
   },
 
   shortlisted: {
     subject: "You've been shortlisted for {{job_title}}",
     body: `
 <p>Hi {{candidate_first_name}},</p>
-<p>Good news — <strong>{{company_name}}</strong> has shortlisted you for <strong>{{job_title}}</strong>.</p>
+<p>Good news - <strong>{{company_name}}</strong> has shortlisted you for <strong>{{job_title}}</strong>.</p>
 <p>That means your application stood out and they'd like to look at it more closely. Expect to hear from them about next steps.</p>`,
   },
 
@@ -63,7 +63,7 @@ const TEMPLATES: Record<Exclude<MessageEvent, "manual">, DefaultTemplate> = {
     body: `
 <p>Hi {{candidate_first_name}},</p>
 <p><strong>{{company_name}}</strong> would like to interview you for <strong>{{job_title}}</strong>.</p>
-<p>They'll be in touch with the details. If you have questions in the meantime, just reply to this email — it goes straight to them.</p>`,
+<p>They'll be in touch with the details. If you have questions in the meantime, just reply to this email - it goes straight to them.</p>`,
   },
 
   offer: {
@@ -75,7 +75,7 @@ const TEMPLATES: Record<Exclude<MessageEvent, "manual">, DefaultTemplate> = {
   },
 
   hired: {
-    subject: "Welcome aboard — {{job_title}} at {{company_name}}",
+    subject: "Welcome aboard - {{job_title}} at {{company_name}}",
     body: `
 <p>Hi {{candidate_first_name}},</p>
 <p>Congratulations. <strong>{{company_name}}</strong> has confirmed you for <strong>{{job_title}}</strong>.</p>
@@ -186,7 +186,7 @@ export function defaultTemplate(event: MessageEvent): DefaultTemplate | null {
  * templates speak ABOUT the company ("{{company_name}} has shortlisted you")
  * because Remotiv writes those. These say "we".
  *
- * Signed "— The {{company_name}} team" rather than a name: there is no
+ * Signed "The {{company_name}} team" rather than a name: there is no
  * placeholder for the sender, and a dangling "Thanks," reads unfinished. A
  * recruiter replacing it with their own name is the expected first edit.
  */
@@ -213,7 +213,7 @@ export const MANUAL_DEFAULTS: ReadonlyArray<ManualDefault> = [
   {
     id: "default:invite-interview",
     label: "Invite to interview",
-    subject: "Interview invitation — {{job_title}}",
+    subject: "Interview invitation - {{job_title}}",
     body: `Hi {{candidate_first_name}},
 
 Thanks for applying for {{job_title}}. We've been through your application and we'd like to meet you.
@@ -222,7 +222,7 @@ Could you share a few times that work for you over the next week or so? We'll co
 
 Looking forward to it.
 
-— The {{company_name}} team`,
+The {{company_name}} team`,
   },
 
   {
@@ -231,11 +231,11 @@ Looking forward to it.
     subject: "Your availability for a short call",
     body: `Hi {{candidate_first_name}},
 
-We'd like to set up a short intro call about the {{job_title}} role — around 20 minutes, and nothing to prepare.
+We'd like to set up a short intro call about the {{job_title}} role - around 20 minutes, and nothing to prepare.
 
 Could you let us know two or three times that suit you this week or next? If none of those windows work, tell us what does and we'll fit around it.
 
-— The {{company_name}} team`,
+The {{company_name}} team`,
   },
 
   {
@@ -246,9 +246,9 @@ Could you let us know two or three times that suit you this week or next? If non
 
 Thanks for your application for {{job_title}}. Before we take it further, could you send over a portfolio or two or three examples of work you're proud of?
 
-Links are fine — we're looking for a sense of how you work rather than a polished showcase. If your best work is under NDA, a short description of what you did and what you decided is just as useful.
+Links are fine - we're looking for a sense of how you work rather than a polished showcase. If your best work is under NDA, a short description of what you did and what you decided is just as useful.
 
-— The {{company_name}} team`,
+The {{company_name}} team`,
   },
 
   {
@@ -259,9 +259,9 @@ Links are fine — we're looking for a sense of how you work rather than a polis
 
 Thanks for applying for {{job_title}}. So that neither of us spends time on a conversation that can't work, could you tell us the salary range you're looking for?
 
-A range is fine, and it isn't a negotiation — we're checking we're in the same territory before we both invest more.
+A range is fine, and it isn't a negotiation - we're checking we're in the same territory before we both invest more.
 
-— The {{company_name}} team`,
+The {{company_name}} team`,
   },
 
   {
@@ -270,17 +270,17 @@ A range is fine, and it isn't a negotiation — we're checking we're in the same
     subject: "Following up on {{job_title}}",
     body: `Hi {{candidate_first_name}},
 
-Just following up on our last message about {{job_title}} — we know these things get buried.
+Just following up on our last message about {{job_title}} - we know these things get buried.
 
-If you're still interested, a one-line reply is enough. If you've taken something else or changed your mind, that's completely fine — just let us know so we can close things off properly.
+If you're still interested, a one-line reply is enough. If you've taken something else or changed your mind, that's completely fine - just let us know so we can close things off properly.
 
-— The {{company_name}} team`,
+The {{company_name}} team`,
   },
 
   {
     id: "default:keep-on-file",
     label: "Keeping you on file",
-    subject: "Not this role — but we'd like to stay in touch",
+    subject: "Not this role - but we'd like to stay in touch",
     body: `Hi {{candidate_first_name}},
 
 We've decided not to move forward with your application for {{job_title}}. We wanted to tell you directly rather than leave you waiting on it.
@@ -289,6 +289,6 @@ That said, we liked what we saw, and we'd genuinely like to keep your applicatio
 
 Thanks for the time you put into applying.
 
-— The {{company_name}} team`,
+The {{company_name}} team`,
   },
 ];

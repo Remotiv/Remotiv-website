@@ -305,7 +305,7 @@ export async function getAccessToken(
       memberId,
       provider,
       "error",
-      "This calendar needs reconnecting — no refresh token is stored.",
+      "This calendar needs reconnecting - no refresh token is stored.",
     );
     return null;
   }

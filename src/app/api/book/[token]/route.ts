@@ -412,7 +412,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
       hostTimezone: availability.hostTimezone,
       summary: label
         ? `${label} - ${candidateName || "Candidate"} - ${companyName || "Remotiv"}`
-        : `Interview — ${candidateName || "Candidate"} · ${jobTitle}`,
+        : `Interview - ${candidateName || "Candidate"} · ${jobTitle}`,
       description: label
         ? [
             `${label} with ${candidateName || "the candidate"} for ${jobTitle}.`,

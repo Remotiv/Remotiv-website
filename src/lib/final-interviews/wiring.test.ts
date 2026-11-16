@@ -194,14 +194,14 @@ test("nothing in this step touches a pipeline stage, and the new copy has no em 
     assert.doesNotMatch(read(rel), /pipeline_stage|updateApplicationStage/, rel);
   }
   for (const rel of NEW_FILES) assert.doesNotMatch(read(rel), /—/, rel);
-  // The final-round branches of the shared notices use a hyphen; the screening
-  // branches keep their existing wording untouched.
+  // Both branches of the shared notices use a hyphen: the final-round ones from
+  // the start, the screening ones since the dash sweep (commit a).
   for (const verb of ["confirmed", "moved", "cancelled"]) {
     assert.match(
       NOTIFY,
       new RegExp(`\\$\\{args\\.interviewLabel\\} ${verb} - \\$\\{args\\.jobTitle\\}`),
     );
-    assert.match(NOTIFY, new RegExp(`Interview ${verb} \\u2014 \\$\\{args\\.jobTitle\\}`));
+    assert.match(NOTIFY, new RegExp(`Interview ${verb} - \\$\\{args\\.jobTitle\\}`));
   }
   const linkEmail = body(NOTIFY, "export async function sendFinalInterviewLinkEmail(", "\n}\n");
   assert.doesNotMatch(linkEmail, /—/);

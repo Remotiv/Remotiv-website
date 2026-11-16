@@ -322,7 +322,7 @@ export async function deliverEmail(
     return {
       ok: false,
       kind: "cap",
-      message: `Remotiv's daily email limit of ${cap} has been reached. This message hasn't been sent — try again tomorrow.`,
+      message: `Remotiv's daily email limit of ${cap} has been reached. This message hasn't been sent - try again tomorrow.`,
       logId,
     };
   }

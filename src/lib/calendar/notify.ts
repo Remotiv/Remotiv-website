@@ -166,7 +166,7 @@ export async function sendBookingConfirmations(
       EVENT_CONFIRMED,
       args.interviewLabel
         ? `${args.interviewLabel} confirmed - ${args.jobTitle}`
-        : `Interview confirmed — ${args.jobTitle}`,
+        : `Interview confirmed - ${args.jobTitle}`,
       body,
     );
   }
@@ -194,7 +194,7 @@ export async function sendBookingConfirmations(
       args.hostEmail,
       args.interviewLabel
         ? `${args.candidateName} booked - ${args.interviewLabel}`
-        : `${args.candidateName} booked — ${args.jobTitle}`,
+        : `${args.candidateName} booked - ${args.jobTitle}`,
       body,
     );
   }
@@ -297,7 +297,7 @@ export async function sendRescheduleNotices(
   };
 
   const joinLine = args.meetingUrl
-    ? `<p style="margin:16px 0;"><a href="${escapeHtml(args.meetingUrl)}" style="color:#7E47FF;font-weight:700;">Join the interview</a></p><p style="margin:0;color:#847E8C;font-size:13px;">Same link as before — nothing to re-save.</p>`
+    ? `<p style="margin:16px 0;"><a href="${escapeHtml(args.meetingUrl)}" style="color:#7E47FF;font-weight:700;">Join the interview</a></p><p style="margin:0;color:#847E8C;font-size:13px;">Same link as before - nothing to re-save.</p>`
     : `<p style="margin:16px 0;color:#4A4550;">Your interviewer will send joining details separately.</p>`;
 
   const movedByThem = args.movedBy === "recruiter";
@@ -322,7 +322,7 @@ export async function sendRescheduleNotices(
       EVENT_RESCHEDULED,
       args.interviewLabel
         ? `${args.interviewLabel} moved - ${args.jobTitle}`
-        : `Interview moved — ${args.jobTitle}`,
+        : `Interview moved - ${args.jobTitle}`,
       body,
     );
   }
@@ -342,7 +342,7 @@ export async function sendRescheduleNotices(
       args.hostEmail,
       args.interviewLabel
         ? `${args.interviewLabel} moved - ${args.jobTitle}`
-        : `Interview moved — ${args.jobTitle}`,
+        : `Interview moved - ${args.jobTitle}`,
       body,
     );
   }
@@ -404,7 +404,7 @@ export async function sendCancellationNotices(
       EVENT_CANCELLED,
       args.interviewLabel
         ? `${args.interviewLabel} cancelled - ${args.jobTitle}`
-        : `Interview cancelled — ${args.jobTitle}`,
+        : `Interview cancelled - ${args.jobTitle}`,
       body,
     );
   }
@@ -420,13 +420,13 @@ export async function sendCancellationNotices(
       <p style="color:#847E8C;font-size:13px;">${
         args.removedFromCalendar
           ? "It's been removed from your calendar."
-          : "We couldn't confirm its removal from your calendar — please delete the entry yourself."
+          : "We couldn't confirm its removal from your calendar - please delete the entry yourself."
       }</p>`;
     host = await sendHostEmail(
       args.hostEmail,
       args.interviewLabel
         ? `${args.interviewLabel} cancelled - ${args.jobTitle}`
-        : `Interview cancelled — ${args.jobTitle}`,
+        : `Interview cancelled - ${args.jobTitle}`,
       body,
     );
   }
