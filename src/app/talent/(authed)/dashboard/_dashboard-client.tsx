@@ -26,7 +26,7 @@ function formatJobSalary(min: number | null, max: number | null, currency: strin
   const fmt = (n: number) => n.toLocaleString("en-US");
   if (min && max) {
     if (min === max) return `${cur} ${fmt(min)}/mo`;
-    return `${cur} ${fmt(min)} – ${fmt(max)}/mo`;
+    return `${cur} ${fmt(min)}-${fmt(max)}/mo`;
   }
   if (min) return `From ${cur} ${fmt(min)}/mo`;
   if (max) return `Up to ${cur} ${fmt(max)}/mo`;
@@ -63,7 +63,7 @@ function formatSalaryRange(profile: DashboardProfile): string {
     const min = profile.raw.salary_min as number | null;
     const max = profile.raw.salary_max as number | null;
     if (min && max) {
-      return `$${min.toLocaleString()} – $${max.toLocaleString()}/mo`;
+      return `$${min.toLocaleString()}-$${max.toLocaleString()}/mo`;
     }
     if (min) return `$${min.toLocaleString()}/mo+`;
     if (max) return `up to $${max.toLocaleString()}/mo`;
@@ -75,7 +75,7 @@ function formatSalaryRange(profile: DashboardProfile): string {
 }
 
 function buildMissingNudge(missing: string[]): string {
-  if (missing.length === 0) return "Your profile looks complete — nicely done.";
+  if (missing.length === 0) return "Your profile looks complete - nicely done.";
   const list =
     missing.length === 1
       ? missing[0]
@@ -685,7 +685,7 @@ export function DashboardClient({
               Talent like you earn
             </p>
             <p className="mt-2 font-heading text-2xl font-bold text-gray-900">
-              {isHourly ? "$25 – $45/hr" : "$2,800 – $4,200/mo"}
+              {isHourly ? "$25-$45/hr" : "$2,800-$4,200/mo"}
             </p>
             <p className="mt-2 text-xs text-gray-500">
               Your current range: {salaryRange} ·{" "}

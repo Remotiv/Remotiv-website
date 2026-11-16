@@ -330,7 +330,7 @@ export function TalentLoginClient({
           Remotiv.
         </Link>
         <p className="text-xs text-white/80">
-          Talent Portal — Sign in to claim your profile
+          Talent Portal - Sign in to claim your profile
         </p>
       </div>
 

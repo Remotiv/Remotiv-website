@@ -102,7 +102,7 @@ function normalisePakistan(row: Record<string, unknown>): UnifiedProfile {
     if (!salaryMin && !salaryMax) return null;
     const fmt = (n: number) => `PKR ${(n / 1000).toFixed(0)}k`;
     if (salaryMin && salaryMax) {
-      return `${fmt(salaryMin)}–${fmt(salaryMax)}/mo`;
+      return `${fmt(salaryMin)}-${fmt(salaryMax)}/mo`;
     }
     return `${fmt(salaryMin ?? salaryMax ?? 0)}/mo`;
   })();
@@ -220,7 +220,7 @@ function normaliseRemote(row: Record<string, unknown>): UnifiedProfile {
       ? (row.education as Record<string, unknown>)
       : null;
   const education = eduRow
-    ? [eduRow.degree, eduRow.institution].filter(Boolean).join(" — ") || null
+    ? [eduRow.degree, eduRow.institution].filter(Boolean).join(" - ") || null
     : null;
 
   return {

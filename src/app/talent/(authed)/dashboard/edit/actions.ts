@@ -259,10 +259,10 @@ export async function updateTalentBasicInfo(
         return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
       }
       if (e.message === "not_claimed") {
-        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+        return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
       }
     }
-    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+    return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -345,10 +345,10 @@ export async function updateTalentLocation(
         return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
       }
       if (e.message === "not_claimed") {
-        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+        return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
       }
     }
-    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+    return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -472,10 +472,10 @@ export async function updateTalentProfessional(
         return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
       }
       if (e.message === "not_claimed") {
-        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+        return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
       }
     }
-    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+    return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -596,10 +596,10 @@ export async function updateTalentAvailabilitySalary(
         return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
       }
       if (e.message === "not_claimed") {
-        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+        return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
       }
     }
-    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+    return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -684,7 +684,7 @@ function buildDatesString(
   if (!s && !e) return "";
   if (!s) return e;
   if (!e) return s;
-  return `${s} – ${e}`;
+  return `${s} - ${e}`;
 }
 
 export async function updateTalentSkillsExperience(
@@ -800,10 +800,10 @@ export async function updateTalentSkillsExperience(
         return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
       }
       if (e.message === "not_claimed") {
-        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+        return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
       }
     }
-    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+    return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -912,10 +912,10 @@ export async function updateRemoteBasicInfo(
         return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
       }
       if (e.message === "not_claimed") {
-        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+        return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
       }
     }
-    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+    return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -1023,10 +1023,10 @@ export async function updateRemoteLocation(
         return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
       }
       if (e.message === "not_claimed") {
-        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+        return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
       }
     }
-    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+    return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -1152,10 +1152,10 @@ export async function updateRemoteProfessional(
         return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
       }
       if (e.message === "not_claimed") {
-        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+        return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
       }
     }
-    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+    return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -1276,10 +1276,10 @@ export async function updateRemoteAvailabilityWorkType(
         return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
       }
       if (e.message === "not_claimed") {
-        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+        return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
       }
     }
-    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+    return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -1354,10 +1354,10 @@ export async function updateRemoteSkills(
         return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
       }
       if (e.message === "not_claimed") {
-        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+        return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
       }
     }
-    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+    return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -1431,10 +1431,10 @@ export async function updateRemoteEducation(
         return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
       }
       if (e.message === "not_claimed") {
-        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+        return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
       }
     }
-    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+    return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
   }
 
   const allEmpty =
@@ -1558,7 +1558,7 @@ export async function updateRemoteEmployment(
     }
     // Verbatim intake separator: src/app/join-as-freelancer/page.tsx:549
     // [e.start, e.end].filter(Boolean).join(" — ")  ← em-dash U+2014 with spaces.
-    const dates = [start, end].filter(Boolean).join(" — ");
+    const dates = [start, end].filter(Boolean).join(" - ");
     stored.push({ title, company, start, end, description, dates });
   }
   if (stored.length > EMPLOYMENT_MAX) {
@@ -1579,10 +1579,10 @@ export async function updateRemoteEmployment(
         return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
       }
       if (e.message === "not_claimed") {
-        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+        return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
       }
     }
-    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+    return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -1665,10 +1665,10 @@ export async function updateRemoteLanguages(
         return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
       }
       if (e.message === "not_claimed") {
-        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+        return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
       }
     }
-    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+    return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -1782,10 +1782,10 @@ export async function updateRemotePortfolio(
         return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
       }
       if (e.message === "not_claimed") {
-        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+        return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
       }
     }
-    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+    return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -1910,7 +1910,7 @@ export async function getOwnCvSignedUrl(
         return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
       }
       if (e.message === "not_claimed") {
-        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+        return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
       }
     }
     return { success: false, error: "You can't read this CV." };
@@ -2025,10 +2025,10 @@ export async function uploadCv(formData: FormData): Promise<UploadCvResult> {
         return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
       }
       if (e.message === "not_claimed") {
-        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+        return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
       }
     }
-    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+    return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -2118,10 +2118,10 @@ export async function removeCv(input: {
         return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
       }
       if (e.message === "not_claimed") {
-        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+        return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
       }
     }
-    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+    return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -2261,7 +2261,7 @@ export async function getOwnPhotoSignedUrl(
         return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
       }
       if (e.message === "not_claimed") {
-        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+        return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
       }
     }
     return { success: false, error: "You can't read this photo." };
@@ -2380,10 +2380,10 @@ export async function uploadPhoto(
         return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
       }
       if (e.message === "not_claimed") {
-        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+        return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
       }
     }
-    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+    return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -2499,10 +2499,10 @@ export async function removePhoto(input: {
         return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
       }
       if (e.message === "not_claimed") {
-        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+        return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
       }
     }
-    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+    return { success: false, error: "Claim your profile to unlock editing - tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();

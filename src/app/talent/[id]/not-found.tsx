@@ -8,7 +8,7 @@ export default function ProfileNotFound() {
       <main className="min-h-screen bg-remotiv-bg font-sans">
         <div className="mx-auto max-w-2xl px-4 py-24 text-center">
           <p className="font-heading text-sm font-semibold uppercase tracking-widest text-remotiv-purple">
-            404 — Profile not found
+            404 - Profile not found
           </p>
           <h1 className="mt-4 font-heading text-3xl font-bold text-gray-900 md:text-4xl">
             We couldn&apos;t find that talent profile

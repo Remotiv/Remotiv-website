@@ -1329,7 +1329,7 @@ export function EditClient({
               timeZone,
             });
       if (!result.success) {
-        setToast(result.error || "Couldn't save — try again.");
+        setToast(result.error || "Couldn't save - try again.");
         return;
       }
       const savedCity =
@@ -1356,7 +1356,7 @@ export function EditClient({
       router.refresh();
     } catch (err) {
       console.error("[edit] location save threw:", err);
-      setToast("Couldn't save — try again.");
+      setToast("Couldn't save - try again.");
     } finally {
       setLocSaving(false);
     }
@@ -1422,7 +1422,7 @@ export function EditClient({
         summary: summary || null,
       });
       if (!result.success) {
-        setToast(result.error || "Couldn't save — try again.");
+        setToast(result.error || "Couldn't save - try again.");
         return;
       }
       const saved = result.data;
@@ -1445,7 +1445,7 @@ export function EditClient({
       router.refresh();
     } catch (err) {
       console.error("[edit] professional save threw:", err);
-      setToast("Couldn't save — try again.");
+      setToast("Couldn't save - try again.");
     } finally {
       setProfSaving(false);
     }
@@ -1524,7 +1524,7 @@ export function EditClient({
         salaryMax,
       });
       if (!result.success) {
-        setToast(result.error || "Couldn't save — try again.");
+        setToast(result.error || "Couldn't save - try again.");
         return;
       }
       const saved = result.data;
@@ -1546,7 +1546,7 @@ export function EditClient({
       router.refresh();
     } catch (err) {
       console.error("[edit] availability save threw:", err);
-      setToast("Couldn't save — try again.");
+      setToast("Couldn't save - try again.");
     } finally {
       setAvailSaving(false);
     }
@@ -1722,7 +1722,7 @@ export function EditClient({
         experience: experienceInput,
       });
       if (!result.success) {
-        setToast(result.error || "Couldn't save — try again.");
+        setToast(result.error || "Couldn't save - try again.");
         return;
       }
 
@@ -1745,7 +1745,7 @@ export function EditClient({
       router.refresh();
     } catch (err) {
       console.error("[edit] skills/experience save threw:", err);
-      setToast("Couldn't save — try again.");
+      setToast("Couldn't save - try again.");
     } finally {
       setSkillsExpSaving(false);
     }
@@ -1809,7 +1809,7 @@ export function EditClient({
         hoursPerWeek,
       });
       if (!result.success) {
-        setToast(result.error || "Couldn't save — try again.");
+        setToast(result.error || "Couldn't save - try again.");
         return;
       }
       const saved = result.data;
@@ -1829,7 +1829,7 @@ export function EditClient({
       router.refresh();
     } catch (err) {
       console.error("[edit] remote prof save threw:", err);
-      setToast("Couldn't save — try again.");
+      setToast("Couldn't save - try again.");
     } finally {
       setRemoteProfSaving(false);
     }
@@ -1884,7 +1884,7 @@ export function EditClient({
         workType,
       });
       if (!result.success) {
-        setToast(result.error || "Couldn't save — try again.");
+        setToast(result.error || "Couldn't save - try again.");
         return;
       }
       const saved = result.data;
@@ -1908,7 +1908,7 @@ export function EditClient({
       router.refresh();
     } catch (err) {
       console.error("[edit] remote avail save threw:", err);
-      setToast("Couldn't save — try again.");
+      setToast("Couldn't save - try again.");
     } finally {
       setRemoteAvailSaving(false);
     }
@@ -1995,7 +1995,7 @@ export function EditClient({
         skills: pending,
       });
       if (!result.success) {
-        setToast(result.error || "Couldn't save — try again.");
+        setToast(result.error || "Couldn't save - try again.");
         return;
       }
       setRemoteSkillsList(result.data.skills);
@@ -2005,7 +2005,7 @@ export function EditClient({
       router.refresh();
     } catch (err) {
       console.error("[edit] remote skills save threw:", err);
-      setToast("Couldn't save — try again.");
+      setToast("Couldn't save - try again.");
     } finally {
       setRemoteSkillsSaving(false);
     }
@@ -2051,7 +2051,7 @@ export function EditClient({
         end,
       });
       if (!result.success) {
-        setToast(result.error || "Couldn't save — try again.");
+        setToast(result.error || "Couldn't save - try again.");
         return;
       }
       const saved = result.data;
@@ -2069,7 +2069,7 @@ export function EditClient({
       router.refresh();
     } catch (err) {
       console.error("[edit] remote edu save threw:", err);
-      setToast("Couldn't save — try again.");
+      setToast("Couldn't save - try again.");
     } finally {
       setRemoteEduSaving(false);
     }
@@ -2138,7 +2138,7 @@ export function EditClient({
         employment: payload,
       });
       if (!result.success) {
-        setToast(result.error || "Couldn't save — try again.");
+        setToast(result.error || "Couldn't save - try again.");
         return;
       }
       const savedRows: EmploymentRowState[] = result.data.employment.map(
@@ -2157,7 +2157,7 @@ export function EditClient({
       router.refresh();
     } catch (err) {
       console.error("[edit] remote employment save threw:", err);
-      setToast("Couldn't save — try again.");
+      setToast("Couldn't save - try again.");
     } finally {
       setEmploymentSaving(false);
     }
@@ -2218,7 +2218,7 @@ export function EditClient({
         languages: payload,
       });
       if (!result.success) {
-        setToast(result.error || "Couldn't save — try again.");
+        setToast(result.error || "Couldn't save - try again.");
         return;
       }
       const savedRows: LanguageRowState[] = result.data.languages.map(
@@ -2234,7 +2234,7 @@ export function EditClient({
       router.refresh();
     } catch (err) {
       console.error("[edit] remote languages save threw:", err);
-      setToast("Couldn't save — try again.");
+      setToast("Couldn't save - try again.");
     } finally {
       setLanguagesSaving(false);
     }
@@ -2309,7 +2309,7 @@ export function EditClient({
         portfolio: payload,
       });
       if (!result.success) {
-        setToast(result.error || "Couldn't save — try again.");
+        setToast(result.error || "Couldn't save - try again.");
         return;
       }
       // Server returns `title`; map back to `projectTitle` for UI state.
@@ -2328,7 +2328,7 @@ export function EditClient({
       router.refresh();
     } catch (err) {
       console.error("[edit] remote portfolio save threw:", err);
-      setToast("Couldn't save — try again.");
+      setToast("Couldn't save - try again.");
     } finally {
       setPortfolioSaving(false);
     }
@@ -2534,7 +2534,7 @@ export function EditClient({
             linkedinUrl: linkRaw || null,
           });
       if (!result.success) {
-        setToast(result.error || "Couldn't save — try again.");
+        setToast(result.error || "Couldn't save - try again.");
         return;
       }
       const savedPhone =
@@ -2557,7 +2557,7 @@ export function EditClient({
       router.refresh();
     } catch (err) {
       console.error("[edit] basic save threw:", err);
-      setToast("Couldn't save — try again.");
+      setToast("Couldn't save - try again.");
     } finally {
       setBasicSaving(false);
     }
@@ -2981,7 +2981,7 @@ export function EditClient({
                               aria-invalid={Boolean(locErrors.country)}
                               className={INPUT_CLASS}
                             >
-                              <option value="">—</option>
+                              <option value="">-</option>
                               {COUNTRY_OPTIONS.map((c) => (
                                 <option key={c} value={c}>
                                   {c}
@@ -3044,7 +3044,7 @@ export function EditClient({
                               aria-invalid={Boolean(locErrors.country)}
                               className={INPUT_CLASS}
                             >
-                              <option value="">—</option>
+                              <option value="">-</option>
                               {COUNTRY_OPTIONS.map((c) => (
                                 <option key={c} value={c}>
                                   {c}
@@ -3171,7 +3171,7 @@ export function EditClient({
                                   setRemoteHourlyRate(e.target.value)
                                 }
                                 aria-invalid={Boolean(remoteProfErrors.hourlyRate)}
-                                placeholder={`${HOURLY_RATE_MIN}–${HOURLY_RATE_MAX}`}
+                                placeholder={`${HOURLY_RATE_MIN}-${HOURLY_RATE_MAX}`}
                                 className={INPUT_CLASS}
                               />
                               {remoteProfErrors.hourlyRate && (
@@ -3261,7 +3261,7 @@ export function EditClient({
                             aria-invalid={Boolean(profErrors.roleCategory)}
                             className={INPUT_CLASS}
                           >
-                            <option value="">—</option>
+                            <option value="">-</option>
                             {ROLE_CATEGORY_OPTIONS.map((o) => (
                               <option key={o.value} value={o.value}>
                                 {o.label}
@@ -3302,7 +3302,7 @@ export function EditClient({
                             aria-invalid={Boolean(profErrors.industry)}
                             className={INPUT_CLASS}
                           >
-                            <option value="">—</option>
+                            <option value="">-</option>
                             {INDUSTRY_OPTIONS.map((c) => (
                               <option key={c} value={c}>
                                 {c}
@@ -4184,7 +4184,7 @@ export function EditClient({
                         </label>
                       </div>
                       <p className="mt-3 text-[11px] text-gray-400">
-                        We'll combine your dates as "YYYY-MM–YYYY-MM" on your
+                        We'll combine your dates as "YYYY-MM to YYYY-MM" on your
                         profile.
                       </p>
                       <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
