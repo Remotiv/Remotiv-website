@@ -55,7 +55,7 @@ function formatSalary(min: number | null, max: number | null): string | null {
   // left to right).
   if (lo != null && hi != null && lo > hi) [lo, hi] = [hi, lo];
   const fmt = (n: number) => `$${n.toLocaleString("en-US")}`;
-  if (lo != null && hi != null) return `${fmt(lo)} - ${fmt(hi)}`;
+  if (lo != null && hi != null) return `${fmt(lo)}-${fmt(hi)}`;
   if (lo != null) return `${fmt(lo)}+`;
   if (hi != null) return `up to ${fmt(hi)}`;
   return null;

@@ -14,12 +14,12 @@ import { canonicalUrl } from "@/lib/seo";
 export const metadata: Metadata = {
   title: "About Remotiv - Our Mission & Team",
   description:
-    "Remotiv connects companies with Pakistan's top 1% of pre-vetted professionals — faster hires, stronger teams, and zero hiring risk. Meet the team behind it.",
+    "Remotiv connects companies with Pakistan's top 1% of pre-vetted professionals - faster hires, stronger teams, and zero hiring risk. Meet the team behind it.",
   alternates: { canonical: "/about" },
   openGraph: {
     title: "About Remotiv - Our Mission & Team",
     description:
-      "Remotiv connects companies with Pakistan's top 1% of pre-vetted professionals — faster hires, stronger teams, and zero hiring risk. Meet the team behind it.",
+      "Remotiv connects companies with Pakistan's top 1% of pre-vetted professionals - faster hires, stronger teams, and zero hiring risk. Meet the team behind it.",
     url: "/about",
     siteName: "Remotiv",
     locale: "en_US",
@@ -29,7 +29,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "About Remotiv - Our Mission & Team",
     description:
-      "Remotiv connects companies with Pakistan's top 1% of pre-vetted professionals — faster hires, stronger teams, and zero hiring risk. Meet the team behind it.",
+      "Remotiv connects companies with Pakistan's top 1% of pre-vetted professionals - faster hires, stronger teams, and zero hiring risk. Meet the team behind it.",
   },
   robots: { index: true, follow: true },
 };

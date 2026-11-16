@@ -43,7 +43,7 @@ function fmtSalary(min: number | null, max: number | null, currency: string | nu
   const fmt = (n: number) => n.toLocaleString("en-US");
   if (min && max) {
     if (min === max) return `${cur} ${fmt(min)}/mo`;
-    return `${cur} ${fmt(min)} - ${fmt(max)}/mo`;
+    return `${cur} ${fmt(min)}-${fmt(max)}/mo`;
   }
   if (min) return `From ${cur} ${fmt(min)}/mo`;
   return `Up to ${cur} ${fmt(max!)}/mo`;

@@ -22,7 +22,7 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://remotiv.work"),
   title: "Remotiv - Hire Top 1% Senior Engineering Talent",
   description:
-    "Hire pre-vetted engineers, scale with staff augmentation, or build dedicated teams — without the usual delays.",
+    "Hire pre-vetted engineers, scale with staff augmentation, or build dedicated teams - without the usual delays.",
   applicationName: "Remotiv",
   keywords: [
     "remote engineering",
@@ -38,7 +38,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Remotiv - Hire Top 1% Senior Engineering Talent",
     description:
-      "Hire pre-vetted engineers, scale with staff augmentation, or build dedicated teams — without the usual delays.",
+      "Hire pre-vetted engineers, scale with staff augmentation, or build dedicated teams - without the usual delays.",
     url: "https://remotiv.work",
     siteName: "Remotiv",
     locale: "en_US",
@@ -149,7 +149,7 @@ export default function RootLayout({
               name: "Remotiv",
               url: "https://remotiv.work",
               description:
-                "Hire pre-vetted engineers, scale with staff augmentation, or build dedicated teams — without the usual delays.",
+                "Hire pre-vetted engineers, scale with staff augmentation, or build dedicated teams - without the usual delays.",
             }),
           }}
         />

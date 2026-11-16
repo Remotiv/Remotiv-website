@@ -4,7 +4,7 @@ import { ImageResponse } from "next/og";
 // keeps its pair. Change the copy in both files together.
 export const runtime = "edge";
 export const alt =
-  "Remotiv — AI Video Interviews: Async Video Interviews, with evidence behind every score.";
+  "Remotiv - AI Video Interviews: Async Video Interviews, with evidence behind every score.";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
