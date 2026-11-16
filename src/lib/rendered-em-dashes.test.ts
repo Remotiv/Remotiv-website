@@ -515,7 +515,7 @@ export const RENDERED_EM_DASHES = {
   "app/client/_components/client-batch-view.tsx": { count: 0, note: "client portal" },
   "app/admin/lib/format.ts": { count: 8, note: "admin UI" },
   "app/ai-dashboard/(gated)/applicants/_interview-panel.tsx": {
-    count: 8,
+    count: 0,
     note: "AI dashboard copy",
   },
   "app/join-as-freelancer/page.tsx": { count: 0, note: "marketing or public page" },

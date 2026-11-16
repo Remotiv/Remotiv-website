@@ -798,7 +798,7 @@ function LiveInterviewSection({
       // Logged for the same reason as the async send: a thrown action's
       // message is replaced by a digest, and the digest needs this line.
       console.error("[applicants] sendLiveInterviewInvite threw:", err);
-      result = { success: false, error: "Couldn't send — please try again." };
+      result = { success: false, error: "Couldn't send - please try again." };
     }
     setBusy(false);
     setReissuing(false);
@@ -843,7 +843,7 @@ function LiveInterviewSection({
             </div>
             <div className="min-w-0 flex-1">
               <b className="block text-[13px] font-bold text-[var(--ai-t1)]">
-                {session.status === "started" ? "Started, not finished" : "Sent — not started"}
+                {session.status === "started" ? "Started, not finished" : "Sent - not started"}
               </b>
               <p className="m-0 mt-[3px] text-[12.5px] leading-[1.6] text-[var(--ai-t3)]">
                 Sent {fmt(session.sentAt)}
@@ -858,7 +858,7 @@ function LiveInterviewSection({
               one is always a dash. */}
           <div className="mt-3.5 flex border-t border-[var(--ai-line-soft)] pt-3.5">
             <Step label="Sent" value={fmt(session.sentAt)} />
-            <Step label="Started" value={session.startedAt ? fmt(session.startedAt) : "—"} />
+            <Step label="Started" value={session.startedAt ? fmt(session.startedAt) : "-"} />
             <Step label="Expires" value={fmt(session.expiresAt)} />
           </div>
         </div>
@@ -1073,7 +1073,7 @@ function BookingSection({
       result = await cancelBookingAsRecruiter(applicationId, cancelReason.trim() || undefined);
     } catch (err) {
       console.error("[applicants] cancelBookingAsRecruiter threw:", err);
-      result = { success: false, error: "Couldn't cancel — please try again." };
+      result = { success: false, error: "Couldn't cancel - please try again." };
     }
     setBusy(false);
     setCancelling(false);
@@ -1086,7 +1086,7 @@ function BookingSection({
     onToast(
       result.data.removedFromCalendar
         ? "Interview cancelled"
-        : "Cancelled — remove it from your calendar too",
+        : "Cancelled - remove it from your calendar too",
     );
     await load();
   }
@@ -1100,7 +1100,7 @@ function BookingSection({
     } catch (err) {
       // See the note on the async send — an unexplained throw must not be silent.
       console.error("[applicants] sendBookingLink threw:", err);
-      result = { success: false, error: "Couldn't send — please try again." };
+      result = { success: false, error: "Couldn't send - please try again." };
     }
     setBusy(false);
 
@@ -1155,7 +1155,7 @@ function BookingSection({
                   <>
                     Cancelled
                     {booking.cancelledBy === "candidate" ? " by the candidate" : " by your team"}
-                    {booking.cancelReason ? ` — “${booking.cancelReason}”` : "."}
+                    {booking.cancelReason ? `: “${booking.cancelReason}”` : "."}
                     {canManage ? " Send a new link to offer fresh times." : ""}
                   </>
                 ) : !canManage && !booking ? (
@@ -1258,7 +1258,7 @@ function ScheduledCall({
                 timeZone: hostZone,
               })}{" "}
               · {clockAt(start, hostZone)}
-              {booking.scheduledEnd ? ` – ${clockAt(booking.scheduledEnd, hostZone)}` : ""}
+              {booking.scheduledEnd ? `-${clockAt(booking.scheduledEnd, hostZone)}` : ""}
             </h4>
             {/* The provenance line, with "in 5 days" folded onto it. The design
                 gives that its own cell in the clock row, paired with a
@@ -1298,7 +1298,7 @@ function ScheduledCall({
               value={cancelReason}
               maxLength={500}
               onChange={(e) => onCancelReason(e.target.value)}
-              placeholder="Reason (optional) — the candidate is told the call is off either way"
+              placeholder="Reason (optional) - the candidate is told the call is off either way"
               className="mb-2 w-full rounded-[10px] border border-[var(--ai-line-strong)] px-2.5 py-2 text-[12.5px] outline-none focus:border-remotiv-purple"
             />
             <div className="flex flex-wrap gap-2">

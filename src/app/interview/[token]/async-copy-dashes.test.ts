@@ -8,11 +8,12 @@
  * em or en dash. Comments are not in the AST, and console.* / Error messages
  * are skipped because nobody reads them on screen.
  *
- * Three files are only partly async. For those the scan is limited to the
- * async block, found by source markers that are asserted to exist, so a
- * renamed marker fails loudly instead of silently scanning nothing. Live and
- * booking copy (the rest of the interview panel, _live/**) is not this
- * test's business.
+ * The recruiter's interview panel is read whole: its live and booking copy
+ * too, since the interview-screens dash pass (17 Nov 2026). Three other files
+ * are only partly async. For those the scan is limited to the async block,
+ * found by source markers that are asserted to exist, so a renamed marker
+ * fails loudly instead of silently scanning nothing. The candidate's live
+ * screens (_live/**) are not this test's business.
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -66,6 +67,7 @@ const WHOLE_FILES = [
   "./error.tsx",
   "./page.tsx",
   "../../ai-dashboard/(gated)/applicants/interview-actions.ts",
+  "../../ai-dashboard/(gated)/applicants/_interview-panel.tsx",
   "../../ai-dashboard/(gated)/interviews/_interviews-client.tsx",
   "../../ai-dashboard/(gated)/interviews/[sessionId]/_review-client.tsx",
   "../../../lib/email/candidate/interview-reminder.ts",
@@ -73,12 +75,6 @@ const WHOLE_FILES = [
 
 /** [file, start marker, end marker, fewest strings]: only the copy between the markers is async. */
 const SECTIONS: Array<[string, string, string, number]> = [
-  [
-    "../../ai-dashboard/(gated)/applicants/_interview-panel.tsx",
-    "const STATE: Record<",
-    "export function liveRestartText(",
-    11,
-  ],
   [
     "../../ai-dashboard/(gated)/jobs/new/_wizard-client.tsx",
     "{step === 5 && (",
