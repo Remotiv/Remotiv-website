@@ -986,7 +986,7 @@ function buildInsights(input: {
       tone: "warn",
       before: "",
       figure: `${100 - input.interview.completionPct}%`,
-      after: ` of invited candidates haven't finished their interview — ${outstanding} ${
+      after: ` of invited candidates haven't finished their interview - ${outstanding} ${
         outstanding === 1 ? "is" : "are"
       } outstanding.`,
       cta: "See who",
@@ -1018,7 +1018,7 @@ function buildInsights(input: {
   if (out.length < 3 && input.bottleneck) {
     out.push({
       tone: "warn",
-      before: `Candidates wait longest at ${input.bottleneck.label} — `,
+      before: `Candidates wait longest at ${input.bottleneck.label} - `,
       figure: `${input.bottleneck.avgDays} days`,
       after: " on average, more than any other stage.",
       cta: "See the stage",

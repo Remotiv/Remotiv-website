@@ -122,10 +122,10 @@ function Sentence({ week }: { week: WeekReport }) {
   if (prev) {
     comparison =
       week.applied > prev.applied
-        ? "— more than the week before —"
+        ? ", more than the week before,"
         : week.applied < prev.applied
-          ? "— fewer than the week before —"
-          : "— the same as the week before —";
+          ? ", fewer than the week before,"
+          : ", the same as the week before,";
   }
 
   const forwardClause =
@@ -146,7 +146,7 @@ function Sentence({ week }: { week: WeekReport }) {
       <span className="relative z-0 inline-block px-1.5 text-[var(--ai-sidebar)] before:absolute before:inset-y-[4%] before:-inset-x-[3px] before:-z-10 before:-rotate-[1.2deg] before:rounded-[3px] before:bg-remotiv-lime before:content-['']">
         {week.applied} {people} applied
       </span>
-      {comparison ? ` ${comparison}` : ""}
+      {comparison ?? ""}
       {forwardClause}
       {tail}
     </p>
@@ -180,7 +180,7 @@ export function WeeklyClient({ initialWeek }: { initialWeek: WeekReport }) {
       setOffset(next);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch {
-      setToast("Couldn't load that week — please try again.");
+      setToast("Couldn't load that week - please try again.");
     } finally {
       setLoading(false);
     }

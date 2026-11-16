@@ -312,7 +312,7 @@ export async function fetchOverview(): Promise<OverviewData> {
     jobTitle:
       jobs.find((j) => j.id === a.job_id)?.title?.trim() ||
       a.job_title_snapshot?.trim() ||
-      "—",
+      "-",
     stage: stageOf(a),
     createdAt: a.created_at ?? "",
   }));

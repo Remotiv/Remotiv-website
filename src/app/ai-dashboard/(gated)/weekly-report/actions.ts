@@ -73,9 +73,9 @@ function fmtDay(d: Date): string {
   });
 }
 
-/** "28 July – 3 August". */
+/** "28 July - 3 August". */
 function fmtRange(start: Date, end: Date): string {
-  return `${fmtDay(start)} – ${fmtDay(end)}`;
+  return `${fmtDay(start)} - ${fmtDay(end)}`;
 }
 
 
@@ -407,7 +407,7 @@ async function buildTopMatches(
       return {
         applicationId: id,
         name: nameOf(app),
-        role: roleOf(app, "—"),
+        role: roleOf(app, "-"),
         score: Math.round(score),
       };
     });

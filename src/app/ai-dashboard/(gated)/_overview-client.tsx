@@ -176,7 +176,7 @@ function AiHero({
     if (totalApplicants === 0) {
       return publishedJobs > 0 ? (
         <>
-          Your roles are live —{" "}
+          Your roles are live -{" "}
           <mark className="bg-transparent text-remotiv-lime">
             applications land here
           </mark>{" "}
@@ -204,7 +204,7 @@ function AiHero({
     return (
       <>
         {totalApplicants} application{totalApplicants === 1 ? "" : "s"}{" "}
-        collected and filed —{" "}
+        collected and filed -{" "}
         <mark className="bg-transparent text-remotiv-lime">all in one place</mark>
         .
       </>
@@ -555,7 +555,7 @@ export function OverviewClient({
         key: "invites",
         tally: pendingInvites.value,
         title: "Invites awaiting acceptance",
-        body: `${pendingInvites.value === 1 ? "One invite hasn't" : `${pendingInvites.value} invites haven't`} been accepted yet. Invite links expire after seven days — resend if it has gone stale.`,
+        body: `${pendingInvites.value === 1 ? "One invite hasn't" : `${pendingInvites.value} invites haven't`} been accepted yet. Invite links expire after seven days - resend if it has gone stale.`,
         cta: "Open team",
         href: "/ai-dashboard/team",
         icon: Mail,
@@ -580,7 +580,7 @@ export function OverviewClient({
         <>
           Nothing is live yet. Publish your first role and it goes out on
           remotiv.work <LimeHighlight>the same day</LimeHighlight>. Nothing
-          waits on Remotiv — you post, and applications come straight to you.
+          waits on Remotiv - you post, and applications come straight to you.
         </>
       );
     }
@@ -592,7 +592,7 @@ export function OverviewClient({
             {newThisWeek} new applicant{newThisWeek === 1 ? "" : "s"}
           </LimeHighlight>{" "}
           this week across {publishedJobs} live role
-          {publishedJobs === 1 ? "" : "s"}. Nothing is waiting on Remotiv —
+          {publishedJobs === 1 ? "" : "s"}. Nothing is waiting on Remotiv -
           these applicants are yours to move.
         </>
       );
@@ -604,7 +604,7 @@ export function OverviewClient({
           {publishedJobs} role{publishedJobs === 1 ? "" : "s"}
         </LimeHighlight>{" "}
         {publishedJobs === 1 ? "is" : "are"} live and collecting on
-        remotiv.work. Nothing is waiting on Remotiv — it&apos;s all on you now.
+        remotiv.work. Nothing is waiting on Remotiv - it&apos;s all on you now.
       </>
     );
   })();
@@ -705,7 +705,7 @@ export function OverviewClient({
                 Same voice as the full-page failure states, different shape. */}
             {!activity.ok ? (
               <p className="m-0 text-[13px] leading-relaxed text-[var(--ai-t3)]">
-                We couldn't load recent activity. Nothing's been lost — reload the page
+                We couldn't load recent activity. Nothing's been lost - reload the page
                 to try again.
               </p>
             ) : activity.value.length === 0 ? (

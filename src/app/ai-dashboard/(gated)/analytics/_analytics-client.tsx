@@ -82,12 +82,12 @@ export function AnalyticsClient({ initial }: { initial: AnalyticsResult }) {
           <p className="m-0 mt-3 max-w-[620px] text-[15px] leading-relaxed text-[var(--ai-t2)]">
             {data.hasAnyData ? (
               <>
-                Where your hiring is <Marker>actually slowing down</Marker> — and which sources are
+                Where your hiring is <Marker>actually slowing down</Marker> - and which sources are
                 worth your time.
               </>
             ) : (
               <>
-                Nothing to report yet — this page <Marker>fills in as you hire</Marker>.
+                Nothing to report yet - this page <Marker>fills in as you hire</Marker>.
               </>
             )}
           </p>
@@ -112,7 +112,7 @@ export function AnalyticsClient({ initial }: { initial: AnalyticsResult }) {
           role="alert"
           className="mb-[22px] rounded-[14px] border border-red-200 bg-red-50 px-4 py-3 text-[13.5px] text-red-700"
         >
-          Couldn't load that range — the figures below are still the previous one. Please try again.
+          Couldn't load that range - the figures below are still the previous one. Please try again.
         </p>
       )}
 
@@ -179,7 +179,7 @@ function InsightStrip({ data }: { data: AnalyticsResult }) {
           <p className="m-0 max-w-[640px] text-[14.5px] leading-relaxed text-white/60">
             <b className="font-bold text-white">Nothing to flag yet.</b> Once around twenty people
             have applied, this is where you&apos;ll get three plain-English observations about
-            what&apos;s working and what isn&apos;t — each one linking straight to the thing
+            what&apos;s working and what isn&apos;t - each one linking straight to the thing
             it&apos;s about.
           </p>
         </div>
@@ -239,7 +239,7 @@ function StatGrid({ data }: { data: AnalyticsResult }) {
           {s.value === null ? (
             /* An em-dash, never a fabricated 0 — see emptyLabel below it. */
             <p className="m-0 font-heading text-[22px] font-extrabold leading-none text-[var(--ai-t4)]">
-              —
+              -
             </p>
           ) : (
             <p className="m-0 flex items-baseline gap-0.5 font-heading text-[29px] font-extrabold leading-none tracking-[-0.045em]">
@@ -305,7 +305,7 @@ function Funnel({ data, range }: { data: AnalyticsResult; range: AnalyticsRange 
           <TriangleAlert className="mt-px size-4 shrink-0 text-[#7A4E05]" strokeWidth={2} />
           <p className="m-0 text-[12.5px] leading-relaxed text-[#7A4E05]">
             <b className="font-extrabold">{bottleneck.label} is your bottleneck.</b> Candidates wait{" "}
-            {bottleneck.avgDays} days there — longer than any other stage.{" "}
+            {bottleneck.avgDays} days there - longer than any other stage.{" "}
             <Link
               href="/ai-dashboard/applicants?job=all"
               className="font-extrabold text-[#7A4E05] underline underline-offset-2"
@@ -321,7 +321,7 @@ function Funnel({ data, range }: { data: AnalyticsResult; range: AnalyticsRange 
           <Info className="mt-px size-4 shrink-0 text-[var(--ai-t3)]" strokeWidth={2} />
           <p className="m-0 text-[12.5px] leading-relaxed text-[var(--ai-t2)]">
             <b className="font-extrabold">Nobody has reached {firstUnreached.label} yet.</b> Those
-            stages stay dashed until someone gets there — they aren&apos;t zeros, there&apos;s just
+            stages stay dashed until someone gets there - they aren&apos;t zeros, there&apos;s just
             no data to average.
           </p>
         </div>
@@ -379,11 +379,11 @@ function FunnelRow({
           !stage.reached ? "text-[var(--ai-t4)]" : slow ? "text-[#7A4E05]" : "text-[#2E2470]"
         }`}
       >
-        {stage.reached ? stage.count : "—"}
+        {stage.reached ? stage.count : "-"}
       </span>
       {stage.avgDays === null ? (
         <span className="text-right text-[12px] font-semibold text-[var(--ai-t3)]">
-          {stage.reached ? "—" : "Not reached"}
+          {stage.reached ? "-" : "Not reached"}
         </span>
       ) : slow ? (
         <span className="justify-self-end rounded-full bg-[#FBEBCF] px-[9px] py-[3px] text-[12px] font-extrabold tabular-nums text-[#7A4E05]">
@@ -454,7 +454,7 @@ function Sources({ data }: { data: AnalyticsResult }) {
           </h4>
           <p className="m-0 max-w-[340px] text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
             Every applicant currently shows as <b className="font-bold">Direct</b>. Share a job with
-            a tracked link and the channel it came from will appear here — including domains we
+            a tracked link and the channel it came from will appear here - including domains we
             don&apos;t recognise.
           </p>
           <Link
@@ -473,7 +473,7 @@ function Sources({ data }: { data: AnalyticsResult }) {
             <Legend colour="#9886FE" label="Applications" />
             <Legend colour="#49D7A7" label="Reached shortlist" />
             <Legend colour="#49D7A7" label="Ring: avg score 80+" round />
-            <Legend colour="#F5A524" label="60–79" />
+            <Legend colour="#F5A524" label="60-79" />
             <Legend colour="#E0524B" label="Under 60" />
           </div>
         </>
@@ -577,7 +577,7 @@ function SourceRowView({ source, topVolume }: { source: SourceRow; topVolume: nu
           </>
         ) : (
           <span className="flex size-11 items-center justify-center text-[13px] text-[var(--ai-t4)]">
-            —
+            -
           </span>
         )}
       </span>
@@ -607,7 +607,7 @@ function Agreement({ data }: { data: AnalyticsResult }) {
             <Lightbulb className="size-6" strokeWidth={1.8} />
           </span>
           <p className="m-0 mb-[7px] font-heading text-[30px] font-extrabold leading-none text-[var(--ai-t4)]">
-            —
+            -
           </p>
           <h4 className="m-0 mb-[7px] mt-2.5 font-heading text-[15.5px] font-extrabold tracking-[-0.02em]">
             {a ? "No recruiter adjustments yet" : "Nothing scored yet"}
@@ -616,7 +616,7 @@ function Agreement({ data }: { data: AnalyticsResult }) {
             {a ? (
               <>
                 {a.scored} {a.scored === 1 ? "candidate has" : "candidates have"} an AI score, and
-                nobody has changed one yet. This fills in once your team starts adjusting them —
+                nobody has changed one yet. This fills in once your team starts adjusting them -
                 until then there&apos;s no agreement to measure.
               </>
             ) : (
@@ -667,7 +667,7 @@ function Agreement({ data }: { data: AnalyticsResult }) {
                 .{" "}
               </>
             )}
-            An override doesn&apos;t mean the AI was wrong — it&apos;s how we learn where it reads
+            An override doesn&apos;t mean the AI was wrong - it&apos;s how we learn where it reads
             candidates high or low.
           </p>
         </>
@@ -771,7 +771,7 @@ function JobHealth({ data }: { data: AnalyticsResult }) {
                     className="w-5 shrink-0 text-right text-[13px] font-extrabold tabular-nums"
                     style={band ? { color: BAND_INK[band] } : undefined}
                   >
-                    {j.avgScore ?? "—"}
+                    {j.avgScore ?? "-"}
                   </b>
                 </span>
                 <span className="text-right text-[13px] font-bold tabular-nums">
@@ -819,7 +819,7 @@ function DayOne() {
         </h3>
         <p className="mx-auto m-0 max-w-[440px] text-[13.5px] leading-relaxed text-white/[0.55]">
           Analytics is built from your own activity, so there&apos;s nothing here until people start
-          applying. No setup, no tracking code — it fills in on its own.
+          applying. No setup, no tracking code - it fills in on its own.
         </p>
       </div>
       <div className="grid min-[1180px]:grid-cols-3">
