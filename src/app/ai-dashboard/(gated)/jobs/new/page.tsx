@@ -6,7 +6,7 @@ import { seedRejectionDefault } from "@/lib/email/candidate/triggers";
 import { WizardClient } from "./_wizard-client";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "New job — Remotiv AI Interviews" };
+export const metadata = { title: "New job - Remotiv AI Interviews" };
 
 export default async function NewJobPage() {
   const ctx = await getCompanyContext();

@@ -11,7 +11,7 @@ import {
 import { MessagesClient } from "./_messages-client";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Messages — Remotiv AI Interviews" };
+export const metadata = { title: "Messages - Remotiv AI Interviews" };
 
 const EMPTY_AGGREGATES = {
   all: 0,

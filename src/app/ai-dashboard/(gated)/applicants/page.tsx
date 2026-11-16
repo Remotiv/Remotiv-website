@@ -23,7 +23,7 @@ import { loadApplicantsUsage } from "@/app/ai-dashboard/lib/company-usage-view";
 import { QuotaBanner } from "./_quota-banner";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Applicants — Remotiv AI Interviews" };
+export const metadata = { title: "Applicants - Remotiv AI Interviews" };
 
 export default async function ApplicantsPage({
   searchParams,

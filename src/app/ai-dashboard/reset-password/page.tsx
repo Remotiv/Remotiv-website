@@ -3,7 +3,7 @@ import { TriangleAlert } from "lucide-react";
 import { ResetPasswordClient } from "./reset-password-client";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Set a new password — Remotiv" };
+export const metadata = { title: "Set a new password - Remotiv" };
 
 type InvalidReason = "missing_token" | "link_error";
 

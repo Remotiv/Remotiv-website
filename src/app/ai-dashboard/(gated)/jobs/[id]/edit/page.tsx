@@ -17,7 +17,7 @@ import { fetchInterviewQuestions } from "../../actions";
 import { WizardClient } from "../../new/_wizard-client";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Edit job — Remotiv AI Interviews" };
+export const metadata = { title: "Edit job - Remotiv AI Interviews" };
 
 type JobRow = {
   id: string;

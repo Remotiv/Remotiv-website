@@ -17,7 +17,7 @@ import { UsageMeter } from "./_usage-meter";
 import { OverviewClient } from "./_overview-client";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Overview — Remotiv AI Interviews" };
+export const metadata = { title: "Overview - Remotiv AI Interviews" };
 
 export default async function CompanyOverviewPage() {
   // The gated layout guards this route too, but Next renders layout and page

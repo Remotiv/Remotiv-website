@@ -3,7 +3,7 @@ import { JobsClient } from "./_jobs-client";
 import { fetchCompanyJobs, fetchDeletedCompanyJobs } from "./actions";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Jobs — Remotiv AI Interviews" };
+export const metadata = { title: "Jobs - Remotiv AI Interviews" };
 
 export default async function JobsPage() {
   // Tombstones are fetched here rather than on demand so the Deleted button can

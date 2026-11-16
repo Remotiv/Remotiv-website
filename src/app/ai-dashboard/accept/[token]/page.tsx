@@ -8,7 +8,7 @@ import {
 import { AcceptClient } from "./accept-client";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Accept invitation — Remotiv" };
+export const metadata = { title: "Accept invitation - Remotiv" };
 
 type InviteRow = {
   id: string;

@@ -4,7 +4,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { CompanyLoginClient } from "./login-client";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Sign in — Remotiv AI Interviews" };
+export const metadata = { title: "Sign in - Remotiv AI Interviews" };
 
 export default async function CompanyLoginPage({
   searchParams,

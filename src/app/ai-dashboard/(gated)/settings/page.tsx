@@ -11,7 +11,7 @@ import { loadSettingsUsage } from "@/app/ai-dashboard/lib/company-usage-view";
 import { PlanUsageCard } from "./_plan-usage-card";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Settings — Remotiv AI Interviews" };
+export const metadata = { title: "Settings - Remotiv AI Interviews" };
 
 export default async function SettingsPage() {
   const ctx = await getCompanyContext();
