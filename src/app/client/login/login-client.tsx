@@ -124,7 +124,7 @@ export function ClientLoginClient({ reason }: { reason: string | null }) {
             <span className="text-remotiv-purple">ready for review.</span>
           </h1>
           <p className="mt-5 max-w-md text-base leading-relaxed text-gray-600">
-            Approve, reject, or request interviews — all in one place.
+            Approve, reject, or request interviews - all in one place.
           </p>
           <div className="mt-7 flex flex-wrap gap-2">
             <Pill>Real-time updates</Pill>

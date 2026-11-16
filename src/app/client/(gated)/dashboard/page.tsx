@@ -76,7 +76,7 @@ export default async function ClientDashboardPage() {
 }
 
 function fmtDaysAgo(iso: string): string {
-  if (!iso) return "—";
+  if (!iso) return "-";
   const diff = Date.now() - new Date(iso).getTime();
   const days = Math.floor(diff / (1000 * 60 * 60 * 24));
   if (days < 1) return "today";

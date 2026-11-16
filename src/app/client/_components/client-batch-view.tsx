@@ -35,6 +35,9 @@ import {
 } from "@/app/client/actions";
 import { getInitials } from "@/lib/client-avatars";
 
+/** What a FactBlock shows for a missing value, and how it knows to grey it out. */
+const EMPTY_FACT = "-";
+
 const DECISION_LABEL: Record<NonNullable<ClientCandidate["client_decision"]>, string> = {
   approve: "Approved",
   reject: "Rejected",
@@ -173,7 +176,7 @@ function YourNotesPanel({
       </div>
 
       {isAdminPreview ? (
-        <p className="text-[11px] italic text-gray-500">🔒 Read-only preview — admins use the drawer reply on the admin batch page.</p>
+        <p className="text-[11px] italic text-gray-500">🔒 Read-only preview - admins use the drawer reply on the admin batch page.</p>
       ) : (
         <form onSubmit={handleSubmit} className="flex flex-col gap-2">
           <textarea
@@ -400,21 +403,21 @@ function CandidateCard({
         </div>
       </div>
 
-      {/* Profile facts — always render all four with "—" fallback */}
+      {/* Profile facts: always render all four, with the EMPTY_FACT fallback */}
       <div className="px-7 py-5">
         <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
           <FactBlock
             label="Current Role"
-            value={candidate.current_role || "—"}
+            value={candidate.current_role || EMPTY_FACT}
             suffix={
               candidate.current_role && candidate.current_company
                 ? ` @ ${candidate.current_company}`
                 : null
             }
           />
-          <FactBlock label="Current Salary" value={candidate.current_salary || "—"} />
-          <FactBlock label="Expected Salary" value={candidate.salary_expectations || "—"} />
-          <FactBlock label="Notice Period" value={candidate.notice_period || "—"} />
+          <FactBlock label="Current Salary" value={candidate.current_salary || EMPTY_FACT} />
+          <FactBlock label="Expected Salary" value={candidate.salary_expectations || EMPTY_FACT} />
+          <FactBlock label="Notice Period" value={candidate.notice_period || EMPTY_FACT} />
           {candidate.interview_datetime && (
             <FactBlock label="Interview Date & Time" value={candidate.interview_datetime} />
           )}
@@ -470,7 +473,7 @@ function CandidateCard({
               Note from Remotiv
             </p>
             <p className={`whitespace-pre-line text-sm leading-relaxed ${candidate.note_by_remotiv ? "text-gray-700" : "text-gray-400"}`}>
-              {candidate.note_by_remotiv || "—"}
+              {candidate.note_by_remotiv || "-"}
             </p>
           </div>
 
@@ -493,7 +496,7 @@ function CandidateCard({
                   >
                     <Play className="size-3.5 text-[#7E47FF]" strokeWidth={2.5} />
                     {it.label}
-                    <span className="text-[11px] text-gray-400">— Watch ▶</span>
+                    <span className="text-[11px] text-gray-400">- Watch ▶</span>
                   </a>
                 </li>
               ))}
@@ -526,7 +529,7 @@ function CandidateCard({
                 )}
               </>
             ) : (
-              <span className="text-sm text-gray-400">— Pending review</span>
+              <span className="text-sm text-gray-400">Pending review</span>
             )}
             <p className="mt-2 text-[11px] italic text-gray-500">
               🔒 Read-only preview
@@ -698,8 +701,8 @@ function Fact({
 }
 
 /**
- * Always-rendered fact tile used by the client batch view. Shows a "—"
- * placeholder when the value is empty so the layout stays stable across
+ * Always-rendered fact tile used by the client batch view. Shows the EMPTY_FACT
+ * ("-") placeholder when the value is empty so the layout stays stable across
  * candidates with different levels of profile detail.
  */
 function FactBlock({
@@ -711,7 +714,7 @@ function FactBlock({
   value: string;
   suffix?: string | null;
 }) {
-  const empty = value === "—";
+  const empty = value === EMPTY_FACT;
   return (
     <div>
       <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-gray-400">
