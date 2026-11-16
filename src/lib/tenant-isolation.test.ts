@@ -481,9 +481,9 @@ const ALLOWLIST = [
         "downstream is not traced.",
     ],
     why:
-      "A queue worker handler declared at 96, the same shape as handleSendMessage: applicationId " +
+      "A queue worker handler declared at 98, the same shape as handleSendMessage: applicationId " +
       "comes from the job payload and tenancy is derived from this read, " +
-      "`const companyId = app.company_id_snapshot` at 215, with a skip when null and all " +
+      "`const companyId = app.company_id_snapshot` at 158, with a skip when null and all " +
       "downstream logging scoped to that derived value. No caller company exists to filter on.",
   },
 ];
@@ -861,9 +861,10 @@ const SITE_FILTER_VALUES = [
     why:
       "The #85 re-read that settles a 23503 on the first-attempt or skipped insert: does the " +
       "application still exist. key.companyId is DERIVED, never payload-supplied. The only callers " +
-      "are lib/whatsapp/dispatch.ts:221 and :288 in handleWhatsAppMessage, both passing the " +
-      "`companyId` bound at 149 as `app.company_id_snapshot` from the job_applications read at " +
-      "134-138, keyed on payload.applicationId, the derivation the handleWhatsAppMessage ALLOWLIST " +
+      "are lib/whatsapp/dispatch.ts:230 and :297 in handleWhatsAppMessage (the insert at :289 takes " +
+      "the same value), all passing the `companyId` bound at 158 as `app.company_id_snapshot` from " +
+      "the job_applications read at 141-149, keyed on payload.applicationId (103), the derivation " +
+      "the handleWhatsAppMessage ALLOWLIST " +
       "entry above records. WhatsAppSendPayload has no company field and the handler reads none. " +
       "So this filter re-filters the same application by its own company: a consistency check like " +
       "session.company_id, not request-scoped tenancy. communication-attempt.test.ts pins the " +

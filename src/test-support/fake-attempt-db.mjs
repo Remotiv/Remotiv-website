@@ -62,7 +62,8 @@ const one = (row) => ({ data: [row], error: null, status: 200 });
  * `logs`: the starting communication_logs rows. `app`: the application, or
  * null for one that does not exist. `beforeWrite(db, kind, patch)` runs before
  * every communication_logs update, so a test can land a stop or a deletion
- * between two of the code's own steps.
+ * between two of the code's own steps. `appRead`, when set, is how every
+ * job_applications read answers: `{ error, status }` for a failed read.
  */
 export function attemptDb({
   logs = [],
@@ -72,6 +73,7 @@ export function attemptDb({
   insert = null,
   beforeWrite = null,
   optedOut = false,
+  appRead = null,
 } = {}) {
   const db = { logs: logs.map((r) => ({ ...r })), app, nextStamp: 50, nextId: 1 };
   const key = (r) => `${r.application_id}|${r.event}|${r.channel}`;
@@ -196,6 +198,7 @@ export function attemptDb({
         return { data: row ? { id: row.id, status: row.status } : null, error: null, status: 200 };
       }
       case "job_applications": {
+        if (appRead) return { data: null, error: appRead.error, status: appRead.status };
         const live = db.app && matching([db.app], calls).length === 1 ? db.app : null;
         return { data: live, error: null, status: 200 };
       }

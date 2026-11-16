@@ -133,12 +133,21 @@ export async function handleWhatsAppMessage(job: {
    * Loaded first so a deleted application never gets a row claimed for it.
    * Deleted after this read and before the claim, the claim answers missing
    * and the run retries (E4); the next run finds nothing and skips.
+   *
+   * This read gates everything after it, so an ERROR is never read as "gone":
+   * a transient one is a counted retry, anything else stops the job loudly.
+   * Only a read that succeeded and found no row skips.
    */
-  const { data: appData } = await service
+  const {
+    data: appData,
+    error: appError,
+    status: appStatus,
+  } = await service
     .from("job_applications")
     .select("id, first_name, phone, job_id, job_title_snapshot, company_id_snapshot")
     .eq("id", applicationId)
     .maybeSingle();
+  if (appError) throw dbFailure("the application read", appError, appStatus);
 
   const app = appData as ApplicationRow | null;
   if (!app) {

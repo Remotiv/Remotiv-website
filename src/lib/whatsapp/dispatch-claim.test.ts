@@ -10,6 +10,7 @@
  */
 // @ts-nocheck - same reason as paging.test.ts: Node's `.ts` specifier vs this tsconfig.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { register } from "node:module";
 import { test } from "node:test";
 import {
@@ -515,4 +516,66 @@ test("a company id in the job payload never reaches the insert RPC or the 23503 
 
   const skipped = await run(attemptDb({ optedOut: true }), { payloadExtra: FORGED });
   assert.equal(skipped.inserts[0].company_id, COMPANY_ID);
+});
+
+/* ── the application read gates everything: an error is not "gone" ── */
+
+/*
+ * A transient failure on the first read must retry, counted, and never skip:
+ * a skip would drop the message and leave nothing to retry it. Negative
+ * control: ignore the read's error (read it as no row) and the job is skipped,
+ * resolved, and both of these fail.
+ */
+test("a transient error on the application read is a counted retry, never a skip", async () => {
+  const r = await run(
+    attemptDb({ logs: [row({ stale: true })], appRead: { error: { code: "" }, status: 503 } }),
+  );
+  assert.equal(r.outcome.kind, "threw");
+  assert.ok(!(r.outcome.err instanceof JobYield) && !(r.outcome.err instanceof TerminalJobError));
+  assert.ok(r.outcome.err.message.startsWith(A.E3));
+  assert.ok(!r.logs.some((l) => l.includes("[job-skip]")), "the job was skipped");
+  assert.deepEqual(rpcNames(r.service), [], "nothing is claimed before the application is known");
+  assert.deepEqual(r.updates, []);
+});
+
+test("a permanent error on the application read stops the job loudly, never a skip", async () => {
+  const r = await run(attemptDb({ appRead: { error: { code: "42501" }, status: 403 } }));
+  assert.ok(r.outcome.err instanceof TerminalJobError);
+  assert.ok(!r.logs.some((l) => l.includes("[job-skip]")));
+});
+
+// Negative control: treat an empty read as an error and this throws instead of skipping.
+test("a read that succeeds and finds no application still skips the job", async () => {
+  const r = await run(attemptDb({ app: null }));
+  assert.equal(r.outcome.kind, "resolved");
+  assert.ok(r.logs.some((l) => l.includes("[job-skip]") && l.includes("no longer exists")));
+  assert.deepEqual(rpcNames(r.service), []);
+});
+
+/*
+ * The tenant-isolation record for this handler names the line where tenancy is
+ * derived. Prose cannot be checked by reading it, so this checks it. Negative
+ * control: move the binding by a line and this fails until the prose follows.
+ */
+test("the tenant record's line for the companyId derivation points at the binding", () => {
+  const tenant = readFileSync(new URL("../tenant-isolation.test.ts", import.meta.url), "utf8");
+  const entry = tenant.slice(tenant.indexOf('file: "lib/whatsapp/dispatch.ts"'));
+  const cited = Number(/app\.company_id_snapshot` at (\d+)/.exec(entry)?.[1]);
+  const lines = readFileSync(new URL("./dispatch.ts", import.meta.url), "utf8").split("\n");
+  assert.equal(lines[cited - 1]?.trim(), "const companyId = app.company_id_snapshot;");
+
+  // The confirmApplicationGone record cites its callers, the binding and the read.
+  const site = tenant.slice(tenant.indexOf('fn: "confirmApplicationGone"'));
+  const at = (re) => Number(re.exec(site)?.[1]);
+  const line = (n) => lines[n - 1] ?? "";
+  assert.match(line(at(/dispatch\.ts:(\d+) and/)), /confirmApplicationGone\(/);
+  assert.match(line(at(/dispatch\.ts:\d+ and :(\d+)/)), /confirmApplicationGone\(/);
+  assert.match(line(at(/the insert at :(\d+)/)), /insertFirstAttemptCommunicationLog\(/);
+  assert.match(line(at(/bound at (\d+)/)), /const companyId = app\.company_id_snapshot;/);
+  assert.match(line(at(/read at (\d+)-/)), /^\s*const \{$/);
+  assert.match(line(at(/read at \d+-(\d+)/)), /\.maybeSingle\(\);/);
+  assert.match(
+    line(at(/payload\.applicationId \((\d+)\)/)),
+    /const applicationId = payload\?\.applicationId;/,
+  );
 });
