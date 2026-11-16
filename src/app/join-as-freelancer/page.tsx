@@ -555,7 +555,7 @@ export default function RemoteReadyPage() {
     const educationObj = {
       institution: eduInstitution.trim(),
       degree:      eduDegree.trim(),
-      dates:       [eduStart.trim(), eduEnd.trim()].filter(Boolean).join("-"),
+      dates:       [eduStart.trim(), eduEnd.trim()].filter(Boolean).join("–"),
     };
 
     const portfolioList = portfolio
