@@ -46,7 +46,11 @@ import { plainDashes, plainDashesOrNull } from "@/app/ai-dashboard/lib/plain-das
 import { searchTokens } from "@/app/ai-dashboard/lib/search-query";
 import { requestCvScore } from "@/lib/ai/cv-score-request";
 import { MIN_CV_TEXT_CHARS } from "@/lib/ai/cv-scoring";
-import { collectJobApplicationIds, collectScoredApplicationIds } from "@/lib/ai/rescore-collect";
+import {
+  collectJobApplicationIds,
+  collectScoredApplicationIds,
+  cvExpired,
+} from "@/lib/ai/rescore-collect";
 import { removeApplicationFiles } from "@/lib/application-files";
 import {
   RESCORE_NO_ALLOWANCE_MESSAGE,
@@ -1875,13 +1879,14 @@ export async function rescoreApplication(
   const service = createServiceClient();
   const { data } = await service
     .from("job_applications")
-    .select("id, company_id_snapshot, job_id")
+    .select("id, company_id_snapshot, job_id, cv_delete_after")
     .eq("id", applicationId)
     .maybeSingle();
 
   const target = data as {
     company_id_snapshot: string | null;
     job_id: string | null;
+    cv_delete_after: string | null;
   } | null;
 
   // Not-found and not-yours return the SAME message so ids can't be probed.
@@ -1893,6 +1898,14 @@ export async function rescoreApplication(
   }
   if (!target.job_id) {
     return { success: false, error: "This application has no job to score against." };
+  }
+  // #91: an expired CV is never scored again, so the score the purge kept is
+  // never replaced by a "skipped" card (rescore-collect.ts, cvExpired).
+  if (cvExpired({ cv_delete_after: target.cv_delete_after }, Date.now())) {
+    return {
+      success: false,
+      error: "This CV has passed its retention date and was deleted, so it cannot be re-scored.",
+    };
   }
 
   if (scoresToQueue(await readCvCapacity(service, ctx.companyId), 1) === 0) {

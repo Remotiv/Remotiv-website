@@ -69,6 +69,19 @@ import { createServiceClient } from "@/lib/supabase/server";
  * would never fire and the notes would be kept forever. See the second loop
  * below for why it cannot share the first one's selector.
  *
+ * ALSO REMOVED (#91): the AI's words about the CV, from application_scores.
+ * The scorer copies verbatim CV spans into the card as evidence
+ * (ai/cv-scoring.ts, the quote rules), so a card that outlives the CV keeps
+ * pieces of it. Cleared: summary, verdict, evidence, strengths, concerns,
+ * missing_requirements, each dimension's reasoning and quote, each must-have's
+ * quote. KEPT: every number, the confidence, the status, each dimension and
+ * its unstated flag, each must-have's item and status, and every human
+ * adjustment with its note, as the interview purge keeps an interview's
+ * (interviews/async-score-purge.ts). The verdict goes too: the prompt asks only
+ * for "one line, max 12 words: the fit and the key caveat" and the parser only
+ * caps its length (score-parsers.ts MAX_VERDICT_CHARS), so nothing stops it
+ * naming an employer or a school. See the third loop below.
+ *
  * KEPT: the job_applications row. Name, email, stage, screening answers and
  * decision history all survive. The company still knows who applied, when, and
  * what was decided; they no longer hold the document. Deleting the row would
@@ -130,11 +143,12 @@ export type CvPurgeResult =
       objectsRemoved: number;
       objectsKept: number;
       commentsDeleted: number;
+      scoresCleared: number;
       elapsedMs: number;
     }
   | {
       complete: false;
-      stoppedDuring: "applications" | "comments";
+      stoppedDuring: "applications" | "comments" | "scores";
       budgetMs: number;
       examinedSoFar: number;
       clearedSoFar: number;
@@ -142,6 +156,7 @@ export type CvPurgeResult =
       objectsRemoved: number;
       objectsKept: number;
       commentsDeletedSoFar: number;
+      scoresClearedSoFar: number;
       elapsedMs: number;
     };
 
@@ -151,15 +166,104 @@ export function describeCvPurge(jobId: string, r: CvPurgeResult): string {
     return (
       `[cv-purge] job ${jobId}: COMPLETE in ${r.elapsedMs} ms: examined=${r.examined} ` +
       `cleared=${r.cleared} unconfirmed=${r.unconfirmed} (text cleared, path kept, read again next run) ` +
-      `objects=${r.objectsRemoved} kept=${r.objectsKept} comments=${r.commentsDeleted}`
+      `objects=${r.objectsRemoved} kept=${r.objectsKept} comments=${r.commentsDeleted} ` +
+      `scores=${r.scoresCleared}`
     );
   }
   return (
     `[cv-purge] job ${jobId}: INCOMPLETE, budget of ${r.budgetMs} ms reached during ${r.stoppedDuring} ` +
     `after ${r.elapsedMs} ms: examined so far=${r.examinedSoFar} cleared so far=${r.clearedSoFar} ` +
     `unconfirmed so far=${r.unconfirmedSoFar} objects=${r.objectsRemoved} kept=${r.objectsKept} ` +
-    `comments so far=${r.commentsDeletedSoFar}. The rest of the due set was NOT examined; ` +
-    `the next run starts again from the current state.`
+    `comments so far=${r.commentsDeletedSoFar} scores so far=${r.scoresClearedSoFar}. ` +
+    `The rest of the due set was NOT examined; the next run starts again from the current state.`
+  );
+}
+
+/**
+ * The AI's words on a CV scorecard, as the scores pass leaves them. Every
+ * jsonb column here is NOT NULL with a '[]' default, so empty is [], never
+ * null; the two text columns are nullable.
+ */
+export const CV_SCORE_WORDS_CLEARED = {
+  summary: null,
+  verdict: null,
+  evidence: [],
+  strengths: [],
+  concerns: [],
+  missing_requirements: [],
+} as const;
+
+type ScoreWords = {
+  application_id: string;
+  summary: unknown;
+  verdict: unknown;
+  evidence: unknown;
+  strengths: unknown;
+  concerns: unknown;
+  missing_requirements: unknown;
+  dimension_scores: unknown;
+  must_haves: unknown;
+};
+
+const filledText = (v: unknown) => typeof v === "string" && v.trim() !== "";
+
+/** An array with entries, or an object with keys (v4's evidence envelope). */
+const filledJson = (v: unknown) =>
+  Array.isArray(v)
+    ? v.length > 0
+    : v !== null && typeof v === "object" && Object.keys(v).length > 0;
+
+/** The entries of a jsonb array, or of an object's values (a legacy keyed shape). */
+const entriesOf = (v: unknown): unknown[] =>
+  Array.isArray(v) ? v : v !== null && typeof v === "object" ? Object.values(v) : [];
+
+/** Blank the named string fields of one entry; every other field is kept as it is. */
+function blankFields(entry: unknown, fields: readonly string[]): unknown {
+  if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return entry;
+  const out: Record<string, unknown> = { ...(entry as Record<string, unknown>) };
+  for (const f of fields) if (typeof out[f] === "string") out[f] = "";
+  return out;
+}
+
+/** Same shape back, array or keyed object, with the named fields of each entry blanked. */
+function blankEach(v: unknown, fields: readonly string[]): unknown {
+  if (Array.isArray(v)) return v.map((e) => blankFields(e, fields));
+  if (v !== null && typeof v === "object") {
+    return Object.fromEntries(
+      Object.entries(v as Record<string, unknown>).map(([k, e]) => [k, blankFields(e, fields)]),
+    );
+  }
+  return v;
+}
+
+const DIMENSION_WORDS = ["reasoning", "quote"] as const;
+const MUST_HAVE_WORDS = ["quote"] as const;
+
+/** Each dimension kept with its dimension, score and unstated flag; reasoning and quote "". */
+export function clearDimensionWords(v: unknown): unknown {
+  return blankEach(v, DIMENSION_WORDS);
+}
+
+/** Each must-have kept with its item and status; quote "". */
+export function clearMustHaveQuotes(v: unknown): unknown {
+  return blankEach(v, MUST_HAVE_WORDS);
+}
+
+/** Whether a scorecard still holds any of the AI's words about the CV. */
+export function scoreWordsLeft(r: Omit<ScoreWords, "application_id">): boolean {
+  return (
+    filledText(r.summary) ||
+    filledText(r.verdict) ||
+    filledJson(r.evidence) ||
+    filledJson(r.strengths) ||
+    filledJson(r.concerns) ||
+    filledJson(r.missing_requirements) ||
+    entriesOf(r.dimension_scores).some((e) =>
+      DIMENSION_WORDS.some((f) => filledText((e as Record<string, unknown> | null)?.[f])),
+    ) ||
+    entriesOf(r.must_haves).some((e) =>
+      MUST_HAVE_WORDS.some((f) => filledText((e as Record<string, unknown> | null)?.[f])),
+    )
   );
 }
 
@@ -208,7 +312,7 @@ export async function runCvPurge(
   let rowsCleared = 0;
   let textOnly = 0;
   let examined = 0;
-  let stoppedDuring: "applications" | "comments" | null = null;
+  let stoppedDuring: "applications" | "comments" | "scores" | null = null;
 
   /*
    * ── Paged by KEY, not by offset (#55a) ────────────────────────
@@ -462,6 +566,67 @@ export async function runCvPurge(
     if (ids.length < DB_PAGE) break;
   }
 
+  /*
+   * ── Third pass: the AI's words about the CV (#91) ────────────
+   *
+   * Same selector as the comments pass, and its own loop for the same reason:
+   * the first loop cannot see an application whose CV is already gone. Unlike
+   * a deleted comment, a cleared scorecard still matches the selector, so this
+   * pass pages by application_id (unique on the table) and skips a clean card
+   * in code, writing nothing to it. That is also what makes it run every day
+   * over every expired card, as the interview purge does: a card written late
+   * is cleaned on the next run.
+   *
+   * Each card is cleared by its own UPDATE, because dimension_scores and
+   * must_haves are rewritten from the row's own entries: the numbers stay and
+   * only the words go. No score column, no confidence, no status and no
+   * human_* column is named, so effective_score, which Postgres derives from
+   * them, cannot move.
+   *
+   * `!inner` is load-bearing here exactly as in the comments pass.
+   */
+  let scoresCleared = 0;
+  let scoreCursor: string | null = null;
+  for (;;) {
+    if (stoppedDuring) break;
+    if (overBudget()) {
+      stoppedDuring = "scores";
+      break;
+    }
+
+    let page = service
+      .from("application_scores")
+      .select(
+        "application_id, summary, verdict, evidence, strengths, concerns, missing_requirements, " +
+          "dimension_scores, must_haves, job_applications!inner(cv_delete_after, company_id_snapshot)",
+      )
+      .lte("job_applications.cv_delete_after", now)
+      .not("job_applications.company_id_snapshot", "is", null);
+    if (scoreCursor !== null) page = page.gt("application_id", scoreCursor);
+    const { data, error } = await page.order("application_id", { ascending: true }).limit(DB_PAGE);
+
+    if (error) throw new Error(`cv purge: due scores: ${error.message}`);
+    const cards = (data ?? []) as unknown as ScoreWords[];
+    if (cards.length === 0) break;
+
+    for (const card of cards) {
+      if (!scoreWordsLeft(card)) continue;
+      const { error: updErr } = await service
+        .from("application_scores")
+        .update({
+          ...CV_SCORE_WORDS_CLEARED,
+          dimension_scores: clearDimensionWords(card.dimension_scores),
+          must_haves: clearMustHaveQuotes(card.must_haves),
+        })
+        .eq("application_id", card.application_id);
+      if (updErr) throw new Error(`cv purge: clear score words: ${updErr.message}`);
+      scoresCleared += 1;
+    }
+
+    scoreCursor = cards[cards.length - 1].application_id;
+    if (cards.length < DB_PAGE) break;
+  }
+
   const elapsedMs = clock() - startedAt;
   const result: CvPurgeResult = stoppedDuring
     ? {
@@ -474,6 +639,7 @@ export async function runCvPurge(
         objectsRemoved,
         objectsKept,
         commentsDeletedSoFar: commentsDeleted,
+        scoresClearedSoFar: scoresCleared,
         elapsedMs,
       }
     : {
@@ -484,6 +650,7 @@ export async function runCvPurge(
         objectsRemoved,
         objectsKept,
         commentsDeleted,
+        scoresCleared,
         elapsedMs,
       };
   console.log(describeCvPurge(job.id, result));

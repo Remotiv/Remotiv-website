@@ -29,14 +29,36 @@ import type { createServiceClient } from "@/lib/supabase/server";
 export type CollectClient = ReturnType<typeof createServiceClient>;
 
 /**
+ * Whether an application's CV has passed its retention date (#91).
+ *
+ * Expired means a date is set AND it has passed: the CV purge's own test
+ * (cv-purge.ts, `.lte("cv_delete_after", now)`). Such an application must
+ * never be scored again: with no text the scorer writes a "skipped" card over
+ * the one it has, and a skipped card has no effective_score, so the score the
+ * purge deliberately kept would drop out of every ranking. A missing text
+ * alone is NOT expiry: a future-dated CV whose extraction is pending or failed
+ * is still live. A null date is Remotiv's own pool, which never expires.
+ */
+export function cvExpired(row: { cv_delete_after: string | null }, nowMs: number): boolean {
+  if (row.cv_delete_after === null) return false;
+  return new Date(row.cv_delete_after).getTime() <= nowMs;
+}
+
+/**
  * Every application on one job, selected by BOTH job_id and the company
- * snapshot so a mismatched snapshot can never be swept in. Throws on a
- * failed page; the caller turns that into its own failure.
+ * snapshot so a mismatched snapshot can never be swept in, less those whose
+ * CV has expired (cvExpired). Throws on a failed page; the caller turns that
+ * into its own failure.
+ *
+ * The expired set is a second keyed read rather than a filter on the first,
+ * so the first stays the plain job-and-snapshot read the #57 drift tests and
+ * negative control exercise. Its predicate is cvExpired's, in PostgREST.
  */
 export async function collectJobApplicationIds(
   service: CollectClient,
   jobId: string,
   companyId: string,
+  nowIso: string = new Date().toISOString(),
 ): Promise<string[]> {
   const rows = await pageAllByKey<{ id: string }>(
     () =>
@@ -47,7 +69,18 @@ export async function collectJobApplicationIds(
         .eq("company_id_snapshot", companyId),
     { scope: "rescore", label: "applications on the job" },
   );
-  return rows.map((r) => r.id);
+  const expired = await pageAllByKey<{ id: string }>(
+    () =>
+      service
+        .from("job_applications")
+        .select("id")
+        .eq("job_id", jobId)
+        .eq("company_id_snapshot", companyId)
+        .lte("cv_delete_after", nowIso),
+    { scope: "rescore", label: "expired CVs on the job" },
+  );
+  const skip = new Set(expired.map((r) => r.id));
+  return rows.map((r) => r.id).filter((id) => !skip.has(id));
 }
 
 /**

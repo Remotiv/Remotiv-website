@@ -27,7 +27,7 @@ register(new URL("../../test-support/node-resolve.mjs", import.meta.url));
 register(new URL("../../test-support/server-only-stub.mjs", import.meta.url));
 
 const { FakeTable, fakeClient, hexRows } = await import("../supabase/fake-table.ts");
-const { collectJobApplicationIds, collectScoredApplicationIds } = await import(
+const { collectJobApplicationIds, collectScoredApplicationIds, cvExpired } = await import(
   "./rescore-collect.ts"
 );
 
@@ -178,4 +178,80 @@ test("pin: the allowance read pages usage_events by key", () => {
     /\bpageAll\(/,
     "the allowance read was the one pageAll call rescoreJob still went through",
   );
+});
+
+/* ── #91: an expired CV is never collected for re-scoring ─────── */
+
+const NOW = "2026-11-16T12:00:00.000Z";
+const NOW_MS = Date.parse(NOW);
+
+test("#91: cvExpired: a set date that has passed is expired; a future or null date never is, text or not", () => {
+  const at = (cv_delete_after: string | null) => cvExpired({ cv_delete_after }, NOW_MS);
+  assert.equal(at("2026-11-16T11:59:59.000Z"), true, "passed");
+  assert.equal(at(NOW), true, "due this instant: the purge's own lte");
+  assert.equal(at("2028-08-01T00:00:00.000Z"), false, "not due");
+  assert.equal(at(null), false, "Remotiv's own pool never expires");
+});
+
+test("#91: collectJobApplicationIds leaves out every expired application and keeps the rest", async () => {
+  const row = (id: string, cv_delete_after: string | null, cv_text: string | null) => ({
+    id,
+    job_id: JOB,
+    company_id_snapshot: CO,
+    cv_delete_after,
+    cv_text,
+  });
+  const table = new FakeTable([
+    row("a-passed-with-text", "2026-11-01T00:00:00.000Z", "text"),
+    row("b-passed-purged", "2026-11-01T00:00:00.000Z", null),
+    row("c-due-now", NOW, "text"),
+    // Extraction pending or failed on a live CV: NOT expired, still collected.
+    row("d-future-no-text-yet", "2028-08-01T00:00:00.000Z", null),
+    row("e-future-with-text", "2028-08-01T00:00:00.000Z", "text"),
+    row("f-own-pool", null, "text"),
+    row("g-own-pool-no-text", null, null),
+  ]);
+  const ids = await collectJobApplicationIds(fakeClient({ job_applications: table }), JOB, CO, NOW);
+  assert.deepEqual(
+    new Set(ids),
+    new Set(["d-future-no-text-yet", "e-future-with-text", "f-own-pool", "g-own-pool-no-text"]),
+    "exactly the applications cvExpired calls live",
+  );
+  for (const r of table.rows) {
+    const expired = cvExpired({ cv_delete_after: r.cv_delete_after }, NOW_MS);
+    assert.equal(ids.includes(r.id), !expired, `${r.id}: the SQL and cvExpired agree`);
+  }
+});
+
+test("#91: the expired read is keyed and scoped like the applications read, so it cannot widen", async () => {
+  const table = new FakeTable([
+    {
+      id: "x-other-job",
+      job_id: OTHER_JOB,
+      company_id_snapshot: CO,
+      cv_delete_after: "2026-01-01T00:00:00.000Z",
+      cv_text: null,
+    },
+    { id: "y-mine", job_id: JOB, company_id_snapshot: CO, cv_delete_after: null, cv_text: "t" },
+  ]);
+  const ids = await collectJobApplicationIds(fakeClient({ job_applications: table }), JOB, CO, NOW);
+  assert.deepEqual(ids, ["y-mine"]);
+});
+
+test("pin: rescoreApplication refuses an expired CV after the ownership check and before enqueueing", () => {
+  const src = read("src/app/ai-dashboard/(gated)/applicants/actions.ts");
+  const start = src.indexOf("export async function rescoreApplication(");
+  const end = src.indexOf("\nexport async function", start + 1);
+  const fn = src.slice(start, end);
+  const owner = fn.indexOf("target.company_id_snapshot !== ctx.companyId");
+  const guard = fn.indexOf("cvExpired(");
+  const enqueue = fn.indexOf("await requestCvScore(applicationId, ctx.companyId);");
+  assert.ok(owner > 0, "the ownership check is there");
+  assert.ok(
+    guard > owner,
+    "the expiry guard comes after ownership, so it reveals nothing to a stranger",
+  );
+  assert.ok(enqueue > guard, "and before anything is queued");
+  assert.match(fn, /\.select\("id, company_id_snapshot, job_id, cv_delete_after"\)/);
+  assert.match(fn, /cvExpired\(\{ cv_delete_after: target\.cv_delete_after \}, Date\.now\(\)\)/);
 });

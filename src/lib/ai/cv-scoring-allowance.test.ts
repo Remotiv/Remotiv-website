@@ -189,9 +189,13 @@ test("the allowance is reserved after every free check and before the paid model
   assert.equal(r.error, null);
   assert.deepEqual(r.events, [
     "read:job_applications",
+    // #91: the retention date, read once before any work and again
+    // immediately before the write.
+    "read:job_applications",
     "read:jobs",
     "rpc:consume_allowance",
     "model",
+    "read:job_applications",
     "write:application_scores:scored",
     "shortlist",
     "notify",

@@ -86,7 +86,7 @@ test("the reservation sits after the last free skip and before the paid scoring"
 test("the slot is released in a finally unless the score was persisted, and persisted only after the write", () => {
   assert.match(
     handler,
-    /if \(writeErr\) throw new Error\(`ai_cv_score: score write failed: \$\{writeErr\}`\);\s*persisted = true;\s*\} finally \{\s*if \(!persisted\) await releaseCvAllowance\(service, reservation\.usageId\);\s*\}/,
+    /if \(writeErr\) throw new Error\(`ai_cv_score: score write failed: \$\{writeErr\}`\);(?:\s*\/\/[^\n]*)*\s*if \(expired\) return;\s*persisted = true;\s*\} finally \{\s*if \(!persisted\) await releaseCvAllowance\(service, reservation\.usageId\);\s*\}/,
   );
   assert.equal(handler.match(/persisted = true;/g).length, 1);
   assert.equal(handler.match(/releaseCvAllowance\(/g).length, 1);

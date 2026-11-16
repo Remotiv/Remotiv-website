@@ -180,7 +180,8 @@ const ALLOWLIST = [
   {
     file: `${DASH}/applicants/actions.ts`,
     fn: "rescoreApplication",
-    query: '.select("id, company_id_snapshot, job_id").eq("id", applicationId).maybeSingle()',
+    query:
+      '.select("id, company_id_snapshot, job_id, cv_delete_after").eq("id", applicationId).maybeSingle()',
     verifyAfter: {},
     why: verifyAfterRead(
       1060,

@@ -27,7 +27,9 @@ register(new URL("../test-support/node-resolve.mjs", import.meta.url));
 register(new URL("../test-support/fake-service-client-hook.mjs", import.meta.url));
 
 const { FakeTable, fakeClient } = await import("./supabase/fake-table.ts");
-const { runCvPurge, describeCvPurge } = await import("./cv-purge.ts");
+const { runCvPurge, describeCvPurge, CV_SCORE_WORDS_CLEARED, scoreWordsLeft } = await import(
+  "./cv-purge.ts"
+);
 
 const PAST = "2025-12-31T00:00:00+00:00";
 const CO = "company-1";
@@ -69,6 +71,7 @@ function install(
   opts: {
     objects?: Set<string>;
     comments?: Table;
+    scores?: Table;
     siblings?: Partial<Record<Sibling, Table>>;
   } = {},
 ) {
@@ -79,6 +82,7 @@ function install(
     client_batch_candidates: opts.siblings?.client_batch_candidates ?? new FakeTable([]),
     hire_remote_profiles: opts.siblings?.hire_remote_profiles ?? new FakeTable([]),
     application_team_comments: opts.comments ?? new FakeTable([]),
+    application_scores: opts.scores ?? new FakeTable([]),
   };
   const storageCalls: string[][] = [];
   const client = Object.assign(fakeClient(tables), {
@@ -619,5 +623,247 @@ test("#28: the comments selector carries the !inner hint (source text; the fake 
   assert.ok(
     selects[0].includes("job_applications!inner("),
     `the comments selector lost its !inner hint: ${selects[0]}`,
+  );
+});
+
+/* ── #91: the AI's words about an expired CV ─────────────────── */
+
+/**
+ * A full v4 scorecard on an application whose CV is due. The parent's two
+ * guard columns are flattened onto the row under their embedded names, as the
+ * comments tests do, because the fake evaluates the filter, not the join.
+ */
+function card(applicationId: string, parent: { due?: boolean; snapshot?: string | null } = {}) {
+  return {
+    application_id: applicationId,
+    company_id: CO,
+    job_id: "job-1",
+    status: "scored",
+    overall_score: 74,
+    screening_score: 60,
+    confidence: "medium",
+    human_adjusted_score: 80,
+    human_feedback: "Spoke to them; stronger than the card says.",
+    adjusted_by: "member-1",
+    adjusted_by_name: "A Recruiter",
+    adjusted_at: "2026-02-01T00:00:00+00:00",
+    // Generated in Postgres; the fake stores it so the test can see it is not written.
+    effective_score: 80,
+    ai_model: "model-x",
+    prompt_version: "cv-v7",
+    error: null,
+    verdict: "Strong fit at Acme Corp; verify SQL depth",
+    summary: "Eight years at Acme Corp in B2B sales.",
+    evidence: [{ claim: "requirements_match", quote: "Led a team of 6 at Acme Corp" }],
+    strengths: [{ point: "Team leadership", quote: "Led a team of 6 at Acme Corp" }],
+    concerns: ["Role at Acme Corp was mostly account growth"],
+    missing_requirements: ["SQL"],
+    dimension_scores: [
+      {
+        dimension: "requirements_match",
+        score: 70,
+        reasoning: "Meets most",
+        quote: "Led a team of 6",
+      },
+      { dimension: "experience_depth", score: 82, reasoning: "Eight years", quote: "2016-2024" },
+      {
+        dimension: "domain_relevance",
+        score: 65,
+        reasoning: "B2B",
+        quote: "B2B sales",
+        unstated: true,
+      },
+      { dimension: "responsibilities_fit", score: 77, reasoning: "Close", quote: "Owned pipeline" },
+    ],
+    must_haves: [
+      { item: "Team leadership", status: "evidenced", quote: "Led a team of 6" },
+      { item: "SQL", status: "not_found", quote: "" },
+    ],
+    "job_applications.cv_delete_after": parent.due === false ? "2099-01-01T00:00:00+00:00" : PAST,
+    "job_applications.company_id_snapshot": parent.snapshot === undefined ? CO : parent.snapshot,
+  };
+}
+
+const WORD_COLUMNS = new Set([
+  "summary",
+  "verdict",
+  "evidence",
+  "strengths",
+  "concerns",
+  "missing_requirements",
+  "dimension_scores",
+  "must_haves",
+]);
+
+async function purgeQuietly(scores: Table, apps: Table = new FakeTable([])) {
+  install(apps, { scores });
+  const { restore } = captureLog();
+  try {
+    return await runCvPurge({ id: "j91", payload: {} });
+  } finally {
+    restore();
+  }
+}
+
+test("#91: the scores pass clears exactly the AI's words and nothing else", async () => {
+  const before = card("app-1");
+  const scores = new FakeTable([before]);
+  const result = await purgeQuietly(scores);
+  assert.ok(result.complete);
+  assert.equal(result.scoresCleared, 1);
+
+  const after = scores.rows[0];
+  assert.equal(after.summary, null);
+  assert.equal(after.verdict, null);
+  assert.deepEqual(after.evidence, []);
+  assert.deepEqual(after.strengths, []);
+  assert.deepEqual(after.concerns, []);
+  assert.deepEqual(after.missing_requirements, []);
+  assert.deepEqual(after.dimension_scores, [
+    { dimension: "requirements_match", score: 70, reasoning: "", quote: "" },
+    { dimension: "experience_depth", score: 82, reasoning: "", quote: "" },
+    { dimension: "domain_relevance", score: 65, reasoning: "", quote: "", unstated: true },
+    { dimension: "responsibilities_fit", score: 77, reasoning: "", quote: "" },
+  ]);
+  assert.deepEqual(after.must_haves, [
+    { item: "Team leadership", status: "evidenced", quote: "" },
+    { item: "SQL", status: "not_found", quote: "" },
+  ]);
+  for (const [column, value] of Object.entries(before)) {
+    if (WORD_COLUMNS.has(column)) continue;
+    assert.deepEqual(after[column], value, `${column} is not the scores pass's to touch`);
+  }
+  assert.equal(scoreWordsLeft(after), false);
+  assert.ok(
+    !JSON.stringify(after).includes("Acme"),
+    "no CV span or named employer survives anywhere on the card",
+  );
+});
+
+test("#91: every score, the confidence, the status and every human_* column survive, so effective_score cannot move", async () => {
+  const scores = new FakeTable([card("app-1")]);
+  await purgeQuietly(scores);
+  const after = scores.rows[0];
+  assert.equal(after.overall_score, 74);
+  assert.equal(after.screening_score, 60);
+  assert.equal(after.confidence, "medium");
+  assert.equal(after.status, "scored");
+  assert.equal(after.human_adjusted_score, 80);
+  assert.equal(after.human_feedback, "Spoke to them; stronger than the card says.");
+  assert.equal(after.adjusted_by_name, "A Recruiter");
+  assert.equal(after.effective_score, 80);
+  for (const column of Object.keys(CV_SCORE_WORDS_CLEARED)) {
+    assert.ok(WORD_COLUMNS.has(column), `${column} is a word column`);
+  }
+  assert.deepEqual(
+    Object.keys(CV_SCORE_WORDS_CLEARED).filter((c) =>
+      /score|status|confidence|^human_|^adjusted_/.test(c),
+    ),
+    [],
+    "the cleared set names no column effective_score is derived from",
+  );
+});
+
+test("#91: an already-clean card is not written again, and a second run clears nothing", async () => {
+  const clean = {
+    ...card("app-0"),
+    ...CV_SCORE_WORDS_CLEARED,
+    dimension_scores: [{ dimension: "requirements_match", score: 70, reasoning: "", quote: "" }],
+    must_haves: [{ item: "SQL", status: "not_found", quote: "" }],
+  };
+  const dirty = card("app-1");
+  const scores = new FakeTable([clean, dirty]);
+  const first = await purgeQuietly(scores);
+  assert.ok(first.complete);
+  assert.equal(first.scoresCleared, 1, "only the dirty card was written");
+  assert.equal(
+    scores.rows[0].application_id,
+    "app-0",
+    "the clean card was not touched: an update moves a row",
+  );
+
+  const snapshot = structuredClone(scores.rows);
+  const second = await purgeQuietly(scores);
+  assert.ok(second.complete);
+  assert.equal(second.scoresCleared, 0);
+  assert.deepEqual(scores.rows, snapshot);
+});
+
+test("#91: a card whose CV is not due, or on Remotiv's own pool, keeps every word", async () => {
+  const notDue = card("app-1", { due: false });
+  const ownPool = card("app-2", { snapshot: null });
+  const scores = new FakeTable([notDue, ownPool]);
+  const result = await purgeQuietly(scores);
+  assert.ok(result.complete);
+  assert.equal(result.scoresCleared, 0);
+  assert.deepEqual(scores.rows, [notDue, ownPool]);
+});
+
+test("#91: older shapes clear too: the v4 evidence envelope, a keyed dimension object, v1 bare strengths", async () => {
+  const legacy = {
+    ...card("app-1"),
+    verdict: null,
+    evidence: { v: 4, verdict: "Fit at Acme Corp", items: [{ claim: "x", quote: "Acme Corp" }] },
+    strengths: ["Led a team at Acme Corp"],
+    dimension_scores: {
+      requirements_match: { score: 70, reasoning: "At Acme Corp", quote: "Acme" },
+    },
+  };
+  const scores = new FakeTable([legacy]);
+  await purgeQuietly(scores);
+  const after = scores.rows[0];
+  assert.deepEqual(after.evidence, []);
+  assert.deepEqual(after.strengths, []);
+  assert.deepEqual(after.dimension_scores, {
+    requirements_match: { score: 70, reasoning: "", quote: "" },
+  });
+  assert.ok(!JSON.stringify(after).includes("Acme"));
+});
+
+test("#91: the scores pass pages by application_id and reaches every due card past one page", async () => {
+  const many = Array.from({ length: 1203 }, (_, i) => card(`app-${String(i).padStart(5, "0")}`));
+  const scores = new FakeTable(many);
+  const result = await purgeQuietly(scores);
+  assert.ok(result.complete);
+  assert.equal(result.scoresCleared, 1203);
+  assert.equal(scores.rows.filter((r) => scoreWordsLeft(r)).length, 0);
+});
+
+test("#91: a budget that runs out during the scores pass is reported as that, with nothing claimed", async () => {
+  const comments = new FakeTable([]);
+  const scores = new FakeTable([card("app-1")]);
+  const apps = new FakeTable([]);
+  install(apps, { comments, scores });
+  let nowMs = 0;
+  comments.between = () => {
+    nowMs += 50_000;
+  };
+  const { log, restore } = captureLog();
+  let result: Awaited<ReturnType<typeof runCvPurge>>;
+  try {
+    result = await runCvPurge({ id: "j92", payload: {} }, { budgetMs: 18_000, clock: () => nowMs });
+  } finally {
+    restore();
+  }
+  assert.ok(!result.complete);
+  assert.equal(result.stoppedDuring, "scores");
+  assert.equal(result.scoresClearedSoFar, 0);
+  assert.equal(scoreWordsLeft(scores.rows[0]), true, "nothing was cleared; the report says so");
+  assert.match(log[0], /reached during scores/);
+});
+
+test("#91: the scores selector carries the !inner hint (source text; the fake cannot test the join)", () => {
+  const src = readFileSync(new URL("./cv-purge.ts", import.meta.url), "utf8");
+  const at = src.indexOf('.from("application_scores")\n      .select(');
+  assert.ok(at > 0, "the scores pass reads application_scores");
+  const read = src.slice(at, at + 800);
+  assert.ok(
+    read.includes("job_applications!inner(cv_delete_after, company_id_snapshot)"),
+    "the scores selector lost its !inner hint",
+  );
+  assert.match(
+    read,
+    /\.lte\("job_applications\.cv_delete_after", now\)\s*\.not\("job_applications\.company_id_snapshot", "is", null\)/,
+    "the same two guards as the comments pass",
   );
 });

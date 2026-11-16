@@ -33,6 +33,7 @@ import {
   extractText,
   thinkingOffParams,
 } from "./model-params";
+import { cvExpired } from "./rescore-collect";
 import {
   type Confidence,
   type DimensionScore,
@@ -1362,9 +1363,35 @@ const HUMAN_OVERRIDE_COLUMNS: readonly string[] = [
  *
  * The strip is defensive, not decorative: it means a future caller that adds
  * one of these keys to its payload gets a loud log instead of quiet data loss.
+ *
+ * ── Never past the CV's retention date (#91) ─────────────────
+ *
+ * Every write to application_scores in this file comes through here, the
+ * skip, failure and success paths alike, so this is where the expiry is
+ * checked: immediately before the upsert, after however long the model took.
+ * A job that read a live CV and reaches this line after the date has passed
+ * writes nothing, so it can neither turn the kept score into a skipped or
+ * failed card nor put back words the CV purge cleared. `expired` tells the
+ * success path to treat the card as not saved. The check and the upsert are
+ * two statements; see the report for what that leaves open.
  */
-async function writeScoreRow(row: Record<string, unknown>): Promise<{ error: string | null }> {
+async function writeScoreRow(
+  row: Record<string, unknown>,
+): Promise<{ error: string | null; expired: boolean }> {
   const service = createServiceClient();
+
+  const retention = await retentionPassed(
+    service,
+    row.application_id as string,
+    (row.company_id as string | null) ?? null,
+  );
+  if (retention.error) return { error: retention.error, expired: false };
+  if (retention.passed) {
+    console.warn(
+      `[cv-scoring] ${row.application_id}: CV past its retention date; nothing written, the kept scorecard stands`,
+    );
+    return { error: null, expired: true };
+  }
 
   const payload: Record<string, unknown> = {};
   const refused: string[] = [];
@@ -1385,7 +1412,32 @@ async function writeScoreRow(row: Record<string, unknown>): Promise<{ error: str
   const { error } = await service
     .from("application_scores")
     .upsert(payload, { onConflict: "application_id" });
-  return { error: error?.message ?? null };
+  return { error: error?.message ?? null, expired: false };
+}
+
+/**
+ * Whether an application's CV has passed its retention date, read NOW (#91).
+ *
+ * Scoped by the application's own company, which is also what makes it
+ * well-defined: only a company application carries a date (CV_RETENTION_MONTHS
+ * in api/apply/route.ts), and Remotiv's own pool (no company) never expires,
+ * so no company means not passed without a read.
+ */
+async function retentionPassed(
+  service: ReturnType<typeof createServiceClient>,
+  applicationId: string,
+  companyId: string | null,
+): Promise<{ passed: boolean; error: string | null }> {
+  if (!companyId) return { passed: false, error: null };
+  const { data, error } = await service
+    .from("job_applications")
+    .select("cv_delete_after")
+    .eq("id", applicationId)
+    .eq("company_id_snapshot", companyId)
+    .maybeSingle();
+  if (error) return { passed: false, error: `retention check failed: ${error.message}` };
+  const deleteAfter = (data as { cv_delete_after: string | null } | null)?.cv_delete_after ?? null;
+  return { passed: cvExpired({ cv_delete_after: deleteAfter }, Date.now()), error: null };
 }
 
 /** A failed run with one of these classes is not retried: the whole job fails, as with one run. */
@@ -1473,6 +1525,15 @@ export async function handleAiCvScore(
   // to record a score against, so the job is finished — not failed.
   if (!app) {
     skipJob("ai_cv_score", job.id, `application ${applicationId} no longer exists`);
+    return;
+  }
+  // #91: a job queued before the CV expired finds it expired now. Finished,
+  // not failed, and nothing written: no skip card over the kept score, no
+  // allowance taken. writeScoreRow checks again for a job that expires mid-run.
+  const retention = await retentionPassed(service, app.id, app.company_id_snapshot);
+  if (retention.error) throw new Error(`ai_cv_score: ${retention.error}`);
+  if (retention.passed) {
+    skipJob("ai_cv_score", job.id, `application ${app.id}: CV past its retention date (#91)`);
     return;
   }
 
@@ -1649,7 +1710,7 @@ export async function handleAiCvScore(
       throw jobErr;
     }
 
-    const { error: writeErr } = await writeScoreRow({
+    const { error: writeErr, expired } = await writeScoreRow({
       application_id: app.id,
       company_id: app.company_id_snapshot,
       job_id: app.job_id,
@@ -1677,6 +1738,9 @@ export async function handleAiCvScore(
     });
 
     if (writeErr) throw new Error(`ai_cv_score: score write failed: ${writeErr}`);
+    // Expired while the model ran: no card was saved, so the slot goes back
+    // (the finally below) and there is nothing to flag or announce.
+    if (expired) return;
     persisted = true;
   } finally {
     if (!persisted) await releaseCvAllowance(service, reservation.usageId);
