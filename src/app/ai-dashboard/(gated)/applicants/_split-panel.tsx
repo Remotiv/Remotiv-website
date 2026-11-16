@@ -1,4 +1,4 @@
-import { Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import type { ReactNode } from "react";
 import {
   type ApplicantScoreDetail,
@@ -53,6 +53,13 @@ const PANEL_FRAME =
 
 const TOP_BTN =
   "inline-flex items-center justify-center gap-[7px] whitespace-nowrap rounded-[11px] px-4 py-2.5 text-[13.5px] font-bold transition-colors";
+
+/**
+ * Close, previous and next: the square controls in the drawer header and the
+ * panel's top row (30px, radius 11, v9 section 2 "Top row").
+ */
+export const PANEL_ICON_BTN =
+  "grid size-[30px] shrink-0 place-items-center rounded-[11px] border border-[var(--ai-line)] text-[var(--ai-t3)] transition-colors hover:border-[var(--ai-line-strong)] hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-[var(--ai-line)] disabled:hover:bg-transparent disabled:hover:text-[var(--ai-t3)]";
 
 /** v9 `.pc.unsc`: the live card surface, centred, 30px 22px, a 1.5px border the state colours. */
 const UNSCORED_FRAME =
@@ -160,6 +167,16 @@ export type SplitPanelProps = {
   dismissing: string | null;
   onDismissFlag: (id: string) => void;
   viewerRole: CompanyRole;
+  /**
+   * Where this applicant sits in the current view's population ("21 of 128"),
+   * or null when no sequence can be stated (off the page, total unknown): then
+   * the Previous / Next group is hidden, not shown dead.
+   */
+  position: { index: number; total: number } | null;
+  /** Step to the previous (-1) or next (+1) applicant; crosses pages. */
+  onStep: (delta: number) => void;
+  /** A step or a list read is in flight: both arrows wait. */
+  stepBusy: boolean;
   /** The Shortlist write for this applicant is in flight. */
   shortlisting: boolean;
   /** The last Shortlist attempt for this applicant failed: the sentence to show. */
@@ -203,6 +220,9 @@ export function SplitPanelContent({
   dismissing,
   onDismissFlag,
   viewerRole,
+  position,
+  onStep,
+  stepBusy,
   shortlisting,
   shortlistError,
   onShortlist,
@@ -252,6 +272,31 @@ export function SplitPanelContent({
           >
             Details
           </button>
+          {position && (
+            <div className="ml-auto flex items-center gap-1.5" data-split-stepper>
+              <button
+                type="button"
+                onClick={() => onStep(-1)}
+                disabled={stepBusy || position.index === 0}
+                aria-label="Previous applicant"
+                className={PANEL_ICON_BTN}
+              >
+                <ChevronLeft className="size-[14px]" strokeWidth={1.6} />
+              </button>
+              <span className="px-1.5 text-[11.5px] font-semibold tabular-nums text-[var(--ai-t3)]">
+                {position.index + 1} of {position.total}
+              </span>
+              <button
+                type="button"
+                onClick={() => onStep(1)}
+                disabled={stepBusy || position.index >= position.total - 1}
+                aria-label="Next applicant"
+                className={PANEL_ICON_BTN}
+              >
+                <ChevronRight className="size-[14px]" strokeWidth={1.6} />
+              </button>
+            </div>
+          )}
         </div>
         {shortlistError && (
           <div

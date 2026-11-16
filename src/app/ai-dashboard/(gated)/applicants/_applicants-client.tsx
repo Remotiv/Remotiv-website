@@ -122,6 +122,7 @@ import {
 import { SplitListItem } from "./_split-list-item";
 import {
   canShortlist,
+  PANEL_ICON_BTN,
   SPLIT_CARD_WIDE,
   SPLIT_TOOLBAR_WIDE,
   SplitLayout,
@@ -804,10 +805,6 @@ const ADJ_BTN =
   "rounded-[9px] px-3 py-[7px] text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50";
 const ADJ_BTN_PRIMARY = `${ADJ_BTN} bg-remotiv-purple text-white hover:bg-[#6d38ec]`;
 const ADJ_BTN_QUIET = `${ADJ_BTN} border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] text-[var(--ai-t2)] hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)]`;
-
-/** Close, previous and next — the three square controls in the panel header. */
-const PANEL_ICON_BTN =
-  "grid size-[30px] shrink-0 place-items-center rounded-[11px] border border-[var(--ai-line)] text-[var(--ai-t3)] transition-colors hover:border-[var(--ai-line-strong)] hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-[var(--ai-line)] disabled:hover:bg-transparent disabled:hover:text-[var(--ai-t3)]";
 
 /**
  * An underline tab, not a pill in a tray. The 12px of padding is all below the
@@ -4616,14 +4613,44 @@ export function ApplicantsClient({
     : "";
 
   /**
+   * Who prev/next steps from, and how a step selects its destination.
+   *
+   * The drawer, when open, keeps its own behaviour. Otherwise under Split the
+   * step moves the panel's selection (selectSplit: ?applicant= by replace) or,
+   * below 1100, the sheet's: replaced in place, never pushed, so stepping
+   * adds no history entry and Back still closes the sheet in one press.
+   */
+  const stepId = openId ?? panelId;
+  const stepOpen = useCallback(
+    (id: string) => {
+      if (openId || !split) {
+        openApplicant(id);
+        return;
+      }
+      if (splitWide) {
+        selectSplit(id);
+        return;
+      }
+      setSheetId(id);
+      syncPanelUrl(id, null);
+    },
+    [openId, split, splitWide, openApplicant, selectSplit, syncPanelUrl],
+  );
+
+  /**
    * Where the open applicant sits on the page in front of the reader.
+   *
+   * "Open" is whoever prev/next steps from (`stepId`): the drawer's applicant
+   * while the drawer is open, else under Split the panel's (1100+) or the
+   * sheet's (below). One stepper, so the panel and the drawer can never
+   * disagree about the sequence (v9 section 2, "Top row").
    *
    * An offset into `paged`, so -1 means "not on this page" — a `?applicant=`
    * deep link to someone twelve pages away, resolved by the drawer's own read.
    * The control hides itself in that case: there is no sequence to step
    * through, and a dead arrow says less than no arrow.
    */
-  const openIndex = openId ? paged.findIndex((r) => r.id === openId) : -1;
+  const openIndex = stepId ? paged.findIndex((r) => r.id === stepId) : -1;
 
   /*
    * ── Stepping across a page boundary ─────────────────────────
@@ -4666,14 +4693,14 @@ export function ApplicantsClient({
        */
       if (topOnly) {
         const next = paged[openIndex + delta];
-        if (next) openApplicant(next.id);
+        if (next) stepOpen(next.id);
         return;
       }
       const target = stepTarget(request, openIndex, delta, pageView.total);
       if (!target) return;
       if (target.request.page === request.page) {
         const next = paged[target.offset];
-        if (next) openApplicant(next.id);
+        if (next) stepOpen(next.id);
         return;
       }
       setPendingStep(target);
@@ -4681,7 +4708,7 @@ export function ApplicantsClient({
       // same reason the panel's own URL is a replace.
       setFilters({ page: target.request.page }, "replace");
     },
-    [canStep, topOnly, paged, openIndex, request, pageView.total, openApplicant, setFilters],
+    [canStep, topOnly, paged, openIndex, request, pageView.total, stepOpen, setFilters],
   );
 
   /*
@@ -4704,8 +4731,8 @@ export function ApplicantsClient({
     });
     if (!landed) return;
     setPendingStep(null);
-    openApplicant(landed.id);
-  }, [pendingStep, list.shownKey, pageView.updating, pageView.failed, paged, openApplicant]);
+    stepOpen(landed.id);
+  }, [pendingStep, list.shownKey, pageView.updating, pageView.failed, paged, stepOpen]);
 
   /**
    * "21 of 128" — the position in the filtered population, not on the page.
@@ -5464,6 +5491,9 @@ export function ApplicantsClient({
           void dismissFlag(id);
         },
         viewerRole,
+        position: stepPosition,
+        onStep: stepApplicant,
+        stepBusy: !canStep,
         shortlisting: shortlistingId === splitRow.id,
         shortlistError: shortlistError?.id === splitRow.id ? shortlistError.message : null,
         onShortlist: () => {
