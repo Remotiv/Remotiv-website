@@ -2,8 +2,12 @@
 -- Migration 057 - company_members.removed_at: a stale invitation can never
 --                 reactivate a removed member (#100)
 -- ----------------------------------------------------------------------------
--- NOT RUN YET. Run by hand in the Supabase SQL editor: one paste, one
--- execution, one transaction. Nothing in the repository executes it.
+-- APPLIED TO PRODUCTION 11 Nov 2026, by Waleed, by hand in the Supabase SQL
+-- editor: one paste, one execution, one transaction. Nothing in the
+-- repository executes it. Verified on production on 14 Nov 2026 with the
+-- information_schema query below:
+--
+--   company_members.removed_at:  timestamp with time zone, nullable
 --
 -- PRODUCTION SCHEMA, read by Waleed on 10 Nov 2026, which this file rests on:
 --
