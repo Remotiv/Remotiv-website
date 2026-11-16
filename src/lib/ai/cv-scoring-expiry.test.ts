@@ -100,6 +100,8 @@ async function run(opts: {
   app?: object;
   job?: object;
   modelThrows?: Error;
+  /** What every application_scores upsert answers; migration 061's refusal, for one. */
+  upsertError?: { code: string; message: string };
 }) {
   const events: string[] = [];
   globalThis.__cvScoringEventsForTests = events;
@@ -129,7 +131,7 @@ async function run(opts: {
     const upsert = calls.find((c) => c[0] === "upsert");
     if (upsert) {
       events.push(`write:${table}:${upsert[1].status}`);
-      return { data: null, error: null };
+      return { data: null, error: opts.upsertError ?? null };
     }
     events.push(`read:${table}`);
     if (table === "job_applications") {
@@ -213,4 +215,55 @@ test("#91: a skip path that reaches its write after expiry writes no skipped car
   const r = await run({ dates: [FUTURE, FUTURE, PASSED], job: { ai_cv_scoring_enabled: false } });
   assert.equal(r.error, null);
   assert.deepEqual(r.upserts, []);
+});
+
+/* ── migration 061: the trigger refuses inside the upsert itself ─── */
+
+const { RETENTION_GUARD_SQLSTATE } = await import("./cv-scoring.ts");
+const REFUSED = {
+  code: RETENTION_GUARD_SQLSTATE,
+  message:
+    "application_scores: the CV has passed its retention date; an AI scorecard cannot be written",
+};
+
+test("#91 B: the trigger's refusal on the success write reads as expired: slot back, nothing announced, finished", async () => {
+  // Every check in the code saw a live CV; the date passed inside the upsert.
+  const r = await run({ dates: [FUTURE], upsertError: REFUSED });
+  assert.equal(r.error, null, "finished, not failed and not left running");
+  assert.deepEqual(r.events, [
+    "read:job_applications",
+    "read:job_applications",
+    "read:jobs",
+    "rpc:consume_allowance",
+    "model",
+    "read:job_applications",
+    "write:application_scores:scored",
+    "rpc:release_allowance",
+  ]);
+});
+
+test("#91 B: the trigger's refusal on a skip write is quiet, and the job finishes", async () => {
+  const r = await run({
+    dates: [FUTURE],
+    job: { ai_cv_scoring_enabled: false },
+    upsertError: REFUSED,
+  });
+  assert.equal(r.error, null);
+});
+
+test("#91 B: the trigger's refusal on the failure write does not hide the provider error from the queue", async () => {
+  const boom = Object.assign(new Error("upstream 500"), { status: 500 });
+  const r = await run({ dates: [FUTURE], modelThrows: boom, upsertError: REFUSED });
+  assert.ok(r.error, "the original failure still reaches the queue");
+  assert.doesNotMatch(
+    String(r.error?.message),
+    /retention/,
+    "and it is the provider's, not the refusal",
+  );
+  assert.ok(r.events.includes("rpc:release_allowance"));
+});
+
+test("#91 B: any other write error is still a write failure", async () => {
+  const r = await run({ dates: [FUTURE], upsertError: { code: "23505", message: "duplicate" } });
+  assert.match(String(r.error?.message), /score write failed: duplicate/);
 });

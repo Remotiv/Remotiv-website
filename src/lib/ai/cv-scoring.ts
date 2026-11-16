@@ -1373,7 +1373,9 @@ const HUMAN_OVERRIDE_COLUMNS: readonly string[] = [
  * writes nothing, so it can neither turn the kept score into a skipped or
  * failed card nor put back words the CV purge cleared. `expired` tells the
  * success path to treat the card as not saved. The check and the upsert are
- * two statements; see the report for what that leaves open.
+ * two statements, so migration 061 puts the same rule in a trigger that runs
+ * inside the upsert itself; its refusal (RETENTION_GUARD_SQLSTATE) is read as
+ * `expired` too, and before 061 is applied it simply never arrives.
  */
 async function writeScoreRow(
   row: Record<string, unknown>,
@@ -1412,6 +1414,14 @@ async function writeScoreRow(
   const { error } = await service
     .from("application_scores")
     .upsert(payload, { onConflict: "application_id" });
+  // The date passed between the check above and this upsert: migration 061's
+  // trigger refused it in the same statement. Same outcome as the check.
+  if (error?.code === RETENTION_GUARD_SQLSTATE) {
+    console.warn(
+      `[cv-scoring] ${row.application_id}: CV past its retention date at the write; nothing written, the kept scorecard stands`,
+    );
+    return { error: null, expired: true };
+  }
   return { error: error?.message ?? null, expired: false };
 }
 
@@ -1439,6 +1449,13 @@ async function retentionPassed(
   const deleteAfter = (data as { cv_delete_after: string | null } | null)?.cv_delete_after ?? null;
   return { passed: cvExpired({ cv_delete_after: deleteAfter }, Date.now()), error: null };
 }
+
+/**
+ * The SQLSTATE migration 061's trigger raises when a write reaches an
+ * application_scores row whose CV has passed its retention date. Pinned to the
+ * migration by migration-061.test.ts.
+ */
+export const RETENTION_GUARD_SQLSTATE = "RT091";
 
 /** A failed run with one of these classes is not retried: the whole job fails, as with one run. */
 const FINAL_FAILURE_CLASSES: ReadonlySet<string> = new Set(["billing", "configuration"]);
