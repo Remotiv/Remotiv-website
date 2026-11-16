@@ -115,7 +115,11 @@ describe("wiring in the client", () => {
       copy.indexOf("if (urlSearch) {"),
     );
     assert.match(failed, /return urlSearch\s*\?\s*\{\s*title: "We couldn't run that search",/);
-    assert.match(failed, /title: "We couldn't load applicants\.",/);
+    assert.match(
+      failed,
+      /title: "We couldn't load applicants",/,
+      "no full stop, like the other headings",
+    );
     assert.match(
       failed,
       /text: "This is on our side, not a filter you set\. Try again, or reload the page if it keeps happening\.",/,

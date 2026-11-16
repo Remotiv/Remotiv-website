@@ -71,8 +71,18 @@ export const CONFIDENCE_BADGE: Record<string, { pill: string; dot: string }> = {
 };
 
 /** The 3px separator between the header's identity facts. */
+/**
+ * The identity line's separator. Hidden below 640px, where the line stacks:
+ * there the email used to shrink to zero width and leave this dot first on the
+ * line ("• Applied …", QA 15 Nov). A dot only ever sits between two items.
+ */
 export function IdDot() {
-  return <span aria-hidden className="size-[3px] shrink-0 rounded-full bg-[var(--ai-t4)]" />;
+  return (
+    <span
+      aria-hidden
+      className="hidden size-[3px] shrink-0 rounded-full bg-[var(--ai-t4)] min-[640px]:block"
+    />
+  );
 }
 
 /** 42px ring for the panel header. */

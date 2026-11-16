@@ -1022,9 +1022,12 @@ function ApplicantIdentityRow({
         </h2>
         {/* Email, then whichever of location and applied date exist. The
             separators are joined to their following item so a missing
-            location does not leave a dot floating. */}
-        <div className="mt-1 flex items-center gap-[9px] text-[12.5px] font-medium text-[var(--ai-t3)]">
-          <b className="truncate font-semibold text-[var(--ai-t2)]">{row.email}</b>
+            location does not leave a dot floating. Below 640px the three
+            stack, one per line, with no dots: on one line the email shrank
+            to nothing (11px at 525, 0 at 375) and the line opened with a
+            dot. From 640px it keeps at least 126px. */}
+        <div className="mt-1 flex flex-col items-start gap-0.5 text-[12.5px] font-medium text-[var(--ai-t3)] min-[640px]:flex-row min-[640px]:items-center min-[640px]:gap-[9px]">
+          <b className="max-w-full truncate font-semibold text-[var(--ai-t2)]">{row.email}</b>
           {location && (
             <>
               <IdDot />
@@ -5349,7 +5352,7 @@ export function ApplicantsClient({
             text: "A different spelling won't help - this is on our side, not your query. Reload the page to try again.",
           }
         : {
-            title: "We couldn't load applicants.",
+            title: "We couldn't load applicants",
             text: "This is on our side, not a filter you set. Try again, or reload the page if it keeps happening.",
           };
     }
