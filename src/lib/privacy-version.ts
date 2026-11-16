@@ -22,5 +22,16 @@
  * for that one view only" (#99: the company CV route streams the document and
  * mints no signed URL). Same rule, same safety: written once at insert, read
  * nowhere.
+ *
+ * 2026-11-17: the notice now lists what it left out and says what really
+ * removes it (#91). Section 1 gained the interview notes, final-interview
+ * ratings and staff comments, team notifications, WhatsApp replies and what
+ * Remotiv records when it puts someone forward to a client; its field list
+ * says "where you give them" for city, country and experience. Section 3 says
+ * the CV purge also deletes the AI's written assessment, verdict and CV quotes
+ * and keeps the scores, keeps talent-search match explanations, and opens with
+ * "no expiry date" instead of "until you ask us to remove it". Section 8 says
+ * unsubscribe records are kept. Same rule, same safety: written once at
+ * insert, read nowhere.
  */
-export const PRIVACY_NOTICE_VERSION = "2026-11-10";
+export const PRIVACY_NOTICE_VERSION = "2026-11-17";

@@ -10,9 +10,10 @@ import { LiveInterviewsSection } from "./_live-interviews-section";
  * ── Written from the code, not from a template ───────────────
  *
  * Every retention period, third party and storage claim below was read out of
- * the implementation. Two jobs delete on a schedule, and section 3 says so; the
- * talent-retention jobs exist but are NOT scheduled, and section 3 says that
- * too, in as many words. That is the whole point: a policy that misdescribes an
+ * the implementation. Section 3 names every job that deletes on a schedule; no
+ * job expires a talent profile (the talent-retention jobs were removed on
+ * 11 Nov 2026, #61), and section 3 says that too, in as many words. That is
+ * the whole point: a policy that misdescribes an
  * enforced rule is worse than none, and a policy promising a deletion nobody
  * implemented is worse still — it is the document someone would be shown if
  * they ever asked what we did with their CV.
@@ -35,10 +36,18 @@ import { LiveInterviewsSection } from "./_live-interviews-section";
  *                                   access request — section 1 says so.
  *   RETENTION_MONTHS    = 6         src/lib/interviews/tokens.ts
  *   cv-purge / interview-purge      scheduled every 24h by jobs-queue.ts
- *   talent-retention-warn / -purge  BUILT AND NOT SCHEDULED. Nothing expires a
- *                                   talent profile. If they are ever added back
- *                                   to RECURRING, section 3's "no automatic
- *                                   expiry" wording is part of that change.
+ *   talent profiles                 NO retention job. The warn and purge jobs
+ *                                   were removed on 11 Nov 2026 (#61,
+ *                                   jobs-queue.ts RECURRING). Re-adding one
+ *                                   needs a migration, tests and a change to
+ *                                   section 3's "no automatic expiry" wording.
+ *   application_scores (#91)        cv-purge's scores pass clears the AI's
+ *                                   words on the CV's date (summary, verdict,
+ *                                   evidence, strengths, concerns, missing,
+ *                                   each reasoning and quote) and keeps every
+ *                                   score and human adjustment; migration 061
+ *                                   refuses any AI write after that date.
+ *                                   Section 3's CV paragraph says so.
  *   `cvs` + interview buckets       private; signed URLs; signed_url_logs
  *   Access records (migration 047)  signed_url_logs and admin_access_logs:
  *                                   deleted 24 months after the database
@@ -128,7 +137,7 @@ export const metadata: Metadata = {
 };
 
 /** Shown at the top. Update whenever the substance below changes. */
-const LAST_UPDATED = "10 November 2026";
+const LAST_UPDATED = "17 November 2026";
 
 const CONTACT = "talent@remotiv.work";
 
@@ -221,9 +230,9 @@ export default function PrivacyPage() {
           <P>
             Through an application form on remotiv.work or a company careers page we host, we
             collect your first and last name, email address, phone number, LinkedIn profile URL
-            (which is required), your CV, your answers to any screening questions the role asks, and
-            the details you give about your city and country, years of experience, notice period and
-            availability.
+            (which is required), your CV, your answers to any screening questions the role asks,
+            your notice period and availability, and, where you give them, your city and country and
+            years of experience.
           </P>
           <Callout>
             <strong className="font-semibold text-[#111]">
@@ -240,6 +249,18 @@ export default function PrivacyPage() {
             application and reply to each other - their notes on you, stored alongside the
             application. These are about you, so they are part of your record here: if you ask us
             for a copy of what we hold, they are included.
+          </P>
+          <P>
+            The hiring team can also write notes on your interviews, and after a final interview
+            each interviewer can record a rating, a recommendation and notes. Remotiv staff can add
+            their own comments and labels to your application. These are kept with your application
+            until it is deleted. Unlike the hiring team&apos;s comments on your application, they do
+            not expire on your CV&apos;s date.
+          </P>
+          <P>
+            The company&apos;s team also gets notifications about your application, such as a new
+            score or a change of stage, and these can show your name. They are deleted when your
+            application is deleted.
           </P>
 
           <H3>When you record a video interview</H3>
@@ -271,6 +292,25 @@ export default function PrivacyPage() {
               </Link>
             </P>
           )}
+
+          <H3>When you reply on WhatsApp</H3>
+          <P>
+            If you reply to us on WhatsApp, we store your message, your phone number and your
+            WhatsApp profile name, and where we can tell which application it belongs to, we link it
+            to that application. These have no expiry date. Deleting your application does not
+            remove them; they are removed only if the company&apos;s whole account is deleted.
+          </P>
+
+          <H3>When Remotiv puts you forward to a client</H3>
+          <P>
+            If you are in our talent pool, signed up as a freelancer, or applied to one of
+            Remotiv&apos;s own roles, we may put you forward to a client we recruit for. When we do,
+            we record for that client your current salary and salary expectation, your notice
+            period, links to your interview recordings, our notes on you, and the client&apos;s
+            decision and comments. The client can also write notes about you. These have no expiry
+            date. Remotiv staff can remove you from a client&apos;s list, and that removes the notes
+            about you with it. To ask for that, write to <Mail />.
+          </P>
 
           <H3>When you contact us</H3>
           <P>
@@ -330,11 +370,11 @@ export default function PrivacyPage() {
           <P>
             Four things here expire on their own. Nothing else does. The four that do are enforced
             by jobs that run every day; they are not a statement of intent, they are code that
-            deletes. Everything else we keep until you ask us to remove it, with one exception that
-            keeps less than that: once a company has deleted your application, we clear our record
-            of the messages we sent you ourselves, without being asked, as the next paragraph
-            describes. We would rather say exactly what happens than describe a deletion that does
-            not.
+            deletes. Everything else we keep has no expiry date. Where something removes a record,
+            this notice says what. One exception keeps less than that: once a company has deleted
+            your application, we clear our record of the messages we sent you ourselves, without
+            being asked, as the next paragraph describes. We would rather say exactly what happens
+            than describe a deletion that does not.
           </P>
           <P>
             When a company hiring through us deletes your application, your application, your CV,
@@ -360,6 +400,12 @@ export default function PrivacyPage() {
             The application record itself is kept: your name, email, the role you applied for, the
             stage you reached and the decisions made. The company keeps its hiring record; it stops
             holding your document.
+          </P>
+          <P>
+            Where your CV was scored, the scores stay with the application, along with any
+            adjustment the hiring team made and its note. The AI&apos;s written assessment of your
+            CV, its one-line verdict, and the short quotes from your CV that it cited are deleted
+            with the CV.
           </P>
           <P>
             The hiring team&apos;s comments on your application go on that same date. They were
@@ -429,6 +475,11 @@ export default function PrivacyPage() {
             automatic expiry to them. A company deleting your application does not clear our record
             of the messages we sent you; someone at Remotiv clears it later by hand, as section 3
             describes.
+          </P>
+          <P>
+            When a company searches the talent pool, we keep the AI&apos;s short explanation of why
+            your profile matched that search. It has no expiry date, and it is not removed when your
+            profile is.
           </P>
 
           <H2>4. Why we are allowed to process it</H2>
@@ -618,6 +669,10 @@ export default function PrivacyPage() {
             in. It stops that company&apos;s emails to you. Because each company hiring through
             Remotiv is separate, unsubscribing from one does not unsubscribe you from another - you
             can use the link in each company&apos;s email.
+          </P>
+          <P>
+            To make an unsubscribe keep working, we keep a record of it with your email address, or
+            with your phone number if you opted out of WhatsApp messages. It has no expiry date.
           </P>
 
           <H3>Access, correction and deletion</H3>
