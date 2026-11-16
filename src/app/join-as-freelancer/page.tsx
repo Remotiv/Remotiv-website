@@ -548,14 +548,14 @@ export default function RemoteReadyPage() {
       .map((e) => ({
         title:       e.title.trim(),
         company:     e.company.trim(),
-        dates:       [e.start.trim(), e.end.trim()].filter(Boolean).join(" — "),
+        dates:       [e.start.trim(), e.end.trim()].filter(Boolean).join(" - "),
         description: e.description.trim(),
       }));
 
     const educationObj = {
       institution: eduInstitution.trim(),
       degree:      eduDegree.trim(),
-      dates:       [eduStart.trim(), eduEnd.trim()].filter(Boolean).join("–"),
+      dates:       [eduStart.trim(), eduEnd.trim()].filter(Boolean).join("-"),
     };
 
     const portfolioList = portfolio
@@ -681,13 +681,13 @@ export default function RemoteReadyPage() {
               US, UK, Europe, and Middle East who need your skills.
             </p>
             <p className="bat-sub" style={{ marginTop: -32 }}>
-              Join Remotiv talent network — engineers, designers, AI
+              Join Remotiv talent network - engineers, designers, AI
               experts, doctors, PhDs, and domain specialists earning
-              $25–$200/hr from anywhere in Pakistan.
+              $25-$200/hr from anywhere in Pakistan.
             </p>
             <div className="bat-stats">
               <div className="bat-stat">
-                <div className="bat-stat-num">$25–200<span className="bat-stat-days">/hr</span></div>
+                <div className="bat-stat-num">$25-200<span className="bat-stat-days">/hr</span></div>
                 <div className="bat-stat-label">Average Rates</div>
               </div>
               <div className="bat-stat">
@@ -794,7 +794,7 @@ export default function RemoteReadyPage() {
                   <h2 className="bta-success-title">You&apos;re In!</h2>
                   <p className="bta-success-sub">
                     Your profile is under review. We typically review applications
-                    within 3 business days — watch for an email from
+                    within 3 business days - watch for an email from
                     talent@remotiv.work (check your spam folder too). Approved profiles
                     are listed on Find Freelancers and get a public page on remotiv.work
                     that anyone can open.
@@ -1113,7 +1113,7 @@ function Step2(props: {
 }) {
   return (
     <div className="bta-form-step active">
-      <FormHeader icon="💼" title="Professional Profile" sub="Your role, experience and skills — this is your public listing" />
+      <FormHeader icon="💼" title="Professional Profile" sub="Your role, experience and skills - this is your public listing" />
 
       <div className="bta-form-body">
         <h3 className="bta-sec-title">Headline</h3>
@@ -1130,7 +1130,7 @@ function Step2(props: {
         <Field label="Bio / Summary" required>
           <textarea
             className="bta-textarea"
-            placeholder="Write a short bio — your experience, what you specialise in, and what opportunities you're looking for. (min 50 characters)"
+            placeholder="Write a short bio - your experience, what you specialise in, and what opportunities you're looking for. (min 50 characters)"
             value={props.bio}
             onChange={(e) => props.setBio(e.target.value)}
             maxLength={2000}
@@ -1490,7 +1490,7 @@ function Step4(props: {
         <div
           role="button"
           tabIndex={0}
-          aria-label="Upload CV — drag and drop, or press Enter to browse files"
+          aria-label="Upload CV - drag and drop, or press Enter to browse files"
           className={`bta-upload-zone ${props.cvDragOver ? "drag-over" : ""}`}
           onDragOver={(e) => { e.preventDefault(); props.setCvDragOver(true); }}
           onDragLeave={() => props.setCvDragOver(false)}
@@ -1518,7 +1518,7 @@ function Step4(props: {
           </div>
           <div className="bta-upload-sub">
             {props.cvFile ? (
-              `${(props.cvFile.size / 1024).toFixed(0)} KB — ready to submit`
+              `${(props.cvFile.size / 1024).toFixed(0)} KB - ready to submit`
             ) : (
               <>
                 or{" "}
@@ -1564,7 +1564,7 @@ function Step4(props: {
             <div className="bta-info-box-title">Verification</div>
             <div className="bta-info-box-body">
               Email is auto-verified once you submit. ID and Phone verifications
-              will be reviewed by Remotiv after submission — we&apos;ll reach out
+              will be reviewed by Remotiv after submission - we&apos;ll reach out
               if we need anything else.
             </div>
           </div>

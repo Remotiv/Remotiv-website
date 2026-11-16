@@ -7,8 +7,8 @@ import { submitContact } from "@/app/contact/actions";
 
 const CHECKS = [
   "We respond within 24 hours",
-  "No retainer fees — pay only when you hire",
-  "100% confidential — your data stays private",
+  "No retainer fees - pay only when you hire",
+  "100% confidential - your data stays private",
 ] as const;
 
 const SERVICES = [
@@ -126,7 +126,7 @@ export function CtaInquiry() {
             </h2>
             <p className="mb-6 max-w-md font-sans text-[13px] leading-[1.75] text-[#111]/75">
               Tell us what you&apos;re looking for. We&apos;ll match you with pre-vetted senior
-              engineers — no retainers, no risk, shortlist in 24 hours.
+              engineers - no retainers, no risk, shortlist in 24 hours.
             </p>
 
             <ul className="mb-7 flex flex-col gap-2.5">

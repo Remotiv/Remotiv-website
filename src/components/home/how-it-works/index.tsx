@@ -14,7 +14,7 @@ export function HowItWorks() {
           How Remotiv works
         </h2>
         <p className="mx-auto max-w-[480px] text-[15px] leading-[1.65] text-[#777]">
-          From browsing to building — find and hire top remote talent in days, not months.
+          From browsing to building - find and hire top remote talent in days, not months.
         </p>
       </div>
 

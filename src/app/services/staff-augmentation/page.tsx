@@ -73,27 +73,27 @@ const REASONS: readonly {
   {
     badge: { label: "Speed", tone: "lime" },
     title: "Matched in 24 Hours, Not Weeks",
-    body: "Submit your requirement and receive a shortlist of 3–5 screened, AI-matched candidates within 24 hours. Most clients have their specialist working by day seven. Traditional agencies take 1–2 weeks for the same result.",
+    body: "Submit your requirement and receive a shortlist of 3-5 screened, AI-matched candidates within 24 hours. Most clients have their specialist working by day seven. Traditional agencies take 1-2 weeks for the same result.",
   },
   {
     badge: { label: "AI + Human", tone: "dark" },
     title: "AI Finds Them. Recruiters Validate Them",
-    body: "Our matching engine searches our approved talent pool in seconds to surface the best technical fits. Then our recruiters call every shortlisted candidate personally — verifying skills, communication, and availability — before you see a single profile. No raw database dumps. No unvetted resumes.",
+    body: "Our matching engine searches our approved talent pool in seconds to surface the best technical fits. Then our recruiters call every shortlisted candidate personally - verifying skills, communication, and availability - before you see a single profile. No raw database dumps. No unvetted resumes.",
   },
 ];
 
 const STEPS: readonly { label: string; body: string }[] = [
   {
-    label: "Brief Us — 15 Minutes",
+    label: "Brief Us - 15 Minutes",
     body: "Tell us the role, required skills, timezone overlap, and engagement duration. The more context you share, the sharper the match. Your brief triggers our AI search immediately.",
   },
   {
-    label: "We Match & Vet — 24–48 Hours",
-    body: "Our matching engine searches our approved talent pool and surfaces the strongest technical fits. Our recruiters then call each candidate personally to verify skills, communication quality, and availability. For technical roles, candidates complete an in-house skills assessment before they ever reach your inbox. You receive a shortlist of 3–5 validated candidates.",
+    label: "We Match & Vet - 24-48 Hours",
+    body: "Our matching engine searches our approved talent pool and surfaces the strongest technical fits. Our recruiters then call each candidate personally to verify skills, communication quality, and availability. For technical roles, candidates complete an in-house skills assessment before they ever reach your inbox. You receive a shortlist of 3-5 validated candidates.",
   },
   {
     label: "You Interview & Choose",
-    body: "Interview your shortlist on your schedule. Remotiv coordinates everything — calendar scheduling, interview guides, and all candidate communications. You make the final call.",
+    body: "Interview your shortlist on your schedule. Remotiv coordinates everything - calendar scheduling, interview guides, and all candidate communications. You make the final call.",
   },
   {
     label: "They Start. We Handle Everything.",
@@ -110,8 +110,8 @@ const STEP_METRICS: readonly { value: string; label: string }[] = [
 
 const STEP_BARS: readonly { fill: string; width: string; day: string }[] = [
   { fill: "#49D7A7", width: "100%", day: "Day 0" },
-  { fill: "#7E47FF", width: "72%", day: "24–48 hrs" },
-  { fill: "#9886fe", width: "52%", day: "Day 3–5" },
+  { fill: "#7E47FF", width: "72%", day: "24-48 hrs" },
+  { fill: "#9886fe", width: "52%", day: "Day 3-5" },
   { fill: "#c9ff85", width: "35%", day: "Day 7" },
 ];
 
@@ -343,7 +343,7 @@ const ADVANTAGES: readonly { label: string; color: AdvColor; cols: AdvCol[] }[] 
       },
       {
         heading: "Rare Skill Sets",
-        body: "ML engineers with RAG pipeline experience, RevOps leads with HubSpot enterprise configuration — we find them.",
+        body: "ML engineers with RAG pipeline experience, RevOps leads with HubSpot enterprise configuration - we find them.",
         icon: (
           <svg viewBox="0 0 36 36" fill="none" aria-hidden="true" className="size-[22px]">
             <path
@@ -553,15 +553,15 @@ const ROLES: readonly { name: string; tags: string; icon: React.ReactNode }[] = 
 const FAQS: readonly { q: string; a: string }[] = [
   {
     q: "How quickly can I get a specialist?",
-    a: "Within 24 hours you'll receive a shortlist of 3–5 screened, AI-matched candidates. Most clients complete interviews within 5–7 days and have their specialist starting the following week.",
+    a: "Within 24 hours you'll receive a shortlist of 3-5 screened, AI-matched candidates. Most clients complete interviews within 5-7 days and have their specialist starting the following week.",
   },
   {
     q: "How is this different from a dedicated team?",
-    a: "Staff augmentation fills specific skill gaps with one or two specialists on a flexible basis. A dedicated team is a full group — multiple roles, ongoing engagement — built exclusively for your company with Remotiv managing HR and payroll permanently.",
+    a: "Staff augmentation fills specific skill gaps with one or two specialists on a flexible basis. A dedicated team is a full group - multiple roles, ongoing engagement - built exclusively for your company with Remotiv managing HR and payroll permanently.",
   },
   {
     q: "What's the minimum commitment?",
-    a: "Two months recommended. Sprint engagements as short as 3–4 weeks are possible for defined project scopes. No long-term lock-in.",
+    a: "Two months recommended. Sprint engagements as short as 3-4 weeks are possible for defined project scopes. No long-term lock-in.",
   },
   {
     q: "Who manages the specialist?",
@@ -580,7 +580,7 @@ const FAQS: readonly { q: string; a: string }[] = [
 const CHECK_ITEMS: readonly string[] = [
   "Shortlist delivered within 24 hours",
   "Free replacement guarantee included",
-  "100% confidential — your data stays private",
+  "100% confidential - your data stays private",
 ];
 
 function Hero() {
@@ -599,7 +599,7 @@ function Hero() {
           </h1>
           <p className="mx-auto mb-6 sm:mb-10 max-w-[620px] text-[1.1rem] leading-[1.65] text-[#444]">
             Plug vetted specialists into your team in 24 hours. They join your standup, use your
-            tools, and report to you — while Remotiv handles payroll, contracts, and compliance
+            tools, and report to you - while Remotiv handles payroll, contracts, and compliance
             behind the scenes.
           </p>
           <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-center gap-2.5 sm:gap-3.5">
@@ -631,7 +631,7 @@ function Stats() {
         <span className="text-remotiv-green">Fortune-level multinationals</span>
       </h2>
       <p className="mx-auto mb-8 sm:mb-12 max-w-[580px] text-center text-[1.05rem] leading-[1.65] text-[#444]">
-        We match you with pre-vetted remote specialists — fast, affordable, and ready to deliver
+        We match you with pre-vetted remote specialists - fast, affordable, and ready to deliver
         from day one.
       </p>
       <div className="mx-auto max-w-[1120px] rounded-[28px] bg-remotiv-purple-light p-5 sm:p-7">
@@ -666,7 +666,7 @@ function TeamIntegration() {
           <p className="text-base leading-[1.8] text-[#444]">
             Staff augmentation adds a skilled professional directly to your existing team. They
             join your Slack, attend your standups, commit to your repo, and report to you. You keep
-            full control. Remotiv handles everything else — sourcing, vetting, payroll, contracts,
+            full control. Remotiv handles everything else - sourcing, vetting, payroll, contracts,
             and compliance. It&apos;s not outsourcing. You never hand off a project to an external
             vendor. You never lose visibility. You simply get the missing skill your team needs,
             deployed in days instead of months, with the flexibility to scale back when the work is
@@ -728,7 +728,7 @@ function FiveReasons() {
               </h3>
               <p className="mt-auto pt-6 text-[0.86rem] leading-[1.72] text-[#555]">
                 We don&apos;t send you &apos;a developer.&apos; We send you the exact niche skill your project
-                needs — an ML engineer with RAG pipeline experience, a DevSecOps lead with SOC2
+                needs - an ML engineer with RAG pipeline experience, a DevSecOps lead with SOC2
                 certification, a fractional CTO who has scaled two SaaS products past $10M ARR.
                 Precision matters.
               </p>
@@ -740,7 +740,7 @@ function FiveReasons() {
                 </h3>
                 <p className="text-[0.82rem] leading-[1.68] text-[#555]">
                   Pakistan produces 25,000+ STEM graduates annually. Remotiv gives you access to
-                  this talent pool at a fraction of Western rates — without compromising on quality,
+                  this talent pool at a fraction of Western rates - without compromising on quality,
                   timezone coverage, or English fluency.
                 </p>
               </div>
@@ -773,7 +773,7 @@ function ProcessSteps() {
             Request to Deployment in 4 Steps
           </h2>
           <p className="mb-8 sm:mb-12 text-[0.97rem] leading-[1.7] text-[#444]">
-            We&apos;ve compressed the traditional 6–12 week hiring cycle into a repeatable 7-day
+            We&apos;ve compressed the traditional 6-12 week hiring cycle into a repeatable 7-day
             process.
           </p>
 
@@ -802,7 +802,7 @@ function ProcessSteps() {
         <aside className="flex flex-col gap-5 rounded-3xl border border-black/[0.07] bg-white p-6 sm:p-9 lg:sticky lg:top-24">
           <div className="inline-flex items-center gap-2 self-start rounded-full border border-remotiv-green/25 bg-remotiv-green/10 px-3.5 py-1.5 font-heading text-[0.72rem] font-bold text-remotiv-green">
             <span className="size-[7px] rounded-full bg-remotiv-green" />
-            Live — Active Placements
+            Live - Active Placements
           </div>
           <p className="font-heading text-[1.4rem] font-extrabold leading-tight text-remotiv-text-dark">
             Most clients have their specialist working within 7 days of their first brief.
@@ -897,7 +897,7 @@ function WhatWeStaff() {
       </h2>
       <p className="mb-8 sm:mb-12 max-w-[680px] text-[0.95rem] leading-[1.7] text-white/85">
         From individual contributors to fractional C-suite leaders, Remotiv covers the full
-        spectrum. These are the categories our clients request most — but if your role isn&apos;t
+        spectrum. These are the categories our clients request most - but if your role isn&apos;t
         listed, ask us. If the skill exists in Pakistan&apos;s talent market, we can source it.
       </p>
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
@@ -1039,7 +1039,7 @@ function CtaInquiry() {
             Your Next Hire Is a Week Away
           </h2>
           <p className="mb-6 text-[13px] leading-[1.75] text-remotiv-text-dark opacity-75">
-            Tell us what you need. Remotiv delivers a screened, AI-matched shortlist — backed by a
+            Tell us what you need. Remotiv delivers a screened, AI-matched shortlist - backed by a
             free replacement guarantee and an outcome-based engagement model.
           </p>
           <div className="mb-7 flex flex-wrap gap-2.5">

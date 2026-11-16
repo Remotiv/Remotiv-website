@@ -15,7 +15,7 @@ export function RoleUnavailable() {
     <main className="mx-auto flex min-h-[60vh] max-w-lg flex-col justify-center px-6 py-24 text-center">
       <h1 className="font-heading text-2xl font-bold text-gray-900">This role didn&apos;t load</h1>
       <p className="mt-3 text-sm leading-relaxed text-gray-600">
-        Something went wrong fetching it — the role itself is fine. Refresh the page, or try again
+        Something went wrong fetching it - the role itself is fine. Refresh the page, or try again
         in a moment.
       </p>
     </main>

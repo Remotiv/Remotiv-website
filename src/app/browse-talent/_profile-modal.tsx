@@ -101,7 +101,7 @@ export default function ProfileModal({
   let degree = "";
   let school = "";
   if (c.education) {
-    const [d, s] = c.education.split("—");
+    const [d, s] = c.education.split(" - ");
     degree = d?.trim() ?? "";
     school = s?.trim() ?? "";
   } else {
@@ -110,7 +110,7 @@ export default function ProfileModal({
   }
   const hasEducation = Boolean(degree || school);
   const eduInline =
-    c.education ?? [detail?.degree, detail?.institution].filter(Boolean).join(" — ");
+    c.education ?? [detail?.degree, detail?.institution].filter(Boolean).join(" - ");
   const detailExperience = detail?.experience ?? [];
   const hasExperienceArray = detailExperience.length > 0;
   // Summary: list payload still ships c.bio (= row.summary, list-redacted).

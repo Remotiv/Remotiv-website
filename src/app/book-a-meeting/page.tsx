@@ -42,7 +42,7 @@ export default function BookAMeetingPage() {
 
               <div className="absolute right-[340px] top-[248px] hidden w-[228px] rounded-2xl bg-white p-[14px] shadow-[0_4px_24px_rgba(0,0,0,0.13)] lg:block">
                 <div className="mb-[3px] font-heading text-xs font-semibold text-remotiv-text-dark">
-                  Discovery Call &mdash; Remotiv
+                  Discovery Call - Remotiv
                 </div>
                 <div className="mb-[9px] text-[11px] text-[#888]">Sarah K.</div>
                 <div className="mb-[10px] flex items-center gap-[6px] text-[11px] text-[#666]">
@@ -119,7 +119,7 @@ export default function BookAMeetingPage() {
               <p className="mb-8 text-lg leading-relaxed text-gray-600">
                 Pick a slot that works for you. We&apos;ll discuss your hiring
                 needs, share pre-vetted candidate profiles, and outline next
-                steps — no pressure, no commitments.
+                steps - no pressure, no commitments.
               </p>
 
               <div className="mb-8 space-y-4">
@@ -137,7 +137,7 @@ export default function BookAMeetingPage() {
                   {
                     icon: "🌍",
                     title: "Any timezone works",
-                    desc: "Mon–Fri, 9am–9pm PKT availability",
+                    desc: "Mon-Fri, 9am-9pm PKT availability",
                   },
                   {
                     icon: "🔒",

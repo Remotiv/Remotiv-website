@@ -400,7 +400,9 @@ test("response promises: each surface says what may happen instead, without an e
     "The hiring team will review your application and may contact you by email with an update.";
   // Both places on the company job page: the Decision step and the closing card.
   assert.equal(jobPage.split(sentence).length - 1, 2, "company job page, both places");
-  assert.match(jobPage, /rest: "- The hiring team will review your application/);
+  // The steps read "<b>Decision</b>: The hiring team ..." (dash sweep b).
+  assert.match(jobPage, /rest: "The hiring team will review your application/);
+  assert.match(jobPage, /<b>\{step\.lead\}<\/b>: \{step\.rest\}/);
 
   const modal = flat(applyModal);
   const update = "You&apos;ll receive updates by email if the hiring team moves forward.";

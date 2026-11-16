@@ -804,7 +804,7 @@ function ResultsContent() {
           setLastUnlockNote({
             id: candidateId,
             text: result.alreadyUnlocked
-              ? "Already unlocked — no credit used"
+              ? "Already unlocked - no credit used"
               : `Unlocked · ${result.creditsRemaining} credits left`,
           });
         } else {

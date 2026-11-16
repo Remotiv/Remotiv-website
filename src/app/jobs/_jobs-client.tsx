@@ -43,7 +43,7 @@ function fmtSalary(min: number | null, max: number | null, currency: string | nu
   const fmt = (n: number) => n.toLocaleString("en-US");
   if (min && max) {
     if (min === max) return `${cur} ${fmt(min)}/mo`;
-    return `${cur} ${fmt(min)} – ${fmt(max)}/mo`;
+    return `${cur} ${fmt(min)} - ${fmt(max)}/mo`;
   }
   if (min) return `From ${cur} ${fmt(min)}/mo`;
   return `Up to ${cur} ${fmt(max!)}/mo`;
@@ -603,7 +603,7 @@ export function JobsClient({
                 <div className="flex h-48 flex-col items-center justify-center gap-3 text-[0.9rem] text-[#666]">
                   <p className="font-semibold text-[#111]">We couldn&apos;t load these roles</p>
                   <p className="text-[0.85rem]">
-                    They&apos;re still there — this is a problem on our side.
+                    They&apos;re still there - this is a problem on our side.
                   </p>
                   <button
                     type="button"
@@ -634,7 +634,7 @@ export function JobsClient({
                 <div className="flex h-48 flex-col items-center justify-center gap-2 text-[0.9rem] text-[#666]">
                   <p className="font-semibold text-[#111]">No roles are live right now</p>
                   <p className="text-[0.85rem]">
-                    New roles are published here first — it&apos;s worth checking back. Or{" "}
+                    New roles are published here first - it&apos;s worth checking back. Or{" "}
                     <Link
                       href="/join-as-talent"
                       className="font-medium text-remotiv-purple hover:underline"

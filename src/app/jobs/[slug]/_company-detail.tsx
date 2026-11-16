@@ -36,15 +36,15 @@ import { jobLocationSchema } from "@/lib/job-location";
  * on top of each other.
  */
 const HIRING_STEPS = [
-  { lead: "Apply", rest: "— a short form and your CV, about five minutes." },
+  { lead: "Apply", rest: "a short form and your CV, about five minutes." },
   {
     lead: "Recorded intro",
-    rest: "— a few questions you answer on video, whenever suits you.",
+    rest: "a few questions you answer on video, whenever suits you.",
   },
-  { lead: "Two conversations", rest: "— one with the team, one on craft." },
+  { lead: "Two conversations", rest: "one with the team, one on craft." },
   {
     lead: "Decision",
-    rest: "- The hiring team will review your application and may contact you by email with an update.",
+    rest: "The hiring team will review your application and may contact you by email with an update.",
   },
 ];
 
@@ -252,7 +252,7 @@ export function CompanyJobDetail({
                         {/* Real markup, single digit, no leading zero. */}
                         <span className="n">{i + 1}</span>
                         <span>
-                          <b>{step.lead}</b> {step.rest}
+                          <b>{step.lead}</b>: {step.rest}
                         </span>
                       </li>
                     ))}

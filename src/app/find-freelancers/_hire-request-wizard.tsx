@@ -304,7 +304,7 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
             </div>
 
             <div style={{ fontSize: 11, color: "#7E47FF", letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 500, marginBottom: 6 }}>
-              Step {step} of 3 — {step === 1 ? "Engagement" : step === 2 ? "Project" : "Contact"}
+              Step {step} of 3 - {step === 1 ? "Engagement" : step === 2 ? "Project" : "Contact"}
             </div>
             <div id="hire-wizard-title" style={{ fontSize: 20, fontWeight: 500, color: "#111", marginBottom: 6 }}>
               {step === 1 && "What kind of engagement?"}
@@ -562,7 +562,7 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
             </div>
 
             <div style={{ background: "#EAF3DE", padding: "12px 14px", borderRadius: 10, fontSize: 12, color: "#173404", lineHeight: 1.5 }}>
-              ✓ Your info stays private — only shared with our team to match you with the right talent.
+              ✓ Your info stays private - only shared with our team to match you with the right talent.
             </div>
           </div>
         )}

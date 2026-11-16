@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 const HERO_STATS = [
   `${MARKETING_STATS.talentPool} Talent Pool`,
-  "$25–50/hr",
+  "$25-50/hr",
   `${MARKETING_STATS.placementTime} avg time to hire`,
   `${MARKETING_STATS.clientRetention} Client Retention`,
 ] as const;
@@ -84,8 +84,8 @@ function HeroSection() {
           Engineers, AI experts &amp; domain specialists.
         </p>
         <p className="mx-auto mb-10 max-w-[600px] text-[1.02rem] leading-[1.68] text-remotiv-text-mid">
-          Professionals ready to join your team or train your AI models — at
-          50–70% less cost than US rates.
+          Professionals ready to join your team or train your AI models - at
+          50-70% less cost than US rates.
         </p>
         <div className="inline-flex flex-wrap items-center justify-center rounded-full border border-black/10 bg-white/70 px-1 py-2.5 shadow-[0_2px_12px_rgba(0,0,0,0.05)] backdrop-blur-md">
           {HERO_STATS.map((stat, idx) => (
@@ -163,7 +163,7 @@ function QuoteCta() {
             Need help finding the right person?
           </h2>
           <p className="text-[0.95rem] leading-[1.65] text-[#222]">
-            Looking for a Developer, SDR, or Customer Support professional — for
+            Looking for a Developer, SDR, or Customer Support professional - for
             a permanent role or part-time? We find you the right person within days.
           </p>
         </div>

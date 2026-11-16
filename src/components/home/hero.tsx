@@ -124,7 +124,7 @@ export function Hero() {
       {/* Sub-headline */}
       <p className={styles.sub}>
         Hire pre-vetted engineers, scale with staff augmentation, or build
-        dedicated teams — without the usual delays.
+        dedicated teams - without the usual delays.
       </p>
 
       {/* Primary CTA */}

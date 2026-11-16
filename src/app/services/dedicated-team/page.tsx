@@ -38,7 +38,7 @@ const HOW_IT_WORKS: readonly { em: string; body: string }[] = [
   },
   {
     em: "Not freelancers",
-    body: "Your team is full-time, exclusive to you, and building deep product context over months and years — not rotating between clients.",
+    body: "Your team is full-time, exclusive to you, and building deep product context over months and years - not rotating between clients.",
   },
   {
     em: "Not DIY offshore",
@@ -50,12 +50,12 @@ const WHY_REMOTIV_TOP: readonly { badge: string; heading: string; body: string }
   {
     badge: "Speed",
     heading: "Operational in 2 Weeks",
-    body: "Company onboarding takes weeks. Firm ramp-up is measured in sprints. Remotiv gets your team recruited, contracted, and working in 2 weeks — because we've already built the infrastructure to move that fast.",
+    body: "Company onboarding takes weeks. Firm ramp-up is measured in sprints. Remotiv gets your team recruited, contracted, and working in 2 weeks - because we've already built the infrastructure to move that fast.",
   },
   {
     badge: "Cost",
     heading: `${MARKETING_STATS.savings} Less Than Hiring in the US`,
-    body: "Pakistan produces 500,000+ STEM graduates annually and is home to engineers who've shipped products at multiple companies and US-based startups. Remotiv gives you this talent at a fraction of Western rates — a 5-person team that costs $460K in the US costs approximately $189K through Remotiv.",
+    body: "Pakistan produces 500,000+ STEM graduates annually and is home to engineers who've shipped products at multiple companies and US-based startups. Remotiv gives you this talent at a fraction of Western rates - a 5-person team that costs $460K in the US costs approximately $189K through Remotiv.",
   },
 ];
 
@@ -86,13 +86,13 @@ const PROCESS_STEPS: readonly { n: number; tag: string; heading: string; body: s
   },
   {
     n: 2,
-    tag: "Day 1–4",
+    tag: "Day 1-4",
     heading: "We Recruit & You Select",
-    body: "Our AI scans 1M+ profiles while our recruiters source, screen, and shortlist the strongest matches. You receive 3–5 pre-vetted candidates per role — with fit scores, skills assessments, and vetting summaries. You interview and make the final hiring decision. No one joins your team without your approval.",
+    body: "Our AI scans 1M+ profiles while our recruiters source, screen, and shortlist the strongest matches. You receive 3-5 pre-vetted candidates per role - with fit scores, skills assessments, and vetting summaries. You interview and make the final hiring decision. No one joins your team without your approval.",
   },
   {
     n: 3,
-    tag: "Day 5–11",
+    tag: "Day 5-11",
     heading: "Contracts & Onboarding",
     body: "Remotiv handles all contracts, NDAs, IP assignment, payroll setup, tool access, and day-one documentation. Your legal team never needs to understand Pakistani employment law. Your team arrives fully prepared.",
   },
@@ -100,7 +100,7 @@ const PROCESS_STEPS: readonly { n: number; tag: string; heading: string; body: s
     n: 4,
     tag: "Day 14",
     heading: "They Start. You Lead.",
-    body: "Your team joins your Slack, your standup, your codebase. They're contributing from day one. Remotiv manages payroll, HR, performance support, and compliance permanently in the background — you never see it. You just lead.",
+    body: "Your team joins your Slack, your standup, your codebase. They're contributing from day one. Remotiv manages payroll, HR, performance support, and compliance permanently in the background - you never see it. You just lead.",
   },
 ];
 
@@ -233,14 +233,14 @@ const COST_ROWS: readonly {
 ];
 
 const DIY_ROWS: readonly { label: string; remotiv: string; diy: string; both?: boolean }[] = [
-  { label: "Time to first hire", remotiv: "2 weeks", diy: "6–12 weeks" },
+  { label: "Time to first hire", remotiv: "2 weeks", diy: "6-12 weeks" },
   { label: "Recruitment", remotiv: "Fully managed", diy: "You source, screen & interview" },
   { label: "Contracts & compliance", remotiv: "Included", diy: "Your legal team figures it out" },
   { label: "Monthly payroll", remotiv: "Processed for you", diy: "You manage local payroll rules" },
   { label: "HR & performance", remotiv: "Handled", diy: "You build from scratch" },
   { label: "Cost vs US market", remotiv: `${MARKETING_STATS.savings} lower`, diy: "Lower but setup costs are high" },
   { label: "Scalability", remotiv: "Add / remove anytime", diy: "Slow and legally complex" },
-  { label: "Replacement guarantee", remotiv: "Free, no paperwork", diy: "None — restart from zero" },
+  { label: "Replacement guarantee", remotiv: "Free, no paperwork", diy: "None - restart from zero" },
   { label: "IP ownership", remotiv: "100% yours", diy: "100% yours", both: true },
 ];
 
@@ -309,7 +309,7 @@ const WHAT_WE_BUILD: readonly { name: string; tags: string; iconPath: string }[]
 const FAQS: readonly { q: string; a: string }[] = [
   {
     q: "What's the minimum team size?",
-    a: "No strict minimum — many clients start with 2 people and grow. For a single role, our Recruitment or Staff Augmentation service is usually a better fit.",
+    a: "No strict minimum - many clients start with 2 people and grow. For a single role, our Recruitment or Staff Augmentation service is usually a better fit.",
   },
   {
     q: "Do I get to interview people before they join?",
@@ -317,7 +317,7 @@ const FAQS: readonly { q: string; a: string }[] = [
   },
   {
     q: "How is this different from Staff Augmentation?",
-    a: "Staff Augmentation fills specific skill gaps with individual specialists on a flexible basis. A Dedicated Team is a purpose-built group — multiple roles, ongoing engagement — with Remotiv managing HR and payroll permanently. It's the difference between adding one person and building a team.",
+    a: "Staff Augmentation fills specific skill gaps with individual specialists on a flexible basis. A Dedicated Team is a purpose-built group - multiple roles, ongoing engagement - with Remotiv managing HR and payroll permanently. It's the difference between adding one person and building a team.",
   },
   {
     q: "Can I scale up or down after we start?",
@@ -435,7 +435,7 @@ export default function DedicatedTeamPage() {
             areaServed: "Worldwide",
             url: "https://remotiv.work/services/dedicated-team",
             description:
-              "Build a dedicated remote team across engineering, sales, design, customer success, marketing, and operations. Hand-picked, managed, retained — operational in 2 weeks with a free replacement guarantee.",
+              "Build a dedicated remote team across engineering, sales, design, customer success, marketing, and operations. Hand-picked, managed, retained - operational in 2 weeks with a free replacement guarantee.",
           }),
         }}
       />
@@ -471,7 +471,7 @@ export default function DedicatedTeamPage() {
               </div>
               <p className="mb-12 max-w-[580px] text-center text-[1.1rem] leading-[1.65] text-remotiv-text-light">
                 You define the roles. Remotiv recruits, onboards, and manages your dedicated team
-                — HR, payroll, contracts, and compliance handled silently in the background. They
+                - HR, payroll, contracts, and compliance handled silently in the background. They
                 work exclusively for you, on your tools, your timezone, your culture.
               </p>
 
@@ -835,7 +835,7 @@ export default function DedicatedTeamPage() {
                 Remotiv vs Hiring in Pakistan Yourself
               </h2>
               <p className="mx-auto max-w-[600px] text-base leading-[1.7] text-remotiv-text-light">
-                Setting up your own offshore team sounds simple — until you factor in legal entity
+                Setting up your own offshore team sounds simple - until you factor in legal entity
                 registration, Pakistani employment law, local HR management, and cross-border
                 payroll. Here&apos;s the real comparison.
               </p>
@@ -940,7 +940,7 @@ export default function DedicatedTeamPage() {
               Every Function. Every Level
             </h2>
             <p className="m-0 mb-12 max-w-[680px] text-[0.95rem] leading-[1.7] text-white/85">
-              We build dedicated teams across the full spectrum of professional roles — from
+              We build dedicated teams across the full spectrum of professional roles - from
               individual contributors to team leads and managers.
             </p>
 
@@ -984,7 +984,7 @@ export default function DedicatedTeamPage() {
               </h2>
               <p className="m-0 mb-6 text-[13px] leading-[1.75] text-remotiv-text-dark opacity-75">
                 Tell us the roles you need. Remotiv recruits, onboards, and manages your full
-                dedicated team — HR, payroll, contracts, and compliance handled permanently in the
+                dedicated team - HR, payroll, contracts, and compliance handled permanently in the
                 background.
               </p>
               <div className="mb-7 flex flex-wrap gap-2.5">
@@ -1305,7 +1305,7 @@ function InquiryForm() {
     name: "",
     company: "",
     email: "",
-    size: "1–2 people",
+    size: "1-2 people",
     message: "",
     companyUrl: "",
   });
@@ -1318,7 +1318,7 @@ function InquiryForm() {
       name: "",
       company: "",
       email: "",
-      size: "1–2 people",
+      size: "1-2 people",
       message: "",
       companyUrl: "",
     });
@@ -1521,9 +1521,9 @@ function InquiryForm() {
           onChange={(e) => setForm({ ...form, size: e.target.value })}
           className="w-full rounded-lg border border-transparent bg-[#f5f5f5] px-3 py-[9px] text-base sm:text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef]"
         >
-          <option>1–2 people</option>
-          <option>3–5 people</option>
-          <option>6–10 people</option>
+          <option>1-2 people</option>
+          <option>3-5 people</option>
+          <option>6-10 people</option>
           <option>10+ people</option>
         </select>
       </div>

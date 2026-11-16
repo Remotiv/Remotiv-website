@@ -141,7 +141,7 @@ export default function AccountClient({
             {tier === "free" && (
               <button
                 type="button"
-                onClick={() => showToast("🔒 Subscriptions coming soon — payment integration in progress.")}
+                onClick={() => showToast("🔒 Subscriptions coming soon - payment integration in progress.")}
                 style={{ background: PURPLE, color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: "DM Sans, sans-serif" }}
               >
                 Subscribe
@@ -150,7 +150,7 @@ export default function AccountClient({
             {tier === "starter" && (
               <button
                 type="button"
-                onClick={() => showToast("🔒 Coming soon — payment integration in progress.")}
+                onClick={() => showToast("🔒 Coming soon - payment integration in progress.")}
                 style={{ background: "transparent", border: "1px solid #ddd", borderRadius: 8, padding: "8px 14px", fontSize: 13, color: "#333", cursor: "pointer", fontFamily: "DM Sans, sans-serif" }}
               >
                 Upgrade to Pro
@@ -288,7 +288,7 @@ export default function AccountClient({
               </div>
               <button
                 type="button"
-                onClick={() => showToast("🔒 Coming soon — payment integration in progress.")}
+                onClick={() => showToast("🔒 Coming soon - payment integration in progress.")}
                 style={{ background: "transparent", border: "1px solid #f0c0c0", color: "#c14040", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: "DM Sans, sans-serif" }}
               >
                 Cancel plan

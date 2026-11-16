@@ -69,7 +69,7 @@ export function fmtSalary(min: number | null, max: number | null, currency: stri
     return n.toLocaleString("en-US");
   };
   if (min != null && max != null) {
-    return min === max ? `${cur} ${k(min)}` : `${cur} ${k(min)}–${k(max)}`;
+    return min === max ? `${cur} ${k(min)}` : `${cur} ${k(min)}-${k(max)}`;
   }
   if (min != null) return `${cur} from ${k(min)}`;
   if (max != null) return `${cur} up to ${k(max)}`;

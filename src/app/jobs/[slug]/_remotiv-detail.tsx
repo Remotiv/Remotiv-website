@@ -82,14 +82,14 @@ const TIMELINE = [
   {
     n: "3",
     title: "Interview tomorrow",
-    sub: "Meet the hiring team — usually next day.",
+    sub: "Meet the hiring team - usually next day.",
     dot: "#9886FE",
     ink: "#ffffff",
   },
   {
     n: "4",
     title: "Offer within 2 weeks",
-    sub: "From application to signed — two weeks.",
+    sub: "From application to signed - two weeks.",
     dot: "#ffffff",
     ink: "#241f38",
   },

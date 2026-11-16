@@ -271,7 +271,7 @@ function GridBackground() {
         </h1>
 
         <p className="bat-sub">
-          Connect with top companies and global employers. Submit your profile once — get matched
+          Connect with top companies and global employers. Submit your profile once - get matched
           automatically.
         </p>
 
@@ -804,7 +804,7 @@ export default function BecomeATalentPage() {
             company: e.company?.trim() ?? "",
             start:   e.start?.trim()   ?? "",
             end:     endValue,
-            dates:   [e.start?.trim(), endValue].filter(Boolean).join(" – "),
+            dates:   [e.start?.trim(), endValue].filter(Boolean).join(" - "),
             skills:  (e.skills ?? "")
               .split(",")
               .map((s: string) => s.trim())
@@ -1083,7 +1083,7 @@ export default function BecomeATalentPage() {
                             fontWeight: 600,
                           }}
                         >
-                          ✓ Pre-filled from your job application — edit if needed.
+                          ✓ Pre-filled from your job application - edit if needed.
                         </div>
                       )}
                       {bridgeWarning && (
@@ -1430,7 +1430,7 @@ export default function BecomeATalentPage() {
                             Professional Information
                           </h2>
                           <div className="bta-fh-sub">
-                            Your role, experience and skills — this powers AI Talent Match
+                            Your role, experience and skills - this powers AI Talent Match
                           </div>
                         </div>
                       </div>
@@ -1686,7 +1686,7 @@ export default function BecomeATalentPage() {
                           <textarea
                             id="bta-summary"
                             className="bta-textarea"
-                            placeholder="Write a short bio — your experience, what you specialize in, and what opportunities you're looking for."
+                            placeholder="Write a short bio - your experience, what you specialize in, and what opportunities you're looking for."
                             value={summary}
                             onChange={(e) => setSummary(e.target.value)}
                             maxLength={2000}
@@ -1751,7 +1751,7 @@ export default function BecomeATalentPage() {
                             Work Preferences
                           </h2>
                           <div className="bta-fh-sub">
-                            How and when you want to work — helps us find your best match
+                            How and when you want to work - helps us find your best match
                           </div>
                         </div>
                       </div>
@@ -1920,7 +1920,7 @@ export default function BecomeATalentPage() {
                             CV / Resume Upload
                           </h2>
                           <div className="bta-fh-sub">
-                            Upload your latest CV — reviewed by our team and shared with companies
+                            Upload your latest CV - reviewed by our team and shared with companies
                             hiring on Remotiv
                           </div>
                         </div>
@@ -1980,7 +1980,7 @@ export default function BecomeATalentPage() {
                           </div>
                           <div className="bta-upload-sub">
                             {cvFile ? (
-                              `${(cvFile.size / 1024).toFixed(0)} KB — ready to submit`
+                              `${(cvFile.size / 1024).toFixed(0)} KB - ready to submit`
                             ) : (
                               <>
                                 or{" "}
@@ -2007,7 +2007,7 @@ export default function BecomeATalentPage() {
                               </>
                             )}
                           </div>
-                          <div className="bta-upload-fmt">Required — PDF only (max 5 MB)</div>
+                          <div className="bta-upload-fmt">Required - PDF only (max 5 MB)</div>
                         </div>
                         {/* Phase 3 M-cv-clear (fixed): Remove button moved
                             OUTSIDE the .bta-upload-zone. The zone's child
@@ -2072,7 +2072,7 @@ export default function BecomeATalentPage() {
                         <div className="bta-form-group">
                           <label className="bta-label" htmlFor="bta-github">
                             GitHub URL{" "}
-                            <span className="bta-opt">optional — for engineers</span>
+                            <span className="bta-opt">optional - for engineers</span>
                           </label>
                           <div className="bta-input-wrap">
                             <span className="bta-input-icon">
@@ -2106,7 +2106,7 @@ export default function BecomeATalentPage() {
                           <div>
                             <div className="bta-info-box-title">What Happens Next</div>
                             <div className="bta-info-box-body">
-                              Our team reviews your profile within 24–48 hours. If approved, you&apos;ll
+                              Our team reviews your profile within 24-48 hours. If approved, you&apos;ll
                               be live in the Remotiv talent pool and our AI will start matching
                               you to relevant opportunities from 100+ partner companies. Your
                               profile page also becomes publicly visible on remotiv.work, where
@@ -2205,7 +2205,7 @@ export default function BecomeATalentPage() {
                 <em>2</em> weeks
               </div>
               <div className="bta-sstat-desc">
-                From profile submission to first interview — our AI speeds up the process
+                From profile submission to first interview - our AI speeds up the process
                 dramatically.
               </div>
             </div>

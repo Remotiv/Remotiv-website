@@ -9,7 +9,7 @@ const CARDS = [
     bullets: [
       "Hire your first engineers or marketers",
       "Flexible hiring, no long-term commitments",
-      "Fast turnaround — matched in 24 hours",
+      "Fast turnaround - matched in 24 hours",
     ],
   },
   {

@@ -17,7 +17,7 @@ const HOW_IT_WORKS = [
   {
     step: "01",
     title: "Describe Your Role",
-    body: "Write in plain English — skills, experience, timezone, budget, culture. No forms, no checkboxes. Just describe what you need.",
+    body: "Write in plain English - skills, experience, timezone, budget, culture. No forms, no checkboxes. Just describe what you need.",
   },
   {
     step: "02",
@@ -80,7 +80,7 @@ export default function AIMatchingPage() {
           IN <em className="not-italic text-remotiv-purple">SECONDS</em>
         </h1>
         <p className="mx-auto mb-10 max-w-[520px] font-sans text-[1.05rem] text-[#777]">
-          Describe any role. Remotiv AI scans our talent pool and ranks the best matches —
+          Describe any role. Remotiv AI scans our talent pool and ranks the best matches -
           no forms, no waiting.
         </p>
 

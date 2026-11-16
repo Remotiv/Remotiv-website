@@ -473,7 +473,7 @@ export function BookingClient({ token }: { token: string }) {
             */}
             <p className="mt-2 text-sm leading-relaxed text-gray-500">
               There's a problem reading {state.hostName || "your interviewer"}'s calendar, so we
-              can't offer times yet. They've been told — you'll hear from{" "}
+              can't offer times yet. They've been told - you'll hear from{" "}
               {state.companyName || "the team"} shortly. Nothing you need to do.
             </p>
           </div>
@@ -502,7 +502,7 @@ export function BookingClient({ token }: { token: string }) {
                 })}
               </p>
               <p className="mt-1 text-sm text-gray-600">
-                {fmt(state.scheduledStart, zone)} – {fmt(state.scheduledEnd, zone)}{" "}
+                {fmt(state.scheduledStart, zone)} - {fmt(state.scheduledEnd, zone)}{" "}
                 <span className="text-gray-400">
                   ({zoneLabel(state.scheduledStart, zone)} · {zone})
                 </span>
@@ -580,7 +580,7 @@ export function BookingClient({ token }: { token: string }) {
             {!state.canReschedule && state.canCancel && (
               <p className="mt-3 text-xs leading-relaxed text-gray-400">
                 This interview is less than 24 hours away, so the time is now fixed. You can still
-                cancel it if you can't make it — and if you need a different time, cancel and reply
+                cancel it if you can't make it - and if you need a different time, cancel and reply
                 to your email, and {state.hostName || "your interviewer"} will send a new
                 invitation.
               </p>
@@ -590,7 +590,7 @@ export function BookingClient({ token }: { token: string }) {
               <div className="mt-4 border-t border-gray-100 pt-4">
                 <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
                   <p className="m-0 text-[13px] font-semibold text-gray-700">
-                    Pick a new time — your joining link stays the same.
+                    Pick a new time - your joining link stays the same.
                   </p>
                   <button
                     type="button"
@@ -746,7 +746,7 @@ export function BookingClient({ token }: { token: string }) {
                 ))}
               </select>
               <span className="text-xs text-gray-400">
-                Not your timezone? Change it — every time below updates.
+                Not your timezone? Change it - every time below updates.
               </span>
             </div>
 

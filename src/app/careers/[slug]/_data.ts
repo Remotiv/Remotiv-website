@@ -125,7 +125,7 @@ function formatPay(
   };
   if (min != null && max != null) {
     return {
-      pay: min === max ? `${cur} ${k(min)}` : `${cur} ${k(min)}–${k(max)}`,
+      pay: min === max ? `${cur} ${k(min)}` : `${cur} ${k(min)}-${k(max)}`,
       payUnit: "per month",
     };
   }

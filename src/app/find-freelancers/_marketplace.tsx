@@ -214,7 +214,7 @@ const FILTER_ROLES = [
   "DevOps",
 ] as const;
 
-const EXP_FILTERS = ["Any", "0–2 yrs", "3–5 yrs", "6–10 yrs", "10+ yrs"] as const;
+const EXP_FILTERS = ["Any", "0-2 yrs", "3-5 yrs", "6-10 yrs", "10+ yrs"] as const;
 const AVAIL_FILTERS = ["Any", "Available Now", "Available Later"] as const;
 const ENGLISH_FILTERS = ["Any", "Fluent", "Professional", "Basic"] as const;
 
@@ -514,7 +514,7 @@ function ProfileDrawer({
                 </p>
               ))
             ) : (
-              <p className="text-xs text-[#aaa]">—</p>
+              <p className="text-xs text-[#aaa]">-</p>
             )}
           </div>
         </div>
@@ -1191,7 +1191,7 @@ export function HireMarketplace({
                 }) ? (
                   <div className="rounded-2xl border border-dashed border-black/10 bg-white py-14 text-center">
                     <p className="text-sm font-medium text-[#666]">No talent available right now.</p>
-                    <p className="mt-1 text-xs text-[#999]">Check back soon — new candidates are added regularly.</p>
+                    <p className="mt-1 text-xs text-[#999]">Check back soon - new candidates are added regularly.</p>
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-dashed border-black/10 bg-white py-14 text-center text-sm text-[#aaa]">

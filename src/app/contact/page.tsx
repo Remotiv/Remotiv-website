@@ -40,7 +40,7 @@ const INQUIRY_CARDS = [
   {
     title: "Sales Inquiry",
     description:
-      "We're here to help! Whether you have a question about Remotiv's services, pricing, or partnerships — reach out anytime.",
+      "We're here to help! Whether you have a question about Remotiv's services, pricing, or partnerships - reach out anytime.",
     cta: "Contact sales",
     targetService: "General Inquiry",
     illustration: (
@@ -97,7 +97,7 @@ const CONTACT_DETAILS = [
     title: "Response Time",
     value: (
       <>
-        Mon – Fri, 9am – 6pm PKT
+        Mon - Fri, 9am - 6pm PKT
         <br />
         Urgent? We prioritize same-day replies
       </>
@@ -289,7 +289,7 @@ export default function ContactPage() {
             We&apos;d Love to Hear From You
           </h1>
           <p className="mx-auto max-w-[520px] text-[1.05rem] leading-[1.65] text-remotiv-text-light">
-            Whether you&apos;re looking to find freelancers or join our network — our team is here to help.
+            Whether you&apos;re looking to find freelancers or join our network - our team is here to help.
           </p>
         </section>
 
@@ -358,7 +358,7 @@ export default function ContactPage() {
               With Remotiv?
             </h2>
             <p className="mb-6 text-[13px] leading-[1.75] text-[#111]/75">
-              Tell us what you need. Whether it&apos;s hiring remote talent or a partnership question — we&apos;ll
+              Tell us what you need. Whether it&apos;s hiring remote talent or a partnership question - we&apos;ll
               reply within 24 hours.
             </p>
             <ul className="mb-7 flex flex-col gap-2.5">

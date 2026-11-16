@@ -247,7 +247,7 @@ function Row1() {
         headline="The world's most intelligent talent database"
         accentWord="intelligent"
         accentColor="purple"
-        description="Our AI scans over 1 million profiles in seconds — matching on skills, experience depth, seniority, and role-fit signals. Only the right candidates make it through."
+        description="Our AI scans over 1 million profiles in seconds - matching on skills, experience depth, seniority, and role-fit signals. Only the right candidates make it through."
       />
       <div className="hidden px-6 lg:block">
         <AnimatedLine direction="ltr" color="purple" visible={visible} />
@@ -308,7 +308,7 @@ function Row2() {
           headline="Proven results, global reach"
           accentWord="global reach"
           accentColor="purple"
-          description="Over 200+ professionals placed with US, UK, and global companies — from early-stage startups to established enterprises. Every placement backed by our 90-day guarantee."
+          description="Over 200+ professionals placed with US, UK, and global companies - from early-stage startups to established enterprises. Every placement backed by our 90-day guarantee."
           align="center"
         />
       </div>
@@ -374,7 +374,7 @@ function Row3() {
           headline="Your shortlist, in 24 hours"
           accentWord="24 hours"
           accentColor="green"
-          description="Share your brief today. By tomorrow, a curated shortlist of pre-vetted, AI-matched candidates is in your inbox — ready to interview, ready to hire."
+          description="Share your brief today. By tomorrow, a curated shortlist of pre-vetted, AI-matched candidates is in your inbox - ready to interview, ready to hire."
         />
       </div>
     </div>

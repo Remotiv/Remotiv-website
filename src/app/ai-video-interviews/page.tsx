@@ -508,7 +508,7 @@ const AVI4_TRANSCRIPT: { id: string; turns: Avi4Turn[] }[] = [
         who: "Priya Nair",
         time: "0:31",
         ev: true,
-        say: 'So we put a queue in front of the ones that weren\'t on the critical path — notifications, the CRM sync, the loyalty ledger. The trade-off is that you stop being able to say "it happened" and start saying "it will have happened", so anything reading that data has to tolerate being a few seconds behind. We were fine with that everywhere except the ledger, which we left synchronous, because finance reconciles it daily and I didn\'t want to be explaining a gap.',
+        say: 'So we put a queue in front of the ones that weren\'t on the critical path - notifications, the CRM sync, the loyalty ledger. The trade-off is that you stop being able to say "it happened" and start saying "it will have happened", so anything reading that data has to tolerate being a few seconds behind. We were fine with that everywhere except the ledger, which we left synchronous, because finance reconciles it daily and I didn\'t want to be explaining a gap.',
       },
       {
         who: "Priya Nair",
@@ -527,13 +527,13 @@ const AVI4_TRANSCRIPT: { id: string; turns: Avi4Turn[] }[] = [
       {
         who: "Priya Nair",
         time: "0:05",
-        say: "About six weeks ago we started dropping payment webhooks. Only around two percent, so nobody noticed for a day and a half — it came in as a support ticket, not an alert, which is its own problem.",
+        say: "About six weeks ago we started dropping payment webhooks. Only around two percent, so nobody noticed for a day and a half - it came in as a support ticket, not an alert, which is its own problem.",
       },
       {
         who: "Priya Nair",
         time: "0:21",
         ev: true,
-        say: "I took the page around eleven at night. First thing was to stop the bleeding: I rolled the consumer back to the previous version and let the queue drain, so we stopped losing events while we worked out why. Then I pulled the diff — someone had tightened a retry policy two days earlier, and anything over two seconds was being dropped instead of requeued. We replayed about four thousand events out of the dead-letter queue the next morning.",
+        say: "I took the page around eleven at night. First thing was to stop the bleeding: I rolled the consumer back to the previous version and let the queue drain, so we stopped losing events while we worked out why. Then I pulled the diff - someone had tightened a retry policy two days earlier, and anything over two seconds was being dropped instead of requeued. We replayed about four thousand events out of the dead-letter queue the next morning.",
       },
       {
         who: "Priya Nair",
@@ -558,7 +558,7 @@ const AVI4_TRANSCRIPT: { id: string; turns: Avi4Turn[] }[] = [
         who: "Priya Nair",
         time: "0:17",
         ev: true,
-        say: "For the webhook one I wrote two paragraphs in the channel: what broke, who it touched, what we'd already done, and when we'd know more. I try not to use the word \"queue\" in those. It's harder than it sounds — I've had feedback before that I go too deep too fast when someone asks a simple question.",
+        say: "For the webhook one I wrote two paragraphs in the channel: what broke, who it touched, what we'd already done, and when we'd know more. I try not to use the word \"queue\" in those. It's harder than it sounds - I've had feedback before that I go too deep too fast when someone asks a simple question.",
       },
       {
         who: "Priya Nair",
@@ -634,7 +634,7 @@ const AVI12_CHECKS = [
 // tagged with this constant so it can be told apart from the five other forms
 // in the admin inbox. 34 characters, inside submitContact's 50-char cap on the
 // service field — keep it that way if the wording ever changes.
-const AVI12_SERVICE = "AI Video Interviews — Early Access";
+const AVI12_SERVICE = "AI Video Interviews - Early Access";
 
 // submitContact returns prose, not codes, and src/app/contact/actions.ts is
 // outside this task's scope, so the panel has to be chosen by matching those
@@ -812,7 +812,7 @@ export default function AIVideoInterviewsPage() {
                 <p className="avi-sub">
                   Remotiv ranks applications, runs structured interviews with shortlisted
                   candidates, and turns every candidate into a recruiter-ready, evidence-backed
-                  scorecard — all in one workflow. Your hiring team makes the final decision.
+                  scorecard - all in one workflow. Your hiring team makes the final decision.
                 </p>
                 {/* The handoff pointed these at /early-access and /demo;
                     neither route exists. The primary now resolves — section 12
@@ -1113,7 +1113,7 @@ export default function AIVideoInterviewsPage() {
                   <div className="avi2-cap">
                     <b>Stage 04, redrawn</b>
                     <p>
-                      The scorecard your team opens after each interview — with the transcript
+                      The scorecard your team opens after each interview - with the transcript
                       sitting behind every number.
                     </p>
                   </div>
@@ -1136,14 +1136,14 @@ export default function AIVideoInterviewsPage() {
                   invite.
                 </h2>
                 <p className="avi3-lede">
-                  Remotiv scores every CV against the criteria of the role — not just keyword
-                  matches — then shows what fits, what&rsquo;s missing, and what your hiring team
+                  Remotiv scores every CV against the criteria of the role - not just keyword
+                  matches - then shows what fits, what&rsquo;s missing, and what your hiring team
                   should verify. Interview invitations start from a ranked list, not an application
                   pile.
                 </p>
               </div>
               <ul className="avi3-pts">
-                <li>Scored against the actual role criteria — not just keyword matching</li>
+                <li>Scored against the actual role criteria - not just keyword matching</li>
                 <li>Missing requirements are shown clearly, not buried inside a score</li>
                 <li>Points to verify are surfaced for the recruiter</li>
                 <li>
@@ -1235,10 +1235,10 @@ export default function AIVideoInterviewsPage() {
                     <p className="avi3-conf">High confidence</p>
                     <p>
                       Nine of twelve criteria are evidenced directly, two are partial and one is not
-                      — all listed below.
+                      - all listed below.
                     </p>
                     <p className="avi3-was">
-                      Was 81 on criteria v2 — Kubernetes was added on 21 Aug and 34 candidates were
+                      Was 81 on criteria v2 - Kubernetes was added on 21 Aug and 34 candidates were
                       re-scored.
                     </p>
                   </div>
@@ -1262,7 +1262,7 @@ export default function AIVideoInterviewsPage() {
                     <p className="avi3-lbl">Not evidenced</p>
                     <p>
                       <b>Kubernetes in production.</b> The CV covers Docker and ECS. Nothing on
-                      Kubernetes either way — treat it as unknown, not absent.
+                      Kubernetes either way - treat it as unknown, not absent.
                     </p>
                   </div>
                   <div className="avi3-note avi3-note--pp">
@@ -1557,7 +1557,7 @@ export default function AIVideoInterviewsPage() {
                       that interview scoring ignores face, voice and accent, and
                       section 4 is the section about scoring from a transcript. */}
                   <p className="avi4-disc">
-                    Scored from the transcript text — no face, voice or accent analysis.
+                    Scored from the transcript text - no face, voice or accent analysis.
                   </p>
                 </div>
               </div>
@@ -1574,7 +1574,7 @@ export default function AIVideoInterviewsPage() {
                   <h2 className="avi6-h2">Recommendations, never decisions.</h2>
                   <p className="avi6-lede">
                     Remotiv ranks and scores candidates, but it never moves or rejects anyone
-                    automatically. Your team makes every stage change and can override any score —
+                    automatically. Your team makes every stage change and can override any score -
                     with the AI&apos;s original kept for reference.
                   </p>
                 </header>
@@ -1797,8 +1797,8 @@ export default function AIVideoInterviewsPage() {
                           days after a Tuesday send. The wording itself lives in
                           Meta, not this repo. */}
                       <p className="avi9-mtext">
-                        Hi Ayesha &mdash; we&rsquo;d like to invite you to a video interview for
-                        Senior Backend Engineer. It takes about 12 minutes. Please finish by Sunday.
+                        Hi Ayesha - we&rsquo;d like to invite you to a video interview for Senior
+                        Backend Engineer. It takes about 12 minutes. Please finish by Sunday.
                       </p>
                       {/* Depicted, not operable: a span rather than a button, so
                           nothing here is focusable or announced as a control. */}
@@ -1840,7 +1840,7 @@ export default function AIVideoInterviewsPage() {
             <header>
               <p className="avi10-eyebrow">Hiring analytics</p>
               <h2 className="avi10-h2">
-                See what the data says &mdash; and when it doesn&rsquo;t say{" "}
+                See what the data says - and when it doesn&rsquo;t say{" "}
                 <span className="avi10-hl">enough</span> yet.
               </h2>
               <p className="avi10-lede">
@@ -1881,7 +1881,7 @@ export default function AIVideoInterviewsPage() {
                       <p className="avi10-val">
                         {t.value ?? (
                           <>
-                            <span aria-hidden="true">&mdash;</span>
+                            <span aria-hidden="true">-</span>
                             <span className="avi10-sr">No value reported</span>
                           </>
                         )}
@@ -1896,8 +1896,8 @@ export default function AIVideoInterviewsPage() {
                   <p className="avi10-ntext">
                     A metric is reported once this workspace&rsquo;s own activity supports it.
                     Nothing here is modelled, benchmarked against other companies or estimated to
-                    fill a gap &mdash; where the evidence isn&rsquo;t there yet, Remotiv prints an
-                    em-dash instead of a number it can&rsquo;t stand behind.
+                    fill a gap - where the evidence isn&rsquo;t there yet, Remotiv prints an em-dash
+                    instead of a number it can&rsquo;t stand behind.
                   </p>
                 </figcaption>
               </figure>
@@ -2026,7 +2026,7 @@ export default function AIVideoInterviewsPage() {
                       says not to send again. The server never redirects here. */}
                   <p className="avi12-err" id="avi12-e-timeout">
                     This is taking longer than it should, and your inquiry may already have reached
-                    us. Please don&rsquo;t send it again &mdash; email{" "}
+                    us. Please don&rsquo;t send it again - email{" "}
                     <a href="mailto:talent@remotiv.work">talent@remotiv.work</a>
                     {" and we’ll confirm."}
                   </p>

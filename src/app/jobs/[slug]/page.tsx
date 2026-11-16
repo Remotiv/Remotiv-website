@@ -29,7 +29,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const title = `${job.title} - ${job.company} | Remotiv`;
   const description = job.description
     ? `${job.description.slice(0, 150).replace(/\s+/g, " ").trim()}…`
-    : `${job.title} at ${job.company}. Apply on Remotiv — remote roles for Pakistan's top vetted talent, hired by companies worldwide.`;
+    : `${job.title} at ${job.company}. Apply on Remotiv - remote roles for Pakistan's top vetted talent, hired by companies worldwide.`;
   const url = `/jobs/${slug}`;
 
   return {

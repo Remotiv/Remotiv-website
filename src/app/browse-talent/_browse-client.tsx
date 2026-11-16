@@ -243,7 +243,7 @@ function rowToCard(r: TalentRow): Card {
   // Phase 4 Lean Projection: experience JSONB is no longer in the list payload.
   // Card-display fields that previously read from r.experience (latestExp title
   // and derivedYears) now fall back to r.job_title and r.years_experience.
-  const derivedRole = r.job_title || "—";
+  const derivedRole = r.job_title || " - ";
   const derivedYears = r.years_experience ?? null;
 
   const score = Math.min(99, 70 + (derivedYears ?? 0) * 2 + skills.length);
@@ -261,8 +261,8 @@ function rowToCard(r: TalentRow): Card {
     role: derivedRole,
     type,
     skills,
-    location: [r.city, r.country].filter(Boolean).join(", ") || "—",
-    exp: derivedYears != null ? `${derivedYears} years` : "—",
+    location: [r.city, r.country].filter(Boolean).join(", ") || " - ",
+    exp: derivedYears != null ? `${derivedYears} years` : " - ",
     yearsExperience: derivedYears,
     available,
     availability: r.availability ?? null,
@@ -572,7 +572,7 @@ const CardItem = memo(function CardItem({
           style={{ minWidth: 88 }}
           aria-pressed={saved}
           aria-busy={isSaving}
-          aria-label={saved ? "Saved — click to unsave" : "Save this candidate"}
+          aria-label={saved ? "Saved - click to unsave" : "Save this candidate"}
         >
           {isSaving ? (
             <Loader2 className="h-4 w-4 animate-spin" aria-label="Saving" />
@@ -668,7 +668,7 @@ const Hero = memo(function Hero() {
         </h1>
         <p className="bth-subtext">
           Browse Million+ engineers, sales talent, and operators from the best companies
-          — find your next hire in hours, not weeks.
+          - find your next hire in hours, not weeks.
         </p>
       </div>
 
@@ -1112,7 +1112,7 @@ export function BrowseClient({
         if (errorStr === "Invalid candidate ID") {
           setToast("Invalid candidate. Please refresh.");
         } else if (lower.includes("too many save toggles")) {
-          setToast("Slow down — too many save changes. Wait a moment.");
+          setToast("Slow down - too many save changes. Wait a moment.");
         } else if (lower.includes("could not check saved status")) {
           setToast("Could not verify saved status. Please try again.");
         } else if (lower.includes("could not unsave")) {
@@ -1434,7 +1434,7 @@ export function BrowseClient({
                   <>No candidates found</>
                 ) : (
                   <>
-                    Showing <strong>{rangeStart}{rangeStart !== rangeEnd ? `–${rangeEnd}` : ""}</strong> of <strong>{totalCount.toLocaleString()}</strong> {candidateWord}
+                    Showing <strong>{rangeStart}{rangeStart !== rangeEnd ? `-${rangeEnd}` : ""}</strong> of <strong>{totalCount.toLocaleString()}</strong> {candidateWord}
                     {isFiltered && <span className="bt-filtered-tag">(filtered)</span>}
                   </>
                 )}

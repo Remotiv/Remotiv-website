@@ -95,7 +95,7 @@ export function ShareRole({ url, subject }: { url: string; subject: string }) {
     } catch {
       // Clipboard access is refused in some contexts and on some browsers.
       // Saying so beats a success message for something that did not happen.
-      toast("Couldn't copy — select the address bar instead");
+      toast("Couldn't copy - select the address bar instead");
     }
   }
 

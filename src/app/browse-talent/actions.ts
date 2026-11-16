@@ -571,7 +571,7 @@ export async function fetchProfileDetail(
       dates:
         typeof exp.dates === "string"
           ? exp.dates
-          : [exp.start, exp.end].filter(Boolean).join(" – ") || null,
+          : [exp.start, exp.end].filter(Boolean).join(" - ") || null,
       skills: Array.isArray(exp.skills) ? exp.skills : [],
       description: redact(typeof exp.description === "string" ? exp.description : null),
     })),

@@ -158,7 +158,7 @@ export function VettingProcess() {
         <div className="mt-14 mb-10 rounded-xl border border-remotiv-green/20 bg-remotiv-green/[0.04] px-8 py-7">
           <p className="font-sans text-[0.9rem] font-normal leading-[1.8] text-[#555]">
             Only the <strong className="font-bold text-remotiv-green">top 1% of candidates</strong>{" "}
-            reach you — AI-matched, human-verified, and ready from day one.
+            reach you - AI-matched, human-verified, and ready from day one.
           </p>
         </div>
 

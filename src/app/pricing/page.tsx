@@ -52,7 +52,7 @@ const TIERS: readonly Tier[] = [
 const FULL_SERVICE_FEATURES = [
   "Shortlist delivered within 24 hours of your brief",
   "Every candidate screened, referenced & salary-benchmarked",
-  "90-day free replacement — no questions asked",
+  "90-day free replacement - no questions asked",
   "One dedicated recruiter assigned to your role",
 ] as const;
 
@@ -136,7 +136,7 @@ const FAQS = [
   },
   {
     q: "What does 'success-based' mean for Enterprise?",
-    a: "For our full-service Enterprise plan, you only pay a placement fee when you hire a candidate we deliver — no upfront cost.",
+    a: "For our full-service Enterprise plan, you only pay a placement fee when you hire a candidate we deliver - no upfront cost.",
   },
   {
     q: "How does the 90-day replacement guarantee work?",
@@ -229,7 +229,7 @@ export default function PricingPage() {
               Find Your Perfect Plan
             </h1>
             <p className="mx-auto max-w-[560px] text-[1.05rem] leading-relaxed text-remotiv-text-light">
-              Everything you need to find, unlock, and hire top talent — built for companies that
+              Everything you need to find, unlock, and hire top talent - built for companies that
               move fast.
             </p>
           </div>
@@ -339,7 +339,7 @@ export default function PricingPage() {
                 We Find. You Hire.
               </h2>
               <p className="max-w-[680px] text-base leading-relaxed text-remotiv-text-light">
-                We handle the entire search — sourcing, vetting, references, and negotiation. You
+                We handle the entire search - sourcing, vetting, references, and negotiation. You
                 review candidates and make the call. That&apos;s it.
               </p>
             </div>
@@ -358,7 +358,7 @@ export default function PricingPage() {
                     We Handle Everything
                   </h3>
                   <p className="mb-9 max-w-[380px] text-[0.95rem] leading-relaxed text-[#555]">
-                    You share the role. We take it from there — and only bring you candidates worth
+                    You share the role. We take it from there - and only bring you candidates worth
                     your time.
                   </p>
                   <div className="mb-8 h-px bg-black/[0.07]" />
@@ -529,7 +529,7 @@ export default function PricingPage() {
                 Trusted by Companies Worldwide
               </h2>
               <p className="mx-auto max-w-[620px] text-base leading-relaxed text-remotiv-text-light">
-                From fast-growing startups to established enterprises — businesses trust Remotiv to
+                From fast-growing startups to established enterprises - businesses trust Remotiv to
                 find, vet, and place top remote talent that delivers from day one.
               </p>
             </div>
@@ -640,7 +640,7 @@ export default function PricingPage() {
             </h2>
             <p className="mx-auto mb-8 max-w-xl text-base leading-relaxed text-white/80">
               Book a free 30-minute consultation and we&apos;ll show you how Remotiv can fill your
-              next role in days — not months.
+              next role in days - not months.
             </p>
             <Link
               href="/book-a-meeting"

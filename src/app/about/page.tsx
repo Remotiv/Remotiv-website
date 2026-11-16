@@ -16,12 +16,12 @@ const IMPACT_STATS = [
   {
     stat: "200+",
     label: "Professionals placed",
-    body: "From engineers to operators — every hire we've made has been pre-vetted, AI-matched, and backed by our 90-day replacement guarantee.",
+    body: "From engineers to operators - every hire we've made has been pre-vetted, AI-matched, and backed by our 90-day replacement guarantee.",
   },
   {
     stat: "85%",
     label: "Client retention rate",
-    body: "The majority of companies that hire through Remotiv return for their next role. That's not a coincidence — it's the result of getting the first hire right.",
+    body: "The majority of companies that hire through Remotiv return for their next role. That's not a coincidence - it's the result of getting the first hire right.",
   },
   {
     stat: "24hrs",
@@ -33,7 +33,7 @@ const IMPACT_STATS = [
 const VALUES = [
   {
     title: "Quality without compromise",
-    body: "We only present candidates who have passed our 4-stage vetting process — AI-screened, human-verified, and ready from day one. Every placement comes with a 90-day guarantee for your peace of mind.",
+    body: "We only present candidates who have passed our 4-stage vetting process - AI-screened, human-verified, and ready from day one. Every placement comes with a 90-day guarantee for your peace of mind.",
     iconBg: "bg-[#ede9fe]",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="size-[26px]">
@@ -78,7 +78,7 @@ const VALUES = [
   },
   {
     title: "Speed that doesn't cut corners",
-    body: "We move fast because we've already done the hard work upfront. Pre-vetted talent means your shortlist arrives in 24 hours — ready to interview, not just available.",
+    body: "We move fast because we've already done the hard work upfront. Pre-vetted talent means your shortlist arrives in 24 hours - ready to interview, not just available.",
     iconBg: "bg-[#fef9c3]",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="size-[26px]">
@@ -148,7 +148,7 @@ export default function AboutPage() {
             </h1>
 
             <p className="mx-auto mb-14 max-w-[640px] text-center text-[1.05rem] leading-[1.7] text-[#777]">
-              Remotiv was built to solve a real problem — the global talent gap. We connect
+              Remotiv was built to solve a real problem - the global talent gap. We connect
               companies with Pakistan&apos;s top 1% of pre-vetted professionals, delivering faster
               hires, stronger teams, and zero hiring risk.
             </p>
@@ -179,7 +179,7 @@ export default function AboutPage() {
                 <p className="mb-9 text-[0.95rem] leading-[1.8] text-white/65">
                   Remotiv is a talent recruitment and staffing platform built for companies that
                   refuse to compromise on quality. We source, vet, and place top engineers,
-                  designers, and operators with startups, agencies, and enterprises — at a fraction
+                  designers, and operators with startups, agencies, and enterprises - at a fraction
                   of the traditional cost.
                 </p>
 
@@ -208,7 +208,7 @@ export default function AboutPage() {
             <p className="mx-auto mt-5 max-w-[720px] text-base leading-[1.8] text-[#555]">
               Hiring world-class engineering talent is slow, expensive, and full of risk. Companies
               wait weeks for shortlists, pay inflated agency fees, and still end up with hires
-              that don&apos;t work out. We started Remotiv to fix that — by combining rigorous human
+              that don&apos;t work out. We started Remotiv to fix that - by combining rigorous human
               vetting with AI-powered matching, we deliver pre-vetted candidates in 24 hours, at a
               fraction of the traditional cost, with a 90-day replacement guarantee.
             </p>

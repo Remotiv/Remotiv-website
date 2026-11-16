@@ -68,7 +68,7 @@ const FEATURE_CARDS: FeatureCard[] = [
     badge: "Not partial",
     title: "Full-Scope Payroll",
     description:
-      "Salary processing, tax filing, EOBI, SESSI, gratuity, provident fund, payslips, leave tracking — every task, every month.",
+      "Salary processing, tax filing, EOBI, SESSI, gratuity, provident fund, payslips, leave tracking - every task, every month.",
     iconBg: "bg-remotiv-purple/10",
     icon: (
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" className="size-7">
@@ -173,7 +173,7 @@ const SCOPE_CARDS: ScopeCard[] = [
   {
     title: "Salary Processing & Disbursement",
     description:
-      "Full monthly payroll — base salaries, overtime, bonuses, increments — transferred directly to employee bank accounts on payday. Automated calculation, direct bank transfers, multi-currency support.",
+      "Full monthly payroll - base salaries, overtime, bonuses, increments - transferred directly to employee bank accounts on payday. Automated calculation, direct bank transfers, multi-currency support.",
     iconBg: "bg-remotiv-green/15",
     iconColor: "#49D7A7",
     icon: (
@@ -200,7 +200,7 @@ const SCOPE_CARDS: ScopeCard[] = [
   {
     title: "EOBI, SESSI & Social Security",
     description:
-      "All mandatory statutory contributions calculated, deducted, and remitted on time. EOBI monthly contributions, SESSI/PESSI deductions, province-specific compliance — all managed with full digital records.",
+      "All mandatory statutory contributions calculated, deducted, and remitted on time. EOBI monthly contributions, SESSI/PESSI deductions, province-specific compliance - all managed with full digital records.",
     iconBg: "bg-remotiv-lime-card/50",
     iconColor: "#5a7a10",
     icon: (
@@ -240,7 +240,7 @@ const SCOPE_CARDS: ScopeCard[] = [
   {
     title: "Payslip Generation & Delivery",
     description:
-      "Every employee receives a clean, detailed digital payslip on payday — automatically, every month. Full earnings and deductions breakdown, accessible anytime.",
+      "Every employee receives a clean, detailed digital payslip on payday - automatically, every month. Full earnings and deductions breakdown, accessible anytime.",
     iconBg: "bg-remotiv-purple-light/15",
     iconColor: "#9886fe",
     icon: (
@@ -282,7 +282,7 @@ const SCOPE_CARDS: ScopeCard[] = [
   {
     title: "International & Remote Payroll (EOR)",
     description:
-      "Remotiv acts as Employer of Record — employing your team legally in Pakistan, paying in PKR while you invoice in USD or GBP. No Pakistani company or bank account required.",
+      "Remotiv acts as Employer of Record - employing your team legally in Pakistan, paying in PKR while you invoice in USD or GBP. No Pakistani company or bank account required.",
     iconBg: "bg-remotiv-purple/10",
     iconColor: "#7E47FF",
     icon: (
@@ -301,7 +301,7 @@ const SCOPE_CARDS: ScopeCard[] = [
   {
     title: "Compliance & HR Documentation",
     description:
-      "Employment contracts, offer letters, HR policies, onboarding and offboarding documentation — kept clean and legally sound. Labour law and SECP compliance handled.",
+      "Employment contracts, offer letters, HR policies, onboarding and offboarding documentation - kept clean and legally sound. Labour law and SECP compliance handled.",
     iconBg: "bg-remotiv-lime-card/50",
     iconColor: "#5a7a10",
     icon: (
@@ -332,15 +332,15 @@ const PROCESS_STEPS = [
   },
   {
     label: "We Configure Everything (Same Day)",
-    body: "Your Payroll Manager configures salary grades, tax rates, EOBI contributions, leave policies, and pay schedule. We import employee records — names, salaries, bank accounts, tax info. If you hired through Remotiv, this step takes minutes. You don't touch a single setting.",
+    body: "Your Payroll Manager configures salary grades, tax rates, EOBI contributions, leave policies, and pay schedule. We import employee records - names, salaries, bank accounts, tax info. If you hired through Remotiv, this step takes minutes. You don't touch a single setting.",
   },
   {
     label: "First Payroll Run (Day 2)",
-    body: "We process your first payroll and send a complete pre-disbursement summary for your review. You approve — we transfer salaries. You see exactly what went where and why.",
+    body: "We process your first payroll and send a complete pre-disbursement summary for your review. You approve - we transfer salaries. You see exactly what went where and why.",
   },
   {
     label: "Autopilot (Every Month, Ongoing)",
-    body: "Every month, payroll runs automatically — accounting for salary changes, new hires, leavers, and adjustments. Employees get payslips. You get a summary report. Every statutory filing is submitted on time by your Payroll Manager. Records are audit-ready.",
+    body: "Every month, payroll runs automatically - accounting for salary changes, new hires, leavers, and adjustments. Employees get payslips. You get a summary report. Every statutory filing is submitted on time by your Payroll Manager. Records are audit-ready.",
   },
 ];
 
@@ -361,19 +361,19 @@ const PROCESS_BARS = [
 const WHO_WE_SERVE = [
   {
     title: "US Companies Hiring Remotely in Pakistan",
-    body: "You've built a remote team in Pakistan. Now you need someone to pay them correctly and keep things legally clean — without setting up a local entity or learning Pakistani tax law. Remotiv acts as Employer of Record — no local company needed. USD to PKR disbursement. Full Pakistan labour law compliance. One monthly USD invoice to you.",
+    body: "You've built a remote team in Pakistan. Now you need someone to pay them correctly and keep things legally clean - without setting up a local entity or learning Pakistani tax law. Remotiv acts as Employer of Record - no local company needed. USD to PKR disbursement. Full Pakistan labour law compliance. One monthly USD invoice to you.",
   },
   {
     title: "UK & European Companies",
-    body: "Your Pakistani team delivers great work. Managing their payroll shouldn't require a new hire in your HR department. Remotiv handles everything locally — GBP/EUR to PKR payroll management, local compliance, timezone-aware communication. Works alongside your existing HR team.",
+    body: "Your Pakistani team delivers great work. Managing their payroll shouldn't require a new hire in your HR department. Remotiv handles everything locally - GBP/EUR to PKR payroll management, local compliance, timezone-aware communication. Works alongside your existing HR team.",
   },
   {
     title: "Pakistani Startups & SMEs",
-    body: "You're building something great — payroll spreadsheets and EOBI filings shouldn't slow you down. Remotiv gives you enterprise-grade payroll without hiring an in-house payroll team. Full payroll for 2–500+ employees. EOBI, SESSI, income tax, gratuity — all managed. Digital payslips delivered to employees.",
+    body: "You're building something great - payroll spreadsheets and EOBI filings shouldn't slow you down. Remotiv gives you enterprise-grade payroll without hiring an in-house payroll team. Full payroll for 2-500+ employees. EOBI, SESSI, income tax, gratuity - all managed. Digital payslips delivered to employees.",
   },
   {
     title: "Multinational & Enterprise Clients",
-    body: "Operating a Pakistan office as part of a global footprint? We serve enterprise clients with high-volume, compliance-heavy payroll — accurate, auditable, and managed by a dedicated team. 50–2,000+ employees. Full audit trail and compliance reports. Dedicated enterprise Payroll Manager.",
+    body: "Operating a Pakistan office as part of a global footprint? We serve enterprise clients with high-volume, compliance-heavy payroll - accurate, auditable, and managed by a dedicated team. 50-2,000+ employees. Full audit trail and compliance reports. Dedicated enterprise Payroll Manager.",
   },
 ];
 
@@ -469,7 +469,7 @@ const ADVANTAGE_ROWS: AdvantageRow[] = [
       },
       {
         heading: "Province-Specific",
-        body: "Punjab, Sindh, KPK, Balochistan — each province's rules handled correctly. Not a one-size-fits-all approach.",
+        body: "Punjab, Sindh, KPK, Balochistan - each province's rules handled correctly. Not a one-size-fits-all approach.",
         icon: (
           <>
             <rect x="4" y="14" width="6" height="14" rx="2" stroke="#7E47FF" strokeWidth="1.8" />
@@ -535,13 +535,13 @@ const ADVANTAGE_ROWS: AdvantageRow[] = [
 
 const CTA_CHECKS = [
   "First payroll live within 48 hours of setup",
-  "100% statutory compliance — EOBI, SESSI, FBR",
-  "Dedicated Payroll Manager — one person, always",
+  "100% statutory compliance - EOBI, SESSI, FBR",
+  "Dedicated Payroll Manager - one person, always",
 ];
 
 const CTA_STATS = [
   { num: "48 hrs", label: "First payroll live in" },
-  { num: "2–2,000+", label: "Employees managed" },
+  { num: "2-2,000+", label: "Employees managed" },
   { num: "100%", label: "Statutory filings on time" },
   { num: "Zero", label: "Errors last 12 months" },
 ];
@@ -549,7 +549,7 @@ const CTA_STATS = [
 const FAQS = [
   {
     q: "How fast can you set up our payroll?",
-    a: "For most clients, we're fully configured and running your first payroll within 24–48 hours. Nothing to install or configure on your end.",
+    a: "For most clients, we're fully configured and running your first payroll within 24-48 hours. Nothing to install or configure on your end.",
   },
   {
     q: "We have an in-house HR person. Do we still need this?",
@@ -557,11 +557,11 @@ const FAQS = [
   },
   {
     q: "What taxes and statutory obligations do you manage?",
-    a: "Everything — monthly income tax (withholding tax on salaries), annual FBR filings, EOBI contributions, SESSI/PESSI deductions, and gratuity fund accruals. If it's a payroll obligation in Pakistan, we cover it.",
+    a: "Everything - monthly income tax (withholding tax on salaries), annual FBR filings, EOBI contributions, SESSI/PESSI deductions, and gratuity fund accruals. If it's a payroll obligation in Pakistan, we cover it.",
   },
   {
     q: "Do you handle both employees and contractors?",
-    a: "Yes. Full-time employees, part-time staff, and independent contractors — each classified and managed according to the correct legal and tax treatment.",
+    a: "Yes. Full-time employees, part-time staff, and independent contractors - each classified and managed according to the correct legal and tax treatment.",
   },
   {
     q: "We're a US company. Do we need a Pakistani entity?",
@@ -577,7 +577,7 @@ const FAQS = [
   },
   {
     q: "What if I'm already a Remotiv recruitment client?",
-    a: "Adding payroll is simple — just let your account manager know. Since your employee data already exists in our system, setup is significantly faster. One platform, one invoice.",
+    a: "Adding payroll is simple - just let your account manager know. Since your employee data already exists in our system, setup is significantly faster. One platform, one invoice.",
   },
 ];
 
@@ -678,7 +678,7 @@ export default function PayrollPage() {
               You Run the Business. We Run Payroll.
             </h1>
             <p className="mx-auto mb-11 max-w-[580px] text-[1.05rem] leading-[1.7] text-remotiv-text-mid">
-              Salaries, tax compliance, EOBI, SESSI, gratuity — handled end-to-end by Remotiv. No
+              Salaries, tax compliance, EOBI, SESSI, gratuity - handled end-to-end by Remotiv. No
               spreadsheets, no missed deadlines, no errors. Already hired through Remotiv? Add payroll
               in one conversation.
             </p>
@@ -748,7 +748,7 @@ export default function PayrollPage() {
                 Everything Payroll. Nothing Left Out.
               </h2>
               <p className="mx-auto max-w-[560px] text-base leading-[1.7] text-remotiv-text-light">
-                From the first salary run to annual tax filings — here is every task Remotiv takes
+                From the first salary run to annual tax filings - here is every task Remotiv takes
                 completely off your hands.
               </p>
             </div>
@@ -820,7 +820,7 @@ export default function PayrollPage() {
             <div className="md:sticky md:top-24 flex flex-col gap-5 overflow-hidden rounded-[24px] border border-black/[0.07] bg-white px-9 py-10">
               <div className="inline-flex items-center gap-2 self-start rounded-full border border-remotiv-green/25 bg-remotiv-green/10 px-3.5 py-1.5 font-heading text-[0.72rem] font-bold text-remotiv-green">
                 <span className="size-[7px] rounded-full bg-remotiv-green" />
-                Live — Active Payroll Clients
+                Live - Active Payroll Clients
               </div>
               <p className="font-heading text-[1.4rem] font-extrabold leading-[1.2] text-remotiv-text-dark">
                 Most clients are fully live on payroll within 48 hours of their first call.
@@ -862,7 +862,7 @@ export default function PayrollPage() {
             <div className="md:sticky md:top-24">
               <SectionPill variant="dark">Who We Serve</SectionPill>
               <h2 className="font-heading text-[clamp(1.8rem,2.8vw,2.6rem)] font-extrabold leading-[1.1] tracking-[-0.02em] text-white">
-                Whether You Have 2 Employees or 2,000 — We&apos;ve Got You
+                Whether You Have 2 Employees or 2,000 - We&apos;ve Got You
               </h2>
             </div>
             <div className="flex flex-col">
@@ -950,7 +950,7 @@ export default function PayrollPage() {
               </h2>
               <p className="mb-6 text-[13px] leading-[1.75] text-remotiv-text-dark/75">
                 No spreadsheets. No missed filings. No payroll errors. Just a dedicated Payroll
-                Manager, handling everything — from salary calculations to FBR filings — every single
+                Manager, handling everything - from salary calculations to FBR filings - every single
                 month.
               </p>
               <div className="mb-7 flex flex-col gap-2.5 sm:flex-row sm:flex-wrap">

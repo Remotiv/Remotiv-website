@@ -29,7 +29,7 @@ const TESTIMONIALS = [
     img: "/client-avatars/Sarah-Whitman.webp",
   },
   {
-    text: "From brief to first interview in 22 hours. I've never seen turnaround like this. Two weeks later we'd hired two engineers — both still on the team.",
+    text: "From brief to first interview in 22 hours. I've never seen turnaround like this. Two weeks later we'd hired two engineers - both still on the team.",
     name: "Bilal Tariq",
     role: "Founder & CEO, Lahore Studio Co.",
     img: "/client-avatars/Bilal-Tariq.webp",

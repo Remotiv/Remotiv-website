@@ -197,7 +197,7 @@ export default function PrivacyPage() {
           <p className="mt-4 text-[0.9rem] text-[#71717a]">Last updated {LAST_UPDATED}</p>
 
           <P>
-            This policy describes what Remotiv actually does with personal data — what we collect,
+            This policy describes what Remotiv actually does with personal data - what we collect,
             where it is stored, how long we keep it, and who else receives it. It was written from
             the system itself rather than from a template, and the retention periods below are
             enforced automatically by jobs that run every day.
@@ -237,7 +237,7 @@ export default function PrivacyPage() {
 
           <P>
             As they consider you, the hiring team at that company can write comments about your
-            application and reply to each other — their notes on you, stored alongside the
+            application and reply to each other - their notes on you, stored alongside the
             application. These are about you, so they are part of your record here: if you ask us
             for a copy of what we hold, they are included.
           </P>
@@ -281,7 +281,7 @@ export default function PrivacyPage() {
 
           <H3>Automatically, when you browse</H3>
           <P>
-            When you arrive from a tagged link — an ad or a social post — we record the campaign
+            When you arrive from a tagged link - an ad or a social post - we record the campaign
             details in that link, the website you came from, and the page you landed on. If you go
             on to apply, that information is attached to your application so we know which channel
             it came from. We do not build advertising profiles and we do not sell this or any other
@@ -409,14 +409,14 @@ export default function PrivacyPage() {
             your CV. So: we hold it, we hold it indefinitely, and asking is the way it stops.
           </P>
           <P>
-            Two consequences worth being explicit about. Time passing does not remove anything — a
+            Two consequences worth being explicit about. Time passing does not remove anything - a
             profile you have not touched in years is still here. And deleting it is a manual request
             handled by a person, not a self-service action, so it is not instant; write to <Mail />{" "}
             and we will action it.
           </P>
           <P>
-            If you are in both places — most often because you applied to a company&apos;s role
-            first and joined the pool afterwards — the company&apos;s copy still expires on its own
+            If you are in both places - most often because you applied to a company&apos;s role
+            first and joined the pool afterwards - the company&apos;s copy still expires on its own
             24-month date. That is a separate record with a separate clock, and it goes whether or
             not you ask. What stays is the profile and anything attached to it.
           </P>
@@ -440,47 +440,47 @@ export default function PrivacyPage() {
             <li>
               <strong className="font-semibold text-[#111]">
                 Handling your application and passing it to the employer
-              </strong>{" "}
-              — because you asked us to, as a step towards a possible contract of employment.
+              </strong>
+              : because you asked us to, as a step towards a possible contract of employment.
             </li>
             <li>
               <strong className="font-semibold text-[#111]">
                 Scoring CVs and interview answers, with a human deciding
-              </strong>{" "}
-              — our legitimate interest in assessing candidates consistently and at scale. The human
+              </strong>
+              : our legitimate interest in assessing candidates consistently and at scale. The human
               decision described in section 7 is part of what makes this fair rather than automated.
             </li>
             <li>
               <strong className="font-semibold text-[#111]">Recording video interviews</strong>
-              {" — "}
+              {" - "}
               our legitimate interest in assessing candidates consistently. Before any recording
               starts, we show you what is recorded, who will see it, how long it is kept, and that a
-              person makes the decision — and we record your acknowledgement of that, with a
+              person makes the decision - and we record your acknowledgement of that, with a
               timestamp.
             </li>
             <li>
-              <strong className="font-semibold text-[#111]">Emailing you about a role</strong> — our
+              <strong className="font-semibold text-[#111]">Emailing you about a role</strong>: our
               legitimate interest in progressing an application you started. Every such email
               carries an unsubscribe link.
             </li>
             <li>
               <strong className="font-semibold text-[#111]">
                 Answering contact and booking enquiries
-              </strong>{" "}
-              — our legitimate interest in replying to someone who wrote to us.
+              </strong>
+              : our legitimate interest in replying to someone who wrote to us.
             </li>
             <li>
               <strong className="font-semibold text-[#111]">
                 Security, rate limiting and access logs
-              </strong>{" "}
-              — our legitimate interest in keeping the service and your data secure, and in some
+              </strong>
+              : our legitimate interest in keeping the service and your data secure, and in some
               cases a legal obligation to keep records.
             </li>
             <li>
               <strong className="font-semibold text-[#111]">
                 Keeping your CV in the Remotiv talent pool
-              </strong>{" "}
-              — your consent, given by joining the network so that we can match you to future roles.
+              </strong>
+              : your consent, given by joining the network so that we can match you to future roles.
               That consent does not expire on its own and we do not currently ask you to renew it,
               so withdrawing it is something you have to do: email <Mail /> and we delete your
               profile and your CV. Until you do, we keep them.
@@ -494,18 +494,18 @@ export default function PrivacyPage() {
           </P>
           <UL>
             <li>
-              <strong className="font-semibold text-[#111]">Japan</strong> — our database and all
+              <strong className="font-semibold text-[#111]">Japan</strong>: our database and all
               file storage, including CVs and interview recordings, are hosted by Supabase in their
               Tokyo region. Final interview recordings are made through Recall.ai in its Tokyo
               region before they reach our storage.
             </li>
             <li>
-              <strong className="font-semibold text-[#111]">United States</strong> — interview
+              <strong className="font-semibold text-[#111]">United States</strong>: interview
               recordings sent to OpenAI for transcription, CV text, screening answers and interview
               transcripts sent to OpenAI or Anthropic for scoring, and email sent through Resend.
             </li>
             <li>
-              <strong className="font-semibold text-[#111]">Global</strong> — Google, for interview
+              <strong className="font-semibold text-[#111]">Global</strong>: Google, for interview
               calendar events, and Meta, where WhatsApp invitations are enabled. Both operate
               internationally.
             </li>
@@ -523,11 +523,11 @@ export default function PrivacyPage() {
           </P>
           <UL>
             <li>
-              <strong className="font-semibold text-[#111]">Supabase</strong> — our database, file
+              <strong className="font-semibold text-[#111]">Supabase</strong>: our database, file
               storage and login system. Holds everything described above.
             </li>
             <li>
-              <strong className="font-semibold text-[#111]">OpenAI</strong> — receives the recording
+              <strong className="font-semibold text-[#111]">OpenAI</strong>: receives the recording
               of your video interview answers, video and audio together, in order to transcribe
               them. It may also receive the text of your CV, your screening answers, the details you
               gave on the application form, the transcripts of your interview answers and the
@@ -535,9 +535,9 @@ export default function PrivacyPage() {
               section 7.
             </li>
             <li>
-              <strong className="font-semibold text-[#111]">Anthropic</strong> — may receive the
-              same information as OpenAI, for the same scoring. We use one of the two for scoring at
-              a time, depending on how our system is set up. Anthropic also receives the text of CVs
+              <strong className="font-semibold text-[#111]">Anthropic</strong>: may receive the same
+              information as OpenAI, for the same scoring. We use one of the two for scoring at a
+              time, depending on how our system is set up. Anthropic also receives the text of CVs
               added to the Remotiv talent pool, to fill in profile fields, and talent-pool profile
               summaries (never your email address or phone number) when a company searches the pool.
               It also receives the messages you type into the chat assistant on our website, in
@@ -550,11 +550,11 @@ export default function PrivacyPage() {
               See section 14.
             </li>
             <li>
-              <strong className="font-semibold text-[#111]">Resend</strong> — our email provider.
+              <strong className="font-semibold text-[#111]">Resend</strong>: our email provider.
               Receives your email address and the contents of the messages we send you.
             </li>
             <li>
-              <strong className="font-semibold text-[#111]">Google</strong> — when an employer has
+              <strong className="font-semibold text-[#111]">Google</strong>: when an employer has
               connected a calendar, we create interview events, which include the interview time and
               the participants.
             </li>
@@ -564,7 +564,7 @@ export default function PrivacyPage() {
                   space, rendering "Meta (WhatsApp)— where". The other five items in
                   this list are unaffected; this one wraps differently. */}
               <strong className="font-semibold text-[#111]">Meta (WhatsApp)</strong>
-              {" — "}
+              {" - "}
               where WhatsApp messaging is enabled for a role, we send interview invitations through
               it, which means Meta receives your first name and phone number along with the
               company&apos;s name.
@@ -596,7 +596,7 @@ export default function PrivacyPage() {
           </P>
           <P>
             A person makes every hiring decision. Nothing in our system automatically rejects,
-            advances or hires anyone on the strength of a score — the scores order and highlight a
+            advances or hires anyone on the strength of a score - the scores order and highlight a
             list that a human then reads. A reviewer can also override a score, and we keep a record
             of when that happens.
           </P>
@@ -616,7 +616,7 @@ export default function PrivacyPage() {
           <P>
             Every email we send about a role carries an unsubscribe link that works without logging
             in. It stops that company&apos;s emails to you. Because each company hiring through
-            Remotiv is separate, unsubscribing from one does not unsubscribe you from another — you
+            Remotiv is separate, unsubscribing from one does not unsubscribe you from another - you
             can use the link in each company&apos;s email.
           </P>
 
@@ -633,7 +633,7 @@ export default function PrivacyPage() {
           </Callout>
           <P>
             Depending on where you live you may have rights over your personal data under laws such
-            as the GDPR — to see it, correct it, have it deleted, or object to how it is used. The
+            as the GDPR - to see it, correct it, have it deleted, or object to how it is used. The
             address above is how you exercise any of them with us.
           </P>
 
@@ -859,8 +859,8 @@ export default function PrivacyPage() {
 
           {liveSection ? <H2>16. Contact</H2> : <H2>15. Contact</H2>}
           <P>
-            For anything in this policy — access, correction, deletion, or a question about what we
-            hold — email <Mail />. For anything else, our{" "}
+            For anything in this policy - access, correction, deletion, or a question about what we
+            hold - email <Mail />. For anything else, our{" "}
             <Link
               href="/contact"
               className="font-medium text-remotiv-purple underline underline-offset-2"

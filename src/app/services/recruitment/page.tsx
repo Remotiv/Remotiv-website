@@ -37,7 +37,7 @@ const SERVICE_CARDS = [
   },
   {
     title: "Not a Body Shop",
-    desc: "We match on culture, timezone, and growth stage — not just keywords.",
+    desc: "We match on culture, timezone, and growth stage - not just keywords.",
   },
   {
     title: "Success-Based",
@@ -48,14 +48,14 @@ const SERVICE_CARDS = [
 const WHY_ROWS = [
   {
     heading: "1-Day Shortlist. 7-Day Placement.",
-    body: "Traditional agencies take 4–8 weeks. Companies promise “pre-screened candidates in 3 working days.” Remotiv delivers a shortlist in 1 business day and completes full placement in 2 weeks.",
+    body: "Traditional agencies take 4-8 weeks. Companies promise “pre-screened candidates in 3 working days.” Remotiv delivers a shortlist in 1 business day and completes full placement in 2 weeks.",
     stat: "2 Weeks",
     statLabel: "Average full placement",
     flip: false,
   },
   {
     heading: "AI Precision + Human Judgment",
-    body: "Our matching engine scans 1M+ profiles in seconds and scores candidates on technical fit, cultural alignment, timezone overlap, and communication quality. Then our recruiters call every shortlisted candidate personally. You get algorithmic speed with human context — not a raw database dump.",
+    body: "Our matching engine scans 1M+ profiles in seconds and scores candidates on technical fit, cultural alignment, timezone overlap, and communication quality. Then our recruiters call every shortlisted candidate personally. You get algorithmic speed with human context - not a raw database dump.",
     stat: MARKETING_STATS.talentPool,
     statLabel: "Profiles in our database",
     flip: true,
@@ -69,7 +69,7 @@ const WHY_ROWS = [
   },
   {
     heading: "A Dedicated Recruiter Owns Your Search",
-    body: "Every role gets a single dedicated recruiter who owns the search end-to-end. No hand-offs between team members, no miscommunication, no dropped balls. Your recruiter knows your company, your culture, and your hiring bar — and they're accountable for the result.",
+    body: "Every role gets a single dedicated recruiter who owns the search end-to-end. No hand-offs between team members, no miscommunication, no dropped balls. Your recruiter knows your company, your culture, and your hiring bar - and they're accountable for the result.",
     stat: "1 Recruiter",
     statLabel: "Dedicated to your search",
     flip: true,
@@ -94,7 +94,7 @@ const PROCESS_STEPS = [
   {
     counter: "2/4",
     title: "We Source, Screen & Shortlist",
-    body: "Our AI scans 1M+ profiles for the strongest fits. Recruiters call, screen, and verify each candidate. You receive 3–5 shortlisted candidates with fit scores and vetting summaries.",
+    body: "Our AI scans 1M+ profiles for the strongest fits. Recruiters call, screen, and verify each candidate. You receive 3-5 shortlisted candidates with fit scores and vetting summaries.",
     label: "1 Business Day",
     activeColor: "#7E47FF",
   },
@@ -117,7 +117,7 @@ const PROCESS_STEPS = [
 const WHO_WE_WORK_WITH = [
   {
     title: "Startups & Scale-ups",
-    desc: "YC-backed and Series A–C companies that need to hire fast, stay lean, and avoid enterprise process overhead. We move at startup speed — your shortlist arrives before your next sprint planning meeting.",
+    desc: "YC-backed and Series A-C companies that need to hire fast, stay lean, and avoid enterprise process overhead. We move at startup speed - your shortlist arrives before your next sprint planning meeting.",
   },
   {
     title: "Mid-Market Companies",
@@ -129,7 +129,7 @@ const WHO_WE_WORK_WITH = [
   },
   {
     title: "SaaS & Tech Companies",
-    desc: "Product teams that need specialized technical talent — React engineers, ML specialists, DevOps leads, data engineers. Our AI Talent Match is built for technical roles where precision matters more than volume.",
+    desc: "Product teams that need specialized technical talent - React engineers, ML specialists, DevOps leads, data engineers. Our AI Talent Match is built for technical roles where precision matters more than volume.",
   },
   {
     title: "Non-Profits & NGOs",
@@ -146,7 +146,7 @@ const ADVANTAGE_ROWS = [
     label: "Candidates Tomorrow, Not Next Month",
     color: "#49D7A7",
     cols: [
-      { title: "Shortlist in 24 Hours", body: "Submit your role today, receive 3–5 pre-screened candidates by tomorrow morning." },
+      { title: "Shortlist in 24 Hours", body: "Submit your role today, receive 3-5 pre-screened candidates by tomorrow morning." },
       { title: "AI-Matched Precision", body: "Every candidate is scored for technical fit, timezone, and cultural alignment before reaching you." },
       { title: "No Chasing Required", body: "Your dedicated recruiter manages the pipeline. No follow-ups, no status requests, no waiting." },
     ],
@@ -157,7 +157,7 @@ const ADVANTAGE_ROWS = [
     cols: [
       { title: "Recruiter Screened", body: "Every shortlisted candidate is personally called, interviewed, and verified by our recruitment team." },
       { title: "Skills Validated", body: "For technical roles, candidates complete in-house assessments before they reach your inbox." },
-      { title: "Interview-Ready Profiles", body: "You receive fit scores, vetting summaries, and salary expectations — not raw resumes to sort through." },
+      { title: "Interview-Ready Profiles", body: "You receive fit scores, vetting summaries, and salary expectations - not raw resumes to sort through." },
     ],
   },
   {
@@ -165,7 +165,7 @@ const ADVANTAGE_ROWS = [
     color: "#49D7A7",
     cols: [
       { title: "Success-Based Model", body: "You pay nothing until you've hired someone and they've started. Zero risk until you've found the right person." },
-      { title: "No Hidden Fees", body: "No retainers, no deposits, no subscription charges. One placement fee — one month's gross salary." },
+      { title: "No Hidden Fees", body: "No retainers, no deposits, no subscription charges. One placement fee - one month's gross salary." },
       { title: "We Earn When We Deliver", body: "Our fee is charged only after your hire has started work. If no one joins, you pay nothing." },
     ],
   },
@@ -174,7 +174,7 @@ const ADVANTAGE_ROWS = [
     color: "#7E47FF",
     cols: [
       { title: `${MARKETING_STATS.savings} Cost Savings`, body: "Pakistan's talent market delivers senior-caliber professionals at a fraction of US or UK rates." },
-      { title: "Double Your Team", body: "Hire two senior engineers for the price of one US equivalent — same quality, same timezone overlap." },
+      { title: "Double Your Team", body: "Hire two senior engineers for the price of one US equivalent - same quality, same timezone overlap." },
       { title: "Extend Your Runway", body: "The savings compound annually. Every hire through Remotiv stretches your budget by quarters, not weeks." },
     ],
   },
@@ -184,7 +184,7 @@ const ADVANTAGE_ROWS = [
     cols: [
       { title: "Dedicated Ownership", body: "A single recruiter owns your search from brief to placement. They know your company inside out." },
       { title: "No Rotating Contacts", body: "No explaining your requirements twice. No account manager hand-offs. One person, one relationship." },
-      { title: "Culture-Aware Matching", body: "Your recruiter learns your hiring bar, your team dynamics, and your culture — and matches accordingly." },
+      { title: "Culture-Aware Matching", body: "Your recruiter learns your hiring bar, your team dynamics, and your culture - and matches accordingly." },
     ],
   },
   {
@@ -216,11 +216,11 @@ const ROLES = [
 const FAQS = [
   {
     q: "How fast do I actually get candidates?",
-    a: "Within 1 business day. You'll receive a shortlist of 3–5 AI-matched, pre-screened candidates with fit scores and vetting summaries. Full placement is completed within 2 weeks.",
+    a: "Within 1 business day. You'll receive a shortlist of 3-5 AI-matched, pre-screened candidates with fit scores and vetting summaries. Full placement is completed within 2 weeks.",
   },
   {
     q: "What's the difference between Remotiv and posting on other platforms?",
-    a: "Platforms wait for people to apply — and most won't be a fit. Remotiv's AI proactively scans 1M+ profiles of pre-screened professionals, and our recruiters personally call and verify every shortlisted candidate. You receive a curated shortlist, not a pile of CVs.",
+    a: "Platforms wait for people to apply - and most won't be a fit. Remotiv's AI proactively scans 1M+ profiles of pre-screened professionals, and our recruiters personally call and verify every shortlisted candidate. You receive a curated shortlist, not a pile of CVs.",
   },
   {
     q: "What if the hire doesn't work out?",
@@ -228,11 +228,11 @@ const FAQS = [
   },
   {
     q: "Do you only recruit from Pakistan?",
-    a: "Our primary talent pool is Pakistan — 500,000+ IT graduates annually and one of the world's top emerging tech markets. For highly specialized or executive roles, we extend regionally across South and Southeast Asia.",
+    a: "Our primary talent pool is Pakistan - 500,000+ IT graduates annually and one of the world's top emerging tech markets. For highly specialized or executive roles, we extend regionally across South and Southeast Asia.",
   },
   {
     q: "Is your 1M+ profile database fully vetted?",
-    a: "The full database is our sourcing foundation — it includes all profiles we've sourced and aggregated. From this pool, our AI identifies the strongest matches, and our recruiters personally screen and verify the shortlisted candidates. The shortlist you receive is thoroughly vetted; the database is the raw talent universe we search from.",
+    a: "The full database is our sourcing foundation - it includes all profiles we've sourced and aggregated. From this pool, our AI identifies the strongest matches, and our recruiters personally screen and verify the shortlisted candidates. The shortlist you receive is thoroughly vetted; the database is the raw talent universe we search from.",
   },
 ] as const;
 
@@ -379,9 +379,9 @@ export default function RecruitmentPage() {
               <span className="text-[#7E47FF]">Interview Tomorrow</span>
             </h1>
             <p className="mx-auto mb-6 sm:mb-10 max-w-[620px] text-[0.9rem] sm:text-[1.05rem] leading-[1.55] sm:leading-[1.7] text-[#444]">
-              Submit your role today, receive 3–5 pre-screened candidates by tomorrow morning.
+              Submit your role today, receive 3-5 pre-screened candidates by tomorrow morning.
               Remotiv combines AI-powered matching with human expertise to place hires in 2 weeks
-              — not 4–5 weeks. You only pay when you hire.
+              - not 4-5 weeks. You only pay when you hire.
             </p>
             <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-center gap-2.5 sm:gap-3.5">
               <Link
@@ -409,7 +409,7 @@ export default function RecruitmentPage() {
               <span className="text-[#49D7A7]">Fortune-level multinationals</span>
             </h2>
             <p className="mx-auto mb-10 sm:mb-14 max-w-[560px] text-base leading-[1.7] text-[#777]">
-              We match you with pre-vetted remote specialists — fast, affordable, and ready to
+              We match you with pre-vetted remote specialists - fast, affordable, and ready to
               deliver from day one.
             </p>
             <div className="mx-auto grid max-w-[1100px] grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
@@ -441,11 +441,11 @@ export default function RecruitmentPage() {
                 The Fastest Path from Role Brief to Signed Offer
               </p>
               <p className="text-[0.88rem] leading-[1.8] text-white/70">
-                Remotiv connects global companies with pre-vetted professionals from Pakistan —
+                Remotiv connects global companies with pre-vetted professionals from Pakistan -
                 one of the world&apos;s fastest-growing talent markets. Our AI scans 1M+ profiles
                 instantly, and our recruiters personally screen every match before they reach
-                you. You receive 3–5 interview-ready candidates within 1 business day, full
-                placement in 2 weeks, at {MARKETING_STATS.savings} less than Western rates — backed by a 90-day
+                you. You receive 3-5 interview-ready candidates within 1 business day, full
+                placement in 2 weeks, at {MARKETING_STATS.savings} less than Western rates - backed by a 90-day
                 replacement guarantee.
               </p>
             </div>
@@ -526,10 +526,10 @@ export default function RecruitmentPage() {
               Our Process
             </p>
             <h2 className="mb-2.5 font-heading text-[clamp(1.6rem,2.8vw,2.2rem)] font-extrabold leading-[1.15] text-[#111]">
-              From Role Brief to Hired — in 2 Weeks
+              From Role Brief to Hired - in 2 Weeks
             </h2>
             <p className="text-base leading-[1.6] text-[#777]">
-              We&apos;ve compressed what normally takes agencies 4–8 weeks into a repeatable 2-week
+              We&apos;ve compressed what normally takes agencies 4-8 weeks into a repeatable 2-week
               process.
             </p>
           </div>
@@ -712,7 +712,7 @@ export default function RecruitmentPage() {
               features={[
                 "AI-powered candidate sourcing",
                 "Recruiter screening & verification",
-                "3–5 shortlisted candidates in 1 day",
+                "3-5 shortlisted candidates in 1 day",
                 "Interview coordination & scheduling",
                 "Offer negotiation with market data",
               ]}
@@ -765,7 +765,7 @@ export default function RecruitmentPage() {
           </h2>
           <p className="mb-12 max-w-[680px] text-[0.95rem] leading-[1.7] text-white/75">
             Every Function. Every Level. Remotiv&apos;s database covers the full spectrum of
-            professional roles — from early-career specialists to C-suite executives. If the
+            professional roles - from early-career specialists to C-suite executives. If the
             skill exists in Pakistan&apos;s talent market, we can source it.
           </p>
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
@@ -801,7 +801,7 @@ export default function RecruitmentPage() {
                 Your Next Hire Is a Week Away
               </h2>
               <p className="mb-6 text-[13px] leading-[1.75] text-[#111]/75">
-                Tell us what you need. Remotiv delivers a screened, AI-matched shortlist — backed
+                Tell us what you need. Remotiv delivers a screened, AI-matched shortlist - backed
                 by a free replacement guarantee and an outcome-based engagement model.
               </p>
               <div className="mb-7 flex flex-wrap gap-2.5">
@@ -824,7 +824,7 @@ export default function RecruitmentPage() {
                 {[
                   "Shortlist delivered within 24 hours",
                   "Free replacement guarantee included",
-                  "100% confidential — your data stays private",
+                  "100% confidential - your data stays private",
                 ].map((t) => (
                   <li
                     key={t}

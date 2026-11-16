@@ -8,7 +8,7 @@ import { submitBooking } from "./actions";
 
 const BENEFITS = [
   "We reply within 24 hours",
-  "No retainer — you only pay when you hire",
+  "No retainer - you only pay when you hire",
   "Curated shortlist within 24 hours of your brief",
   "90-day replacement guarantee on every placement",
   "Dedicated point of contact throughout",
@@ -161,7 +161,7 @@ export default function BookingForm() {
         </h2>
         <p className="mb-6 text-[15px] leading-[1.6] text-white/80">
           Tell us what you&apos;re looking for. We&apos;ll set up a quick
-          30-minute call and match you with the right talent — fast.
+          30-minute call and match you with the right talent - fast.
         </p>
         <ul className="mb-7 flex flex-col gap-[13px]">
           {BENEFITS.map((b) => (

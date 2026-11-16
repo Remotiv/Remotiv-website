@@ -30,7 +30,7 @@ const CARDS = [
     num: "05",
     tag: "World-class",
     title: "Global expertise",
-    body: "Pakistan's top 1% — engineers and professionals ready to collaborate with global teams from day one.",
+    body: "Pakistan's top 1% - engineers and professionals ready to collaborate with global teams from day one.",
   },
 ] as const;
 
@@ -53,7 +53,7 @@ export function WhyRemotiv() {
           </h2>
 
           <p className="mb-11 max-w-[360px] font-sans text-[0.95rem] leading-[1.75] text-[#777]">
-            We don&apos;t just find talent — we deliver the right fit, fast. No hire, no fee.
+            We don&apos;t just find talent - we deliver the right fit, fast. No hire, no fee.
             Here&apos;s what sets us apart from every other hiring platform.
           </p>
 
