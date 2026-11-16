@@ -65,6 +65,14 @@ export const PANEL_ICON_BTN =
 const UNSCORED_FRAME =
   "mb-5 rounded-[20px] border-[1.5px] bg-[var(--ai-surface)] px-[22px] py-[30px] text-center shadow-[0_6px_30px_rgba(20,16,32,0.06)]";
 
+/**
+ * v9 `.g2p` from 1280px: 1.32fr / 1fr, 20px apart, 16px between the cards in a
+ * column. Below 1280 (1100-1279 and the sheet) one column, in the same order.
+ */
+const SPLIT_COLUMNS =
+  "grid items-start gap-4 min-[1280px]:grid-cols-[minmax(0,1.32fr)_minmax(0,1fr)] min-[1280px]:gap-5";
+const SPLIT_COLUMN = "flex min-w-0 flex-col gap-4 *:mb-0";
+
 /** Shortlist applies from Applied and Screening only (v9 section 1). */
 const SHORTLIST_FROM: readonly PipelineStage[] = ["applied", "screening"];
 
@@ -237,6 +245,40 @@ export function SplitPanelContent({
       ? null
       : `${row.years_experience} year${row.years_experience === 1 ? "" : "s"}`;
   const hasDetails = Boolean(location || experienceText || row.notice_period);
+  const scored = scoreDetail?.ai_status === "scored";
+
+  /*
+   * v9 `.g2p`: Must-haves and Screening on the left, Application and Details
+   * on the right. With nothing for the left (unscored, no screening), the
+   * Application card moves left and Details sits beside it; with neither,
+   * Application takes the full width.
+   */
+  const application = <ApplicationCard key="app" row={row} applied={applied} onEmail={onEmail} />;
+  const details = hasDetails ? (
+    <DetailsCard
+      key="details"
+      row={detailsRow}
+      location={location}
+      experienceText={experienceText}
+    />
+  ) : null;
+  let left: ReactNode[] = [
+    scored ? <MustHavesBox key="must" scoreDetail={scoreDetail} /> : null,
+    // While the answers load, an unscored applicant shows no Screening
+    // skeleton: most jobs ask no questions, and a skeleton in the left column
+    // would push Application right and then snap it back. Scored, Must-haves
+    // already hold the left column, so the skeleton costs nothing there.
+    screeningView === "list" ||
+    screeningView === "failed" ||
+    (screeningView === "loading" && scored) ? (
+      <ScreeningQuestionsCard key="screening" screening={screening} screeningView={screeningView} />
+    ) : null,
+  ].filter(Boolean);
+  let right: ReactNode[] = [application, details].filter(Boolean);
+  if (left.length === 0) {
+    left = [application];
+    right = details ? [details] : [];
+  }
 
   return (
     <>
@@ -325,7 +367,10 @@ export function SplitPanelContent({
           the panel. overscroll-none here (5f) trapped the wheel in the panel
           and left the page scrollable only from the list column (5g). The
           page-level no-bounce rule in ai-dashboard.css stays. */}
-      <div className="min-h-0 flex-1 overflow-y-auto bg-[var(--ai-inset)] px-[22px] pb-7 pt-[18px]">
+      {/* v9 `.pnl-b`: one column, 16px between cards. The shared cards carry
+          their own bottom margins for the drawer's Review tab; `*:mb-0` resets
+          them here so the gap alone spaces the panel (the drawer is unchanged). */}
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto bg-[var(--ai-inset)] px-[22px] pb-7 pt-[18px] *:mb-0">
         {showsWorthALook(row) && (
           <WorthALookBanner row={row} dismissing={dismissing} onDismissFlag={onDismissFlag} />
         )}
@@ -357,31 +402,21 @@ export function SplitPanelContent({
 
         {/* The model's own scorecard only, as on the drawer's Review tab. With
             no number, the unscored block above says why instead. */}
-        {scoreDetail?.ai_status === "scored" && (
-          <>
-            {scoreDetail.summary && (
-              <SummaryCard scoreDetail={scoreDetail} screeningAnswerCount={screeningAnswerCount} />
-            )}
-            {scoreDetail.dimensions.length > 0 && (
-              <ScoredDimensionsSection scoreDetail={scoreDetail} />
-            )}
-            <div className="mb-7">
-              <MustHavesBox scoreDetail={scoreDetail} />
-            </div>
-          </>
+        {scored && scoreDetail.summary && (
+          <SummaryCard scoreDetail={scoreDetail} screeningAnswerCount={screeningAnswerCount} />
+        )}
+        {scored && scoreDetail.dimensions.length > 0 && (
+          <ScoredDimensionsSection scoreDetail={scoreDetail} />
         )}
 
-        <div className="flex flex-col gap-5">
-          {screeningView !== "empty" && (
-            <ScreeningQuestionsCard screening={screening} screeningView={screeningView} />
-          )}
-          <div className={hasDetails ? "grid items-start gap-5 min-[1280px]:grid-cols-2" : ""}>
-            <ApplicationCard row={row} applied={applied} onEmail={onEmail} />
-            {hasDetails && (
-              <DetailsCard row={detailsRow} location={location} experienceText={experienceText} />
-            )}
+        {right.length > 0 ? (
+          <div data-split-columns className={SPLIT_COLUMNS}>
+            <div className={SPLIT_COLUMN}>{left}</div>
+            <div className={SPLIT_COLUMN}>{right}</div>
           </div>
-        </div>
+        ) : (
+          left
+        )}
       </div>
     </>
   );

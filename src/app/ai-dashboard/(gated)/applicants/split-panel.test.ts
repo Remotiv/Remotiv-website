@@ -184,7 +184,9 @@ describe("3. height from --vh-full", () => {
   });
 
   test("the panel body scrolls on its own and hands off to the page at its ends (5g)", () => {
-    const body = PANEL_SRC.match(/className="(min-h-0 flex-1 overflow-y-auto[^"]*)"/)?.[1];
+    const body = PANEL_SRC.match(
+      /className="(flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto[^"]*)"/,
+    )?.[1];
     assert.ok(body, "the panel body's class string moved - re-point this pin");
     assert.match(body, /\boverflow-y-auto\b/);
     // No overscroll-* on the body: -none or -contain stop the wheel at the
