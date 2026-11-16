@@ -30,7 +30,7 @@ import {
  */
 
 const ITEM =
-  "group/split relative grid w-full grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 border-b border-[var(--ai-line-soft)] px-5 py-[13px] text-left transition-[background-color,box-shadow] last:border-b-0 hover:z-[2] hover:bg-[#FCFBFA] hover:shadow-[0_6px_22px_rgba(20,16,32,0.07)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-remotiv-purple";
+  "group/split relative grid w-full grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 border-b border-[var(--ai-line-soft)] px-5 py-[13px] text-left transition-[background-color,box-shadow] last:border-b-0 hover:z-[2] hover:bg-[#FCFBFA] hover:shadow-[0_6px_22px_rgba(20,16,32,0.07)] focus-visible:outline-2 focus-visible:-outline-offset-2! focus-visible:outline-remotiv-purple";
 
 const SECOND_LINE = "m-0 mt-0.5 truncate text-[12.5px] text-[var(--ai-t3)]";
 

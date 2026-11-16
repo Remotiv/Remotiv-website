@@ -173,7 +173,16 @@ test("one button, nothing clickable inside it, and an inset focus ring", () => {
   );
   assert.equal((html.match(/<button/g) ?? []).length, 1);
   assert.doesNotMatch(html, /<a[\s>]/);
-  assert.match(html, /focus-visible:-outline-offset-2/);
+  // Important (the trailing !): the global `*:focus-visible { outline-offset: 2px }`
+  // in globals.css is outside Tailwind's layers, so it beats any layered utility
+  // and drew the ring OUTSIDE the row, where the list card clipped it (QA F1).
+  assert.match(html, /focus-visible:-outline-offset-2!(?=[\s"])/);
+  const globals = readFileSync(new URL("../../../globals.css", import.meta.url), "utf8");
+  assert.match(
+    globals,
+    /\*:focus-visible \{\s*outline: 2px solid var\(--color-remotiv-purple\);\s*outline-offset: 2px;/,
+    "the global rule changed: re-check whether the row still needs the important offset",
+  );
 });
 
 test("the client renders the Split item only with the flag on, and keeps today's table and cards otherwise", () => {
