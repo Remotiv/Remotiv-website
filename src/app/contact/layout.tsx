@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-const title = "Contact Remotiv — Get in Touch";
+const title = "Contact Remotiv - Get in Touch";
 const description =
   "Have a question or want to hire vetted remote talent from Pakistan? Contact the Remotiv team — we reply within 24 hours.";
 

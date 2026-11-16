@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { TalentLoginClient } from "./login-client";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Talent Login — Remotiv" };
+export const metadata = { title: "Talent Login - Remotiv" };
 
 export default async function TalentLoginPage({
   searchParams,

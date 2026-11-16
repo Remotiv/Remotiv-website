@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { LoginClient } from "./login-client";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Sign in — Remotiv Admin" };
+export const metadata = { title: "Sign in - Remotiv Admin" };
 
 export default async function AdminLoginPage({
   searchParams,

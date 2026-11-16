@@ -3,7 +3,7 @@ import { AlertTriangle } from "lucide-react";
 import { ResetClient } from "./reset-client";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Set a new password — Remotiv" };
+export const metadata = { title: "Set a new password - Remotiv" };
 
 function InvalidLink() {
   return (

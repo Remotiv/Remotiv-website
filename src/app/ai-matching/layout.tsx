@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-const title = "AI Talent Matching — Remotiv";
+const title = "AI Talent Matching - Remotiv";
 const description =
   "Describe the role you're hiring for and let Remotiv's AI match you with the best-fit vetted remote candidates from Pakistan in seconds.";
 

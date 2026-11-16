@@ -20,7 +20,7 @@ function page(title: string, body: string, status: number) {
   return new NextResponse(
     `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${title} — Remotiv</title></head>
+<title>${title} - Remotiv</title></head>
 <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f4efea;color:#17131f;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px">
 <div style="max-width:460px;background:#fff;border-radius:20px;padding:32px;box-shadow:0 6px 30px rgba(20,16,32,.06)">
 <h1 style="font-size:20px;margin:0 0 10px">${title}</h1>

@@ -14,12 +14,12 @@ import { canonicalUrl } from "@/lib/seo";
 // entirely — no double-brand suffix. Description is tuned for SERP display
 // and targets the JOB-SEEKER audience (vs the root layout's hirer focus).
 export const metadata: Metadata = {
-  title: "Jobs at Remotiv — Find Your Next Remote Role",
+  title: "Jobs at Remotiv - Find Your Next Remote Role",
   description:
     "Browse open remote roles for engineers, designers, sales, and more. Apply directly and get matched with companies hiring through Remotiv.",
   alternates: { canonical: "/jobs" },
   openGraph: {
-    title: "Jobs at Remotiv — Find Your Next Remote Role",
+    title: "Jobs at Remotiv - Find Your Next Remote Role",
     description:
       "Browse open remote roles for engineers, designers, sales, and more. Apply directly and get matched with companies hiring through Remotiv.",
     url: "/jobs",
@@ -29,7 +29,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Jobs at Remotiv — Find Your Next Remote Role",
+    title: "Jobs at Remotiv - Find Your Next Remote Role",
     description:
       "Browse open remote roles for engineers, designers, sales, and more. Apply directly and get matched with companies hiring through Remotiv.",
   },

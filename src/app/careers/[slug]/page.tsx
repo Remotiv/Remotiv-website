@@ -21,15 +21,15 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   // "not found" is a claim about the company. A failed read is a claim about
   // us, and must not be dressed as the other. Neither gets indexed.
   if (!read.ok) {
-    return { title: "Careers — couldn't load", robots: { index: false, follow: false } };
+    return { title: "Careers - couldn't load", robots: { index: false, follow: false } };
   }
   const data = read.value;
   if (!data) {
-    return { title: "Careers — not found", robots: { index: false, follow: false } };
+    return { title: "Careers - not found", robots: { index: false, follow: false } };
   }
 
   const { company, roles } = data;
-  const title = `Careers — ${company.name}`;
+  const title = `Careers - ${company.name}`;
   const description =
     company.description ??
     `Open roles at ${company.name}. ${roles.length} ${roles.length === 1 ? "position" : "positions"} live now.`;

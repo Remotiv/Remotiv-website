@@ -61,7 +61,7 @@ export async function generateMetadata({
   const company = read.value;
 
   const path = `/jobs?company=${encodeURIComponent(company.slug)}`;
-  const title = `Jobs at ${company.name} — Remotiv`;
+  const title = `Jobs at ${company.name} - Remotiv`;
   const description = `Open roles at ${company.name}, hiring through Remotiv. Apply directly.`;
 
   return {

@@ -20,7 +20,7 @@ const dmSans = DM_Sans({
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://remotiv.work"),
-  title: "Remotiv — Hire Top 1% Senior Engineering Talent",
+  title: "Remotiv - Hire Top 1% Senior Engineering Talent",
   description:
     "Hire pre-vetted engineers, scale with staff augmentation, or build dedicated teams — without the usual delays.",
   applicationName: "Remotiv",
@@ -36,7 +36,7 @@ export const metadata: Metadata = {
   creator: "Remotiv",
   publisher: "Remotiv",
   openGraph: {
-    title: "Remotiv — Hire Top 1% Senior Engineering Talent",
+    title: "Remotiv - Hire Top 1% Senior Engineering Talent",
     description:
       "Hire pre-vetted engineers, scale with staff augmentation, or build dedicated teams — without the usual delays.",
     url: "https://remotiv.work",

@@ -360,13 +360,13 @@ export async function generateMetadata({
     // Identical metadata for hidden and missing, so the tab title cannot be
     // used to tell a paused profile from an id that never existed.
     return {
-      title: "Profile not found — Remotiv",
+      title: "Profile not found - Remotiv",
       robots: { index: false, follow: false },
     };
   }
   const profile = state.profile;
 
-  const title = `${profile.fullName} — ${profile.roleLabel} | Remotiv`;
+  const title = `${profile.fullName} - ${profile.roleLabel} | Remotiv`;
   const description = profile.bio
     ? `${profile.bio.slice(0, 155).replace(/\s+/g, " ").trim()}…`
     : `${profile.fullName} is a vetted ${profile.roleLabel} on Remotiv. Hire top remote talent in hours, not weeks.`;

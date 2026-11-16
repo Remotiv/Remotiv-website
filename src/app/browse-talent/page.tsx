@@ -11,14 +11,14 @@ export const dynamic = "force-dynamic";
 // landing pages — no noindex). Canonical path is relative; Next.js resolves
 // it against `metadataBase` (set in src/app/layout.tsx).
 export const metadata: Metadata = {
-  title: "Find Talent — Remotiv",
+  title: "Find Talent - Remotiv",
   description:
     "Browse vetted senior engineers, sales talent, and operators. Filter by role, skill, and location. Hire top remote talent in hours, not weeks.",
   alternates: {
     canonical: "/browse-talent",
   },
   openGraph: {
-    title: "Find Talent — Remotiv",
+    title: "Find Talent - Remotiv",
     description:
       "Browse vetted senior engineers, sales talent, and operators. Filter by role, skill, and location.",
     url: "/browse-talent",
@@ -28,7 +28,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Find Talent — Remotiv",
+    title: "Find Talent - Remotiv",
     description:
       "Browse vetted senior engineers, sales talent, and operators. Hire top remote talent in hours.",
   },

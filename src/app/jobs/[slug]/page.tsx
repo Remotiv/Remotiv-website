@@ -23,10 +23,10 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   }
   const job = read.value;
   if (!job) {
-    return { title: "Job not found — Remotiv", robots: { index: false, follow: false } };
+    return { title: "Job not found - Remotiv", robots: { index: false, follow: false } };
   }
 
-  const title = `${job.title} — ${job.company} | Remotiv`;
+  const title = `${job.title} - ${job.company} | Remotiv`;
   const description = job.description
     ? `${job.description.slice(0, 150).replace(/\s+/g, " ").trim()}…`
     : `${job.title} at ${job.company}. Apply on Remotiv — remote roles for Pakistan's top vetted talent, hired by companies worldwide.`;

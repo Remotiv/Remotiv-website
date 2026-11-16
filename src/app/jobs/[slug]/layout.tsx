@@ -63,7 +63,7 @@ export async function generateMetadata({
   if (!read.ok)
     return { title: "Role couldn't be loaded", robots: { index: false, follow: false } };
   if (read.value === null) {
-    return { title: "Job not found — Remotiv", robots: { index: false, follow: false } };
+    return { title: "Job not found - Remotiv", robots: { index: false, follow: false } };
   }
   return {};
 }

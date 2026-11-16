@@ -308,7 +308,7 @@ test("hidden and missing are indistinguishable in metadata", () => {
   assert.match(page, /if \(state\.kind !== "public"\) \{/);
   const start = page.indexOf('if (state.kind !== "public") {');
   const block = page.slice(start, page.indexOf("const profile = state.profile;", start));
-  assert.match(block, /title: "Profile not found — Remotiv"/);
+  assert.match(block, /title: "Profile not found - Remotiv"/);
   assert.match(block, /robots: \{ index: false, follow: false \}/);
 });
 

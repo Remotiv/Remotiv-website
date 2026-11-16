@@ -12,12 +12,12 @@ import { canonicalUrl } from "@/lib/seo";
 // template object), so the title declared here REPLACES the root title
 // entirely — no double-brand suffix. Description is tuned for SERP display.
 export const metadata: Metadata = {
-  title: "About Remotiv — Our Mission & Team",
+  title: "About Remotiv - Our Mission & Team",
   description:
     "Remotiv connects companies with Pakistan's top 1% of pre-vetted professionals — faster hires, stronger teams, and zero hiring risk. Meet the team behind it.",
   alternates: { canonical: "/about" },
   openGraph: {
-    title: "About Remotiv — Our Mission & Team",
+    title: "About Remotiv - Our Mission & Team",
     description:
       "Remotiv connects companies with Pakistan's top 1% of pre-vetted professionals — faster hires, stronger teams, and zero hiring risk. Meet the team behind it.",
     url: "/about",
@@ -27,7 +27,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "About Remotiv — Our Mission & Team",
+    title: "About Remotiv - Our Mission & Team",
     description:
       "Remotiv connects companies with Pakistan's top 1% of pre-vetted professionals — faster hires, stronger teams, and zero hiring risk. Meet the team behind it.",
   },

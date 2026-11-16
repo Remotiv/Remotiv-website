@@ -26,7 +26,7 @@ import "./ai-video-interviews.css";
 // The description says only what ships: the Async Video Interview, scored
 // from the transcript with evidence per score. The conversational interview
 // is named as in development, never as available.
-const AVI_TITLE = "AI Video Interviews — Remotiv";
+const AVI_TITLE = "AI Video Interviews - Remotiv";
 const AVI_DESCRIPTION =
   "Screen candidates with Async Video Interviews, scored from the transcript with evidence behind every score. Conversational AI Video Interviews are in development.";
 
