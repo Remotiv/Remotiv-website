@@ -4667,15 +4667,24 @@ export function ApplicantsClient({
   /**
    * Who prev/next steps from, and how a step selects its destination.
    *
-   * The drawer, when open, keeps its own behaviour. Otherwise under Split the
-   * step moves the panel's selection (selectSplit: ?applicant= by replace) or,
-   * below 1100, the sheet's: replaced in place, never pushed, so stepping
-   * adds no history entry and Back still closes the sheet in one press.
+   * The drawer, when open, steps itself, and under Split the panel (1100+) or
+   * the sheet (below) underneath moves with it, so the list highlight, the
+   * panel and ?applicant= all name the drawer's applicant and closing the
+   * drawer lands on them (C2). No panelReadNow: the panel is hidden under the
+   * drawer, so its read waits for the gate's hold and fast stepping reads it
+   * once. Otherwise under Split the step moves the panel's selection
+   * (selectSplit: ?applicant= by replace) or, below 1100, the sheet's:
+   * replaced in place, never pushed, so stepping adds no history entry and
+   * Back still closes the sheet in one press.
    */
   const stepId = openId ?? panelId;
   const stepOpen = useCallback(
     (id: string) => {
       if (openId || !split) {
+        if (split) {
+          if (splitWide) setSplitId(id);
+          else setSheetId(id);
+        }
         openApplicant(id);
         return;
       }
