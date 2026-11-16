@@ -315,6 +315,13 @@ const ADD_LABEL = "mb-[5px] block text-[11.5px] font-bold text-[var(--ai-t2)]";
  */
 type PageClock = { now: number; local: boolean };
 
+/**
+ * How long an automatic panel pick must hold, after its page has landed,
+ * before the panel reads it (C1). Long enough to outlast a fast page turn,
+ * short enough that a reader who stops paging sees the cards almost at once.
+ */
+const AUTO_PANEL_READ_DELAY_MS = 400;
+
 const NEVER_CHANGES = () => () => {};
 
 /**
@@ -3995,6 +4002,13 @@ export function ApplicantsClient({
    * auto-select effect, and written to the URL only by selectSplit (a click).
    */
   const [splitId, setSplitId] = useState<string | null>(null);
+  /**
+   * The next panel selection was chosen by the reader (a click, a step, the
+   * sheet opening, a deep link), so its read starts at once. Cleared when the
+   * read gate below uses it. An automatic pick (the first row of a page that
+   * just landed) leaves it false and waits for the list to settle.
+   */
+  const panelReadNow = useRef(true);
   const splitWide = useSplitWide() && split;
 
   /**
@@ -4079,6 +4093,7 @@ export function ApplicantsClient({
    */
   const openSheet = useCallback(
     (id: string) => {
+      panelReadNow.current = true;
       setSheetId(id);
       // No tab: the sheet has none. ?tab= belongs to the drawer alone.
       const to = (applicantId: string | null) => {
@@ -4154,6 +4169,7 @@ export function ApplicantsClient({
    */
   const selectSplit = useCallback(
     (id: string) => {
+      panelReadNow.current = true;
       setSplitId(id);
       syncPanelUrl(id, null);
     },
@@ -4536,7 +4552,43 @@ export function ApplicantsClient({
    * row never paints under the next one.
    */
   /** Whose details the Split shows: the panel's at 1100+, the sheet's below (commit 7). */
-  const panelId = splitWide ? splitId : split ? sheetId : null;
+  /*
+   * The selection as shown THIS render: the same rule the effect above applies,
+   * computed here too. Without it, the render in which a new page lands still
+   * holds the previous page's id, the panel has no row, and it unmounts for a
+   * frame until the effect catches up (C1: 19 flashes in 20 page turns).
+   */
+  const shownSplitId = splitWide
+    ? autoSplitSelection(splitId, pagedIds ? pagedIds.split(",") : [], deepLinkId)
+    : splitId;
+  const panelId = splitWide ? shownSplitId : split ? sheetId : null;
+
+  /*
+   * The read gate (QA C1). Paging fast used to read the panel's applicant on
+   * every page that landed, only for the next page to replace it: one detail
+   * read per page, each still in flight at the next turn (staging, 20 pages:
+   * 20 reads). Now an automatic pick waits until the list has settled and the
+   * pick has held for AUTO_PANEL_READ_DELAY_MS; a page turn inside that window
+   * cancels it before anything is sent. A choice the reader made reads at once.
+   */
+  const [panelReadId, setPanelReadId] = useState<string | null>(null);
+  useEffect(() => {
+    if (deepLinkId) panelReadNow.current = true;
+  }, [deepLinkId]);
+  useEffect(() => {
+    if (!panelId) {
+      setPanelReadId(null);
+      return;
+    }
+    if (panelReadNow.current) {
+      panelReadNow.current = false;
+      setPanelReadId(panelId);
+      return;
+    }
+    if (pageView.updating) return;
+    const t = setTimeout(() => setPanelReadId(panelId), AUTO_PANEL_READ_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [panelId, pageView.updating]);
 
   const [splitRead, setSplitRead] = useState<{
     id: string;
@@ -4547,9 +4599,9 @@ export function ApplicantsClient({
     applicant: CompanyApplicantRow | null;
   } | null>(null);
   useEffect(() => {
-    if (!panelId) return;
+    if (!panelReadId) return;
     let cancelled = false;
-    const id = panelId;
+    const id = panelReadId;
     fetchCompanyApplicant(id)
       .then((read) => {
         if (cancelled) return;
@@ -4589,7 +4641,7 @@ export function ApplicantsClient({
     return () => {
       cancelled = true;
     };
-  }, [panelId, landingJobId, setFilters]);
+  }, [panelReadId, landingJobId, setFilters]);
 
   const splitRow = panelId
     ? (rows.find((r) => r.id === panelId) ??
@@ -4631,6 +4683,7 @@ export function ApplicantsClient({
         selectSplit(id);
         return;
       }
+      panelReadNow.current = true;
       setSheetId(id);
       syncPanelUrl(id, null);
     },
@@ -5832,7 +5885,7 @@ export function ApplicantsClient({
                           ring={<ScoreRing score={r.score} />}
                           applied={fmtApplied(r.created_at, clock).main}
                           isTop={topMatchIds.has(r.id)}
-                          selected={(splitWide ? splitId : (sheetId ?? openId)) === r.id}
+                          selected={(splitWide ? shownSplitId : (sheetId ?? openId)) === r.id}
                           onOpen={() => (splitWide ? selectSplit(r.id) : openSheet(r.id))}
                         />
                       ))}
