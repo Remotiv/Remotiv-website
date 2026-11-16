@@ -61,13 +61,52 @@ const hasCommunicationLogsCheck = (text, column) => {
   );
 };
 
+/**
+ * A function, by the signature pg_dump prints on its CREATE line: argument
+ * names and full type names (timestamptz prints as timestamp with time zone).
+ */
+const hasFunction = (text, signature) =>
+  text.includes(`\nCREATE FUNCTION public.${signature} RETURNS `);
+
 /** Each `found(text)` is true when the dump carries the object. */
 export const REQUIRED_OBJECTS = [
   {
     what: "communication_logs.attempt_started_at timestamp with time zone",
-    why: "migration 058 creates it, and 058 is the newest applied migration (14 Nov 2026)",
+    why: "migration 058 creates it (applied 14 Nov 2026)",
     found: (text) =>
       /^\s+attempt_started_at timestamp with time zone\b/m.test(communicationLogsColumns(text)),
+  },
+  {
+    what: "function public.claim_communication_log(uuid, text, text, text)",
+    why: "migration 059 creates it (applied 16 Nov 2026)",
+    found: (text) =>
+      hasFunction(
+        text,
+        "claim_communication_log(p_application_id uuid, p_event text, p_channel text, p_from_status text)",
+      ),
+  },
+  {
+    what: "function public.fail_observed_communication_log(uuid, timestamp with time zone, text, text)",
+    why: "migration 059 creates it (applied 16 Nov 2026)",
+    found: (text) =>
+      hasFunction(
+        text,
+        "fail_observed_communication_log(p_id uuid, p_observed_stamp timestamp with time zone, p_rule text, p_error text)",
+      ),
+  },
+  {
+    what: "function public.insert_first_attempt_communication_log(uuid, uuid, text, text, text, text, text)",
+    why: "migration 059 creates it (applied 16 Nov 2026)",
+    found: (text) =>
+      hasFunction(
+        text,
+        "insert_first_attempt_communication_log(p_company_id uuid, p_application_id uuid, p_event text, p_channel text, p_to_address text, p_subject text, p_body text)",
+      ),
+  },
+  {
+    what: "function public.interview_sessions_kind_immutable()",
+    why: "migration 060 creates it, and 060 is the newest applied migration (16 Nov 2026)",
+    found: (text) => hasFunction(text, "interview_sessions_kind_immutable()"),
   },
   {
     what: "the communication_logs event and status CHECK constraints",
