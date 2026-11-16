@@ -1,5 +1,6 @@
 "use server";
 
+import { plainDashesOrNull } from "@/app/ai-dashboard/lib/plain-dashes";
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import {
@@ -1033,8 +1034,8 @@ export async function fetchInterviewPanel(
     total: total ?? 0,
     score: sc ? (sc.human_adjusted_score ?? sc.overall_score) : null,
     scoreStatus: sc?.status ?? null,
-    verdict: sc?.verdict ?? null,
-    summary: sc?.summary ?? null,
+    verdict: plainDashesOrNull(sc?.verdict ?? null),
+    summary: plainDashesOrNull(sc?.summary ?? null),
   };
   if (kind === "live") {
     const restart = await liveRestartOf(service, applicationId, ctx.companyId);

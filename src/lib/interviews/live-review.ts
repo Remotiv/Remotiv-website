@@ -6,6 +6,7 @@ import {
   type JobScope,
   scopeJobIds,
 } from "@/app/ai-dashboard/lib/job-scope";
+import { plainDashesOrNull } from "@/app/ai-dashboard/lib/plain-dashes";
 import { readFrozenQuestionSet } from "@/lib/interviews/frozen-questions";
 import {
   type EndCheck,
@@ -633,7 +634,7 @@ export function buildLiveReviewView(input: {
         counted && entry.status === "scored"
           ? (entry.confidence as LiveReviewQuestion["confidence"])
           : null,
-      rationale: counted && entry.status === "scored" ? entry.rationale : null,
+      rationale: counted && entry.status === "scored" ? plainDashesOrNull(entry.rationale) : null,
       quotes,
       flags,
       conversation,

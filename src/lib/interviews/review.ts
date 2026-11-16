@@ -6,6 +6,7 @@ import {
   isEmptyScope,
   scopeJobIds,
 } from "@/app/ai-dashboard/lib/job-scope";
+import { plainDashes, plainDashesOrNull } from "@/app/ai-dashboard/lib/plain-dashes";
 import { scoringEnabled } from "@/lib/ai/interview-scoring";
 import { readInterviewKind } from "@/lib/interviews/types";
 import { pageAll } from "@/lib/supabase/paging";
@@ -774,13 +775,13 @@ async function fetchAnswerScores(
       const out: ScoredEvidence[] = [];
       for (const item of items) {
         if (typeof item === "string") {
-          const claim = item.trim();
+          const claim = plainDashes(item.trim());
           if (claim) out.push({ claim, quote: "", startSeconds: null });
           continue;
         }
         if (!item || typeof item !== "object") continue;
         const e = item as { claim?: unknown; quote?: unknown };
-        const claim = typeof e.claim === "string" ? e.claim.trim() : "";
+        const claim = typeof e.claim === "string" ? plainDashes(e.claim.trim()) : "";
         if (!claim) continue;
         const quote = typeof e.quote === "string" ? e.quote.trim() : "";
         out.push({
@@ -805,12 +806,14 @@ async function fetchAnswerScores(
       aiScore: r.score,
       shownScore: r.human_adjusted_score ?? r.score,
       confidence: r.confidence,
-      reasoning: wordsDeleted ? null : r.reasoning,
+      reasoning: wordsDeleted ? null : plainDashesOrNull(r.reasoning),
       strengths: wordsDeleted ? [] : pair(r.strengths),
       concerns: wordsDeleted ? [] : pair(r.concerns),
       missing:
         !wordsDeleted && Array.isArray(r.missing)
-          ? (r.missing as unknown[]).filter((x): x is string => typeof x === "string")
+          ? (r.missing as unknown[])
+              .filter((x): x is string => typeof x === "string")
+              .map(plainDashes)
           : [],
       adjustment: toAdjustment(
         r.human_adjusted_score,
@@ -872,8 +875,8 @@ async function fetchSessionScores(
         status,
         overall: r.overall_score,
         humanScore: r.human_adjusted_score,
-        verdict: r.verdict,
-        summary: deleted ? null : r.summary,
+        verdict: plainDashesOrNull(r.verdict),
+        summary: deleted ? null : plainDashesOrNull(r.summary),
         confidence: r.confidence,
         criteria: normaliseCriteria(r.criteria).map((c) => (deleted ? { ...c, quote: "" } : c)),
         error: r.error,
