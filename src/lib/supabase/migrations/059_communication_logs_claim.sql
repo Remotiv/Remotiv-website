@@ -813,10 +813,29 @@ commit;
 -- transaction, which ends after pg_sleep returns. So tab 1 holds the lock for
 -- the full 20 seconds after claiming.
 --
+-- The guard on B2 and B3, without changing that order: <RACE_APP> comes from
+-- a MATERIALIZED CTE g, which has a row only where staging_guard.sentinel
+-- exists, and reaches the claim through a correlated LATERAL. The function's
+-- argument comes FROM g, so the function scan can only be the inner side of a
+-- nested loop with g outer, and a nested loop whose outer side is empty never
+-- runs its inner side: off staging the claim is never executed and the
+-- statement returns 0 rows at once. Inside the loop nothing changes: the
+-- function scan still runs the claim to completion before the target list,
+-- pg_sleep and clock_timestamp included, is evaluated. B2p shows the plan,
+-- read-only, before anything runs.
+--
 -- B1. Tab 1, one run. Refuses unless staging, then inserts the fixture: a
 --     failed row, 1 hour old, with an OLD stamp 50 minutes back, cut to the
 --     whole second so it can be copied exactly. RECORD race_id as <RACE_ID>,
 --     race_app as <RACE_APP> and old_stamp as <OLD_STAMP> before going on.
+--     The insert carries the sentinel check in its own WHERE as well, so even
+--     run on its own, off staging, it inserts and returns 0 rows.
+--     It also picks only a seeded application: the staging seed gives every
+--     one the email staging+N@example.invalid, so no other row can be used.
+--     Part A's selector does NOT carry this filter, on purpose: it passed 27
+--     of 27, it is guarded by the same sentinel, and every write it makes
+--     rolls back, so changing it would mean re-running a proven artifact for
+--     nothing.
 -- PART B1 BEGIN
 -- do $$
 -- begin
@@ -833,34 +852,139 @@ commit;
 --        'old failure'
 --   from public.job_applications a
 --  where a.company_id_snapshot is not null
+--    and a.email like 'staging+%@example.invalid'
+--    and to_regclass('staging_guard.sentinel') is not null
 --  limit 1
 -- returning id as race_id, application_id as race_app, attempt_started_at as old_stamp;
 -- PART B1 END
 --
 -- B2a. Before B2, in BOTH tabs, one read:
 --       show statement_timeout;
---     B2 and B3 each run for up to 20 seconds. PASS: 0 (no limit) or at
---     least 30s. If it is lower, a timed-out B2 rolls back its claim and the
---     race never happens. Then run B2 instead as one run:
+--     NORMAL PATH: 0 (no limit) or at least 30s. Then B2 and B3 run BARE,
+--     exactly as written below, with no begin and no commit, and nothing
+--     else in B2a or B3p applies.
+--
+--     FALLBACK, only if it is lower. B2 and B3 each run for up to 20
+--     seconds, and a timed-out B2 rolls back its claim, so the race never
+--     happens.
+--     B2 on the fallback path, as ONE submission in tab 1:
 --       begin; set local statement_timeout = '60s';
+--       with g as materialized (
+--         select '<RACE_APP>'::uuid as app
+--          where to_regclass('staging_guard.sentinel') is not null
+--       )
 --       select c.out_id, c.out_attempt_started_at, c.out_outcome, pg_sleep(20)
---         from public.claim_communication_log('<RACE_APP>', 'application_received', 'rh059-race', 'failed') c;
+--         from g
+--         cross join lateral public.claim_communication_log(
+--           g.app, 'application_received', 'rh059-race', 'failed') c;
 --       commit;
---     and B3 likewise, wrapped in begin; set local statement_timeout = '60s';
---     ... commit;. One run is one request, so the transaction does not span
---     runs. If the editor shows no rows for a run ending in commit, take
---     <T1_STAMP> from B4's select instead.
---
--- B2. Tab 1. Claims, holds the row lock for 20 seconds, then commits:
---       select c.out_id, c.out_attempt_started_at, c.out_outcome, pg_sleep(20)
---         from public.claim_communication_log('<RACE_APP>', 'application_received', 'rh059-race', 'failed') c;
---     Expect, after 20 seconds: claimed. RECORD out_attempt_started_at as <T1_STAMP>.
---
--- B3. Tab 2, started IMMEDIATELY after B2, within its 20 seconds:
+--     If the editor shows no rows for it, take <T1_STAMP> from B4's select.
+--     B3 on the fallback path is different: its result IS the proof
+--     (out_outcome, saw_old_stamp, waited) and is stored nowhere, and B4
+--     cannot recover saw_old_stamp or waited. So B3 writes its row into a
+--     temp table and reads it back at the end of the SAME submission, which
+--     the editor then shows. ONLY if B3p returned exactly one row, as ONE
+--     submission in tab 2:
+--       drop table if exists pg_temp.b3_result;
+--       begin; set local statement_timeout = '60s';
+--       create temp table b3_result as
+--       with g as materialized (
+--         select '<RACE_APP>'::uuid as app
+--          where to_regclass('staging_guard.sentinel') is not null
+--       )
 --       select r.out_id, r.out_attempt_started_at, r.out_outcome,
 --              r.out_attempt_started_at = '<OLD_STAMP>' as saw_old_stamp,
 --              clock_timestamp() - now() as waited
---         from public.claim_communication_log('<RACE_APP>', 'application_received', 'rh059-race', 'failed') r;
+--         from g
+--         cross join lateral public.claim_communication_log(
+--           g.app, 'application_received', 'rh059-race', 'failed') r;
+--       commit;
+--       select * from pg_temp.b3_result;
+--     The read is qualified as pg_temp.b3_result for the same reason as
+--     Part A's drop: if the temp table is not there, an unqualified name
+--     could resolve to a real table through search_path. The drop first
+--     lets the race be repeated in the same tab.
+--     All five columns survive as they are. waited is still B3's own wait:
+--     now() is the transaction's start, which is the begin a few
+--     microseconds before the create, and clock_timestamp() is read after
+--     the claim returns, so the only addition is the begin and set local,
+--     microseconds. saw_old_stamp is unchanged: the select inside the create
+--     takes its snapshot when it starts, exactly as the bare B3 does.
+--     If B3p did NOT return exactly one row, do NOT use the temp table:
+--     raise the timeout another way, or run B3 bare and accept the risk that
+--     a timeout cancels it, and then reset (B4) and repeat.
+--
+-- B3p. TEMP TABLE PROBE, fallback path only, tab 2, ONE submission, BEFORE
+--     the race. It settles whether a temp table made inside begin/commit can
+--     still be read after the commit in the same submission. If the
+--     connection is pooled per transaction, the read after commit can land on
+--     a different backend and see nothing:
+--       drop table if exists pg_temp.t_probe;
+--       begin;
+--       create temp table t_probe as select 1 as x;
+--       commit;
+--       select * from pg_temp.t_probe;
+--     One row: the B3 fallback is safe to use. No rows or an error: it is
+--     not; see the last paragraph of B2a.
+--
+-- B2p. PLAN CHECK, either tab, before B2. READ ONLY.
+--     Plain EXPLAIN only. NEVER EXPLAIN ANALYZE: ANALYZE EXECUTES the
+--     statement, which would run the claim, write the row and hold the lock
+--     for 20 seconds. The zero uuid is a placeholder for planning only.
+--     The guarded form, exactly as B2 runs it:
+--       explain
+--       with g as materialized (
+--         select '00000000-0000-0000-0000-000000000000'::uuid as app
+--          where to_regclass('staging_guard.sentinel') is not null
+--       )
+--       select c.out_id, c.out_attempt_started_at, c.out_outcome, pg_sleep(20)
+--         from g
+--         cross join lateral public.claim_communication_log(
+--           g.app, 'application_received', 'rh059-race', 'failed') c;
+--     PASS: a Nested Loop whose FIRST child is "CTE Scan on g" and whose
+--     SECOND child is "Function Scan on claim_communication_log c" (a Memoize
+--     node above the Function Scan is fine), and "CTE g" with a One-Time
+--     Filter on to_regclass. If the Function Scan is anywhere but the inner
+--     side of that Nested Loop, STOP and report: B2 and B3 go back unguarded.
+--     For comparison only, the same statement without "materialized":
+--       explain
+--       with g as (
+--         select '00000000-0000-0000-0000-000000000000'::uuid as app
+--          where to_regclass('staging_guard.sentinel') is not null
+--       )
+--       select c.out_id, c.out_attempt_started_at, c.out_outcome, pg_sleep(20)
+--         from g
+--         cross join lateral public.claim_communication_log(
+--           g.app, 'application_received', 'rh059-race', 'failed') c;
+--     Expected: the CTE is inlined, so no Nested Loop and no CTE Scan; the
+--     Function Scan sits alone under a Result whose One-Time Filter is the
+--     to_regclass check. That gates it too, but through constant folding the
+--     planner is free to do differently, which is why B2 uses the fence.
+--
+-- B2. Tab 1. Claims, holds the row lock for 20 seconds, then commits:
+--       with g as materialized (
+--         select '<RACE_APP>'::uuid as app
+--          where to_regclass('staging_guard.sentinel') is not null
+--       )
+--       select c.out_id, c.out_attempt_started_at, c.out_outcome, pg_sleep(20)
+--         from g
+--         cross join lateral public.claim_communication_log(
+--           g.app, 'application_received', 'rh059-race', 'failed') c;
+--     Expect, after 20 seconds: claimed. RECORD out_attempt_started_at as <T1_STAMP>.
+--     0 rows at once means no sentinel here: the claim never ran.
+--
+-- B3. Tab 2, started IMMEDIATELY after B2, within its 20 seconds. Bare, on
+--     the normal path; on the fallback path, use B2a's B3 form instead:
+--       with g as materialized (
+--         select '<RACE_APP>'::uuid as app
+--          where to_regclass('staging_guard.sentinel') is not null
+--       )
+--       select r.out_id, r.out_attempt_started_at, r.out_outcome,
+--              r.out_attempt_started_at = '<OLD_STAMP>' as saw_old_stamp,
+--              clock_timestamp() - now() as waited
+--         from g
+--         cross join lateral public.claim_communication_log(
+--           g.app, 'application_received', 'rh059-race', 'failed') r;
 --     now() is this statement's start and clock_timestamp() is read after the
 --     claim returns, so waited is how long it sat behind tab 1's lock.
 --     PASS needs ALL THREE:
@@ -880,15 +1004,24 @@ commit;
 --       select status, attempt_started_at = '<T1_STAMP>' as tab1_stamp, error
 --         from public.communication_logs where id = '<RACE_ID>';
 --     Expect: queued, true, NULL. Exactly one claim landed.
---     To repeat the race, reset the row first:
+--     To repeat the race, reset the row first. Expect 1 row; 0 means the id,
+--     the tab or the database is wrong, and nothing was touched:
 --       update public.communication_logs
 --          set status = 'failed', attempt_started_at = '<OLD_STAMP>', error = 'old failure'
---        where id = '<RACE_ID>';
+--        where id = '<RACE_ID>'
+--          and channel = 'rh059-race' and to_address = 'rehearsal@example.invalid'
+--          and to_regclass('staging_guard.sentinel') is not null;
 --
 -- B5. THE NORMAL DELETE, always, last:
---       delete from public.communication_logs where id = '<RACE_ID>' returning id;   -- 1 row
---     Done. B6 and B7 are only for a run abandoned before the ids were
---     written down, which a delete by id cannot recover.
+--       delete from public.communication_logs
+--        where id = '<RACE_ID>'
+--          and channel = 'rh059-race' and to_address = 'rehearsal@example.invalid'
+--          and to_regclass('staging_guard.sentinel') is not null
+--       returning id;   -- 1 row
+--     0 rows means the id, the tab or the database is wrong: nothing was
+--     deleted, so check before trying again. Done. B6 and B7 are only for a
+--     run abandoned before the ids were written down, which a delete by id
+--     cannot recover.
 --
 -- B6. RECOVERY PREVIEW, its own run, READ before B7 is run at all:
 --       select id, channel, status, created_at, to_address
