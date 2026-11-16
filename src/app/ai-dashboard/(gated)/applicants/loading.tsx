@@ -1,8 +1,20 @@
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
+import { isApplicantsSplitOn } from "@/app/ai-dashboard/lib/applicants-split-flag";
+import { HeroSkeleton, SplitSkeleton } from "./_split-skeleton";
 
 const SHIMMER = "animate-pulse rounded-lg bg-[var(--ai-line-soft)]";
 
+/**
+ * The Applicants loading state: the Split shape by default (_split-skeleton.tsx,
+ * C3), the old page's skeleton with the kill switch on. The switch is read here,
+ * on the server, by the same rule page.tsx applies (applicants-split-flag.ts).
+ */
 export default function Loading() {
+  return isApplicantsSplitOn(null) ? <SplitSkeleton /> : <TableSkeleton />;
+}
+
+/** The old page's skeleton (APPLICANTS_SPLIT_DISABLED=1), unchanged. */
+function TableSkeleton() {
   return (
     <PageContainer>
       <div className="mb-[22px]">
@@ -10,19 +22,7 @@ export default function Loading() {
         <div className={`${SHIMMER} mt-3 h-4 w-[420px] max-w-full`} />
       </div>
 
-      {/* Mint block + ink breakdown, matching DashboardHero so the shape does
-          not change when content arrives. */}
-      <div className="mb-[26px] grid grid-cols-1 overflow-hidden rounded-[22px] bg-[var(--ai-sidebar)] min-[1180px]:grid-cols-[340px_minmax(0,1fr)]">
-        <div className="flex flex-col justify-center bg-remotiv-green px-[26px] py-[22px] min-[1180px]:px-7 min-[1180px]:py-[26px]">
-          <div className="h-3 w-28 animate-pulse rounded bg-[rgba(4,52,44,0.16)]" />
-          <div className="mt-3 h-11 w-32 animate-pulse rounded-lg bg-[rgba(4,52,44,0.16)]" />
-          <div className="mt-3 h-3 w-40 animate-pulse rounded bg-[rgba(4,52,44,0.16)]" />
-        </div>
-        <div className="px-[26px] py-[22px] min-[1180px]:px-[30px] min-[1180px]:py-[26px]">
-          <div className="h-3 w-24 animate-pulse rounded bg-white/10" />
-          <div className="mt-3 h-8 w-40 animate-pulse rounded bg-white/10" />
-        </div>
-      </div>
+      <HeroSkeleton />
 
       <div className="overflow-hidden rounded-[20px] border border-[var(--ai-line)] bg-[var(--ai-surface)]">
         <div className="border-b border-[var(--ai-line)] p-[18px]">

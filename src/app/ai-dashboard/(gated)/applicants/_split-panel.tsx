@@ -48,7 +48,7 @@ import type { SplitUnscored } from "./split-unscored";
  * var(--vh-full), never h-screen: vh resolves against the unzoomed viewport
  * inside .ai-shell and would come out 18% short.
  */
-const PANEL_FRAME =
+export const PANEL_FRAME =
   "sticky top-[80px] hidden h-[calc(var(--vh-full)_-_64px_-_16px_-_64px)] flex-col overflow-hidden min-[1100px]:flex rounded-[20px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_6px_30px_rgba(20,16,32,0.06)]";
 
 const TOP_BTN =
