@@ -852,6 +852,24 @@ const SITE_FILTER_VALUES = [
       "company and job before its CV is read for question writing. The file joined the surface when " +
       "it began passing companyId to the job guide writer (live-guides.ts).",
   },
+  {
+    file: "lib/communication-attempt.ts",
+    fn: "confirmApplicationGone",
+    query:
+      '.select("id").eq("id", key.applicationId).eq("company_id_snapshot", key.companyId).maybeSingle()',
+    value: "key.companyId",
+    why:
+      "The #85 re-read that settles a 23503 on the first-attempt or skipped insert: does the " +
+      "application still exist. key.companyId is DERIVED, never payload-supplied. The only callers " +
+      "are lib/whatsapp/dispatch.ts:221 and :288 in handleWhatsAppMessage, both passing the " +
+      "`companyId` bound at 149 as `app.company_id_snapshot` from the job_applications read at " +
+      "134-138, keyed on payload.applicationId, the derivation the handleWhatsAppMessage ALLOWLIST " +
+      "entry above records. WhatsAppSendPayload has no company field and the handler reads none. " +
+      "So this filter re-filters the same application by its own company: a consistency check like " +
+      "session.company_id, not request-scoped tenancy. communication-attempt.test.ts pins the " +
+      "caller set, and whatsapp/dispatch-claim.test.ts proves a payload company id never reaches " +
+      "this read or the insert.",
+  },
 ];
 
 /* ── the scan ─────────────────────────────────────────────────── */

@@ -63,7 +63,7 @@ const signalOf = (calls) => call(calls, "abortSignal")?.[1] ?? null;
  * does. `jobLookup: "throw"` rejects the helper's own job_applications read,
  * the one read it makes outside notifyCompanyOnce. `updateMatches` is how many
  * rows a failed-status update reports back (1, or 0 for a row that was not
- * there). `webhookRow` is what the status lookup finds by provider_message_id.
+ * there); any other update (the WhatsApp pre-send refresh, #85) matches its row. `webhookRow` is what the status lookup finds by provider_message_id.
  * `seen.signal` is the signal the first hung bell write received.
  */
 function world({ bells = "ok", jobLookup = "ok", updateMatches = 1, webhookRow = null } = {}) {
@@ -72,12 +72,18 @@ function world({ bells = "ok", jobLookup = "ok", updateMatches = 1, webhookRow =
   let logs = 0;
   const service = fakeService((table, calls) => {
     switch (table) {
+      // The automatic WhatsApp send's first attempt (#85): stamped by the database.
+      case "rpc:insert_first_attempt_communication_log":
+        return ok([
+          { out_id: `log-${++logs}`, out_attempt_started_at: "2026-11-16T10:00:05.123456+00:00" },
+        ]);
       case "communication_logs": {
         if (call(calls, "insert")) return ok({ id: `log-${++logs}` });
         if (call(calls, "update")) {
           // The updated row back, as `.select("id")` asks for it.
           const id = calls.find((c) => c[0] === "eq" && c[1] === "id")?.[2];
-          return ok(call(calls, "select") && updateMatches === 1 ? [{ id }] : []);
+          const matches = call(calls, "update")[1]?.status === "failed" ? updateMatches : 1;
+          return ok(call(calls, "select") && matches === 1 ? [{ id }] : []);
         }
         if (call(calls, "select")?.[2]?.head) return { data: null, count: 0, error: null };
         if (calls.some((c) => c[0] === "eq" && c[1] === "provider_message_id")) {
@@ -326,11 +332,12 @@ test("WhatsApp TERMINAL refusal returns normally, so the job succeeds silently, 
   assertOneAlert(stored, "log-1");
 });
 
-test("WhatsApp transient refusal throws for the queue and alerts once", async () => {
+// #85 3a-2: an automatic send's failed row is never claimed again, so a retry
+// could only find it failed. The job completes; the bell is the signal.
+test("WhatsApp transient refusal on an automatic send completes the job and alerts once", async () => {
   const { service, stored } = world();
   const result = await runWhatsApp(service, "transient");
-  assert.equal(result.outcome, "rejected");
-  assert.match(result.message, /send_message\[whatsapp\]/);
+  assert.equal(result.outcome, "resolved");
   assert.equal(failedWrites(service).length, 1);
   assertOneAlert(stored, "log-1");
 });

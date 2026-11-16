@@ -28,6 +28,8 @@ const { handleWhatsAppMessage } = dispatch;
 const TYPED_PHONE = "0300 1234567";
 const DIGITS = "923001234567";
 const RAW_DB_ERROR = "permission denied for table whatsapp_inbound";
+/** A database stamp: microseconds, never made by a Date. */
+const STAMP = "2026-11-16T10:00:05.123456+00:00";
 
 const ok = (data) => ({ data, error: null });
 const fail = { data: null, error: { message: RAW_DB_ERROR } };
@@ -35,24 +37,22 @@ const fail = { data: null, error: { message: RAW_DB_ERROR } };
 /**
  * The database the dispatcher talks to. `optOuts` and `inbound` decide the
  * opt-out answer; `failing` makes one of the three opt-out reads error;
- * `staleQueued` puts an adoptable stale row in front of the send.
+ * `staleQueued` puts a stale queued row in front of the send, which the claim
+ * (#85) hands to this run.
  */
 function world({ optOuts = [], inbound = [], failing = null, staleQueued = false } = {}) {
   return fakeService((table, calls) => {
     switch (table) {
+      case "rpc:insert_first_attempt_communication_log":
+        return ok([{ out_id: "log-new", out_attempt_started_at: STAMP }]);
+      case "rpc:claim_communication_log":
+        return ok([{ out_id: "log-stale", out_attempt_started_at: STAMP, out_outcome: "claimed" }]);
       case "communication_logs": {
         if (call(calls, "insert")) return ok({ id: "log-new" });
-        if (call(calls, "update")) return { data: null, error: null };
-        // The idempotency read.
-        return ok(
-          staleQueued
-            ? {
-                id: "log-stale",
-                status: "queued",
-                created_at: new Date(Date.now() - 3_600_000).toISOString(),
-              }
-            : null,
-        );
+        // A guarded write matches the one row it names.
+        if (call(calls, "update")) return ok(call(calls, "select") ? [{ id: "log-x" }] : null);
+        // The pre-check.
+        return ok(staleQueued ? { id: "log-stale", status: "queued" } : null);
       }
       case "job_applications":
         return ok({
@@ -195,9 +195,13 @@ for (const failing of ["opt_outs_by_phone", "inbound_bsuids", "opt_outs_by_bsuid
   });
 }
 
-test("on an adopted stale row, a failed lookup marks THAT row skipped rather than inserting a second", async () => {
-  const { metaRequests, logWrites } = await run(
-    world({ failing: "opt_outs_by_phone", staleQueued: true }),
+test("on a claimed stale row, a failed lookup marks THAT row skipped rather than inserting a second", async () => {
+  const service = world({ failing: "opt_outs_by_phone", staleQueued: true });
+  const { metaRequests, logWrites } = await run(service);
+  const skip = service.queries.find((q) => call(q.calls, "update")?.[1]?.status === "skipped");
+  assert.ok(
+    skip.calls.some((c) => c[0] === "eq" && c[1] === "attempt_started_at" && c[2] === STAMP),
+    "the skip is guarded on the claimed stamp",
   );
   assert.equal(metaRequests.length, 0);
   assert.equal(

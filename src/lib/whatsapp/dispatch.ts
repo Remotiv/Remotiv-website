@@ -1,7 +1,20 @@
 import "server-only";
 import { redactCandidateLinks } from "@/lib/candidate-links";
+import {
+  confirmApplicationGone,
+  dbFailure,
+  finaliseOrphanedAttempt,
+  insertFirstAttemptCommunicationLog,
+  markOwnedFailed,
+  markOwnedSkipped,
+  type OwnedAttempt,
+  QUEUED_ONLY,
+  refreshOwnedBeforeSend,
+  resolveAutomaticAttempt,
+} from "@/lib/communication-attempt";
 import { skipJob } from "@/lib/job-skip";
 import { alertSendFailure, updatedOne } from "@/lib/notifications/send-failure";
+import { TerminalJobError } from "@/lib/queue/failure-class";
 import { createServiceClient } from "@/lib/supabase/server";
 import { isWhatsAppOptedOut } from "@/lib/whatsapp/opt-out";
 import {
@@ -23,13 +36,22 @@ import {
  * below is the only switch; an event absent from it never sends, and no other
  * file needs to know which events are live.
  *
- * ── Mirrors the email path, deliberately ─────────────────────
+ * ── Who owns an automatic send (#85) ─────────────────────────
  *
- * Same queue, same job type, same log-before-send discipline, same idempotency
- * shape. The one thing that differs is the channel column — and that is now
- * load-bearing on BOTH sides, because two channels writing a row for the same
- * (application, event) is exactly what would break an idempotency check that
- * did not filter on it.
+ * Same queue, same job type and the same log-before-send discipline as the
+ * email path, keyed on (application, event, channel). Whether this run may
+ * send is decided by the database, through lib/communication-attempt.ts: the
+ * first attempt inserts its row stamped by the database clock, a retry claims
+ * a stale queued row, and every write after that is guarded on the stamp this
+ * worker was handed. Nothing here compares a time.
+ *
+ * A failed row is never claimed again. Two of its causes are uncertain rather
+ * than failed (the 15-second timeout, and a 200 from Meta with no message id),
+ * and without an idempotency key a resend could duplicate. Retrying failed
+ * WhatsApp rows is its own later piece.
+ *
+ * A recruiter's send (sentByName set) is not deduplicated and claims nothing:
+ * it keeps its plain insert, outside the partial unique index.
  */
 
 /** The only events that go out on WhatsApp, mapped to their Meta template. */
@@ -37,27 +59,6 @@ const EVENT_TEMPLATES: Record<string, WhatsAppTemplateName> = {
   interview: WHATSAPP_TEMPLATES.interview_invitation,
   interview_reminder: WHATSAPP_TEMPLATES.interview_reminder,
 };
-
-/**
- * A log row in one of these means a previous attempt already claimed it.
- *
- * `queued` is in here on purpose and must stay. The row is written BEFORE the
- * Meta call precisely so a crash leaves evidence, and dropping `queued` from
- * this list would make a job that died after Meta accepted the message send a
- * SECOND one on retry — a real charge and a duplicate to the candidate. It is
- * age-bounded below instead.
- */
-const ALREADY_HANDLED = ["queued", "sent", "skipped", "cancelled"];
-
-/**
- * How long a `queued` row is believed to mean "a send is in flight".
- *
- * Beyond it, the process that wrote the row is gone: the only work between the
- * insert and the status update is one Meta call inside a worker tick that
- * allows ~25s total. Fifteen minutes is two orders of magnitude of headroom and
- * still nothing like the "forever" this replaces.
- */
-const QUEUED_STALE_MS = 15 * 60 * 1000;
 
 /** Roughly how long an interview takes, for template variable {{4}}. */
 const DEFAULT_MINUTES = "12";
@@ -119,88 +120,20 @@ export async function handleWhatsAppMessage(job: {
    * A recruiter's explicit re-send, as opposed to an automatic one.
    *
    * The partial unique index on (application_id, event, channel) WHERE
-   * sent_by_name IS NULL already encodes this rule: automatic rows are unique
-   * per event, a named one is not. The check below used to ignore the
-   * distinction entirely and refuse both, which is why the index change never
-   * took effect on this channel — the code in front of it was stricter.
+   * sent_by_name IS NULL encodes this rule: automatic rows are unique per
+   * event, a named one is not. So only an automatic send is deduplicated and
+   * claimed; a recruiter can see the previous message and asked for another.
    */
   const sentByName = (payload.sentByName ?? "").trim() || null;
+  const key = { applicationId, event, channel: "whatsapp" as const };
 
   /*
-   * ── 1. Idempotency, before any work ──
+   * ── 1. The application, before anything is claimed ──
    *
-   * Identical to the email path's check with ONE addition: `channel`. Without
-   * it, this query would find the email row for the same (application, event)
-   * and skip every WhatsApp send — and the email path's own check would find
-   * two rows and, because `.maybeSingle()` returns null on multiplicity, send
-   * a SECOND email. The channel filter is what keeps the two independent.
-   *
-   * Skipped ENTIRELY for a recruiter's send: they can see the previous message
-   * on the Messages page and asked for another one anyway. Only automatic
-   * sends are deduplicated, which is exactly what the index says.
+   * Loaded first so a deleted application never gets a row claimed for it.
+   * Deleted after this read and before the claim, the claim answers missing
+   * and the run retries (E4); the next run finds nothing and skips.
    */
-  let reuseLogId: string | null = null;
-
-  if (!sentByName) {
-    const { data: existing } = await service
-      .from("communication_logs")
-      .select("id, status, created_at")
-      .eq("application_id", applicationId)
-      .eq("event", event)
-      .eq("channel", "whatsapp")
-      .is("sent_by_name", null)
-      .in("status", ALREADY_HANDLED)
-      .maybeSingle();
-
-    if (existing) {
-      const row = existing as { id: string; status: string; created_at: string | null };
-      const age = row.created_at ? Date.now() - new Date(row.created_at).getTime() : 0;
-      const staleQueued = row.status === "queued" && age > QUEUED_STALE_MS;
-
-      if (!staleQueued) {
-        /*
-         * Recorded, not merely logged.
-         *
-         * This was the one skip in this file that returned in silence, and it
-         * is the one that fired — so the Messages page showed an email with no
-         * WhatsApp beside it and no reason, which is precisely the "looks
-         * broken" the other two skips were written to avoid.
-         *
-         * Written against the EXISTING row rather than inserted as a new one:
-         * a second automatic row would collide with the partial index, and the
-         * point here is a visible reason, not a second record of one send.
-         */
-        await service
-          .from("communication_logs")
-          .update({
-            error:
-              `Not re-sent automatically — this event was already ${row.status} ` +
-              `on this application. A recruiter can send it again from the applicant.`,
-          })
-          .eq("id", row.id);
-
-        console.log(
-          `[whatsapp] skipping ${event} for ${applicationId} — already ${row.status}`,
-        );
-        return;
-      }
-
-      /*
-       * A stale `queued` row: the process that wrote it died between the insert
-       * and the status update. Adopt it rather than insert — it still occupies
-       * the partial index's slot (the index does not filter on status), so a
-       * fresh automatic insert would collide with it. Re-using the row also
-       * keeps one record per automatic send, which is what the index is for.
-       */
-      console.warn(
-        `[whatsapp] adopting stale queued row ${row.id} for ${event}/${applicationId} ` +
-          `(${Math.round(age / 60000)}m old) — a previous attempt died mid-send`,
-      );
-      reuseLogId = row.id;
-    }
-  }
-
-  // ── 2. The application ──
   const { data: appData } = await service
     .from("job_applications")
     .select("id, first_name, phone, job_id, job_title_snapshot, company_id_snapshot")
@@ -219,58 +152,74 @@ export async function handleWhatsAppMessage(job: {
     return;
   }
 
-  // ── 3. Can this number be addressed at all? ──
-  const recipient = resolveRecipient(app.phone);
-  if (!recipient.ok) {
-    /*
-     * A local decision, made before spending a message. Recorded as a skipped
-     * log row rather than dropped, so the Messages page can show WHY this
-     * candidate got an email but no WhatsApp — silence there would look like
-     * the integration was broken.
-     */
-    await writeLog(service, {
+  /*
+   * ── 2. Who owns this send ──
+   *
+   * Automatic only. `done` is terminal and writes nothing: the row is already
+   * sent, skipped, cancelled or failed, or a database rule just ended it. A
+   * wait or a retry leaves by throwing, and the queue runs the job again.
+   */
+  let owned: OwnedAttempt | null = null;
+  if (!sentByName) {
+    const resolution = await resolveAutomaticAttempt(service, key, QUEUED_ONLY);
+    if (resolution.kind === "done") {
+      console.log(`[whatsapp] ${event} for ${applicationId} not sent: ${resolution.reason}`);
+      return;
+    }
+    if (resolution.kind === "owned") owned = resolution.owned;
+  }
+
+  // ── 3 and 4. Can this number be addressed, and may we write to it? ──
+  const target = await sendTarget(service, app.phone);
+
+  /*
+   * A decision not to send, recorded where the row lives: on the owned row
+   * (guarded), or as a new skipped row for a first attempt or a recruiter
+   * send. A first attempt's skipped insert that collides with a row written
+   * meanwhile takes the conflict path instead of inserting a second.
+   */
+  if (!target.send) {
+    if (owned) {
+      const skipped = await markOwnedSkipped(service, owned, {
+        error: target.reason,
+        toAddress: target.toAddress,
+      });
+      if (!skipped) {
+        console.warn(`[whatsapp] ${event} for ${applicationId}: the row changed before the skip`);
+      }
+      return;
+    }
+    const written = await writeLog(service, {
       companyId,
       applicationId,
       event,
-      toAddress: "unknown",
+      toAddress: target.toAddress,
       status: "skipped",
-      error: recipient.reason,
+      error: target.reason,
       sentByName,
     });
-    return;
-  }
-
-  /*
-   * ── 4. Opt-out. Global: that person never hears from us again. ──
-   *
-   * By phone OR by any BSUID seen with that phone, and closed on any lookup
-   * error. The rule and its limits live in opt-out.ts; nothing about BSUIDs
-   * belongs in this file.
-   */
-  const optOut = await isWhatsAppOptedOut(service, recipient.digits);
-  if (optOut.status !== "clear") {
-    const reason = optOut.status === "opted_out" ? OPTED_OUT_REASON : OPT_OUT_CHECK_FAILED_REASON;
-    if (reuseLogId) {
-      /*
-       * A stale `queued` row was adopted above and still holds this send's
-       * slot in the partial unique index, so a second automatic row would be
-       * refused. The skip is recorded on that row instead.
-       */
-      await service
-        .from("communication_logs")
-        .update({ status: "skipped", error: reason, to_address: recipient.digits })
-        .eq("id", reuseLogId);
-    } else {
-      await writeLog(service, {
-        companyId,
-        applicationId,
-        event,
-        toAddress: recipient.digits,
-        status: "skipped",
-        error: reason,
-        sentByName,
-      });
+    if (written.ok) return;
+    if (sentByName) {
+      throw new Error(`whatsapp: could not write communication_log: ${written.error?.message}`);
     }
+    if (written.error?.code === UNIQUE_VIOLATION) {
+      const again = await resolveAutomaticAttempt(service, key, QUEUED_ONLY, {
+        afterConflict: true,
+      });
+      if (again.kind === "owned") {
+        await markOwnedSkipped(service, again.owned, {
+          error: target.reason,
+          toAddress: target.toAddress,
+        });
+      }
+      return;
+    }
+    if (written.error?.code !== FOREIGN_KEY_VIOLATION) {
+      throw dbFailure("the skipped insert", written.error, written.status);
+    }
+    // Which foreign key broke is decided by reading the application, never by the message.
+    await confirmApplicationGone(service, { applicationId, companyId }, written.error);
+    skipJob("send_message[whatsapp]", job.id, `application ${applicationId} was deleted`);
     return;
   }
 
@@ -297,51 +246,89 @@ export async function handleWhatsAppMessage(job: {
     deadline: payload.deadline ?? "the date in your email",
   };
 
-  /*
-   * ── 6. Log BEFORE the attempt ──
-   *
-   * Same discipline as deliverEmail. A row that exists before the network call
-   * means a crash mid-send leaves evidence rather than silence, and it is what
-   * the idempotency check above will find on a retry.
-   */
   // The rendered variables, not the template text — Meta owns the wording, and
   // storing our guess at it would go stale the moment it is edited.
   const body = `${template}: ${JSON.stringify(vars)}`;
 
+  /*
+   * ── 6. Log BEFORE the attempt ──
+   *
+   * A row that exists before the network call means a crash mid-send leaves
+   * evidence rather than silence. An automatic send owns its row first (the
+   * database-stamped insert, or the claim above), then refreshes it with what
+   * this attempt sends. The refresh is guarded, and also requires the
+   * application to still exist, so a row stopped, claimed elsewhere or
+   * orphaned meanwhile is never sent.
+   */
   let logId: string;
-  if (reuseLogId) {
-    // Adopted stale row: put it back to `queued` and clear the previous
-    // attempt's error, so the Messages page shows this attempt, not the dead one.
-    await service
-      .from("communication_logs")
-      .update({
-        status: "queued",
-        body: redactCandidateLinks(body),
-        error: null,
-        to_address: recipient.digits,
-      })
-      .eq("id", reuseLogId);
-    logId = reuseLogId;
-  } else {
-    logId = await writeLog(service, {
+  if (sentByName) {
+    const written = await writeLog(service, {
       companyId,
       applicationId,
       event,
-      toAddress: recipient.digits,
+      toAddress: target.digits,
       status: "queued",
       body,
       sentByName,
     });
+    if (!written.ok) {
+      throw new Error(`whatsapp: could not write communication_log: ${written.error?.message}`);
+    }
+    logId = written.id;
+  } else {
+    if (!owned) {
+      const inserted = await insertFirstAttemptCommunicationLog(service, {
+        ...key,
+        companyId,
+        toAddress: target.digits,
+        subject: null,
+        body,
+      });
+      if (inserted.kind === "foreign_key") {
+        await confirmApplicationGone(service, { applicationId, companyId }, inserted.error);
+        skipJob("send_message[whatsapp]", job.id, `application ${applicationId} was deleted`);
+        return;
+      }
+      if (inserted.kind === "conflict") {
+        const again = await resolveAutomaticAttempt(service, key, QUEUED_ONLY, {
+          afterConflict: true,
+        });
+        if (again.kind === "done") {
+          console.log(`[whatsapp] ${event} for ${applicationId} not sent: ${again.reason}`);
+          return;
+        }
+        if (again.kind !== "owned") {
+          throw new TerminalJobError(
+            "deterministic",
+            "send_message[whatsapp]: a conflict resolved to a second first attempt",
+          );
+        }
+        owned = again.owned;
+      } else {
+        owned = inserted.owned;
+      }
+    }
+    if (!(await refreshOwnedBeforeSend(service, owned, { toAddress: target.digits, body }))) {
+      const orphaned = await finaliseOrphanedAttempt(service, owned);
+      console.warn(
+        orphaned
+          ? `[whatsapp] ${event} for ${applicationId} not sent: the application was deleted`
+          : `[whatsapp] ${event} for ${applicationId} not sent: the row was stopped or claimed elsewhere`,
+      );
+      return;
+    }
+    logId = owned.id;
   }
 
   // ── 7. Send ──
   const result = await sendTemplateMessage({
-    toDigits: recipient.digits,
+    toDigits: target.digits,
     template,
     vars,
   });
 
   if (result.ok) {
+    // By id, whatever the row became meanwhile: a send that happened is recorded.
     await service
       .from("communication_logs")
       .update({
@@ -354,23 +341,31 @@ export async function handleWhatsAppMessage(job: {
     return;
   }
 
-  // The row back (.select), so the bell rings only for a mark that landed.
-  const { data: marked } = await service
-    .from("communication_logs")
-    .update({ status: "failed", error: result.message.slice(0, 500) })
-    .eq("id", logId)
-    .select("id");
+  /*
+   * A refusal, or an answer that proves nothing either way (a timeout, a 200
+   * with no message id). Recorded as failed, never as sent. An automatic row is
+   * guarded on this worker's stamp; a recruiter's row by id, as before.
+   */
+  const failure = result.message.slice(0, 500);
+  let marked: boolean;
+  if (owned) {
+    marked = await markOwnedFailed(service, owned, failure);
+  } else {
+    // The row back (.select), so the bell rings only for a mark that landed.
+    const { data } = await service
+      .from("communication_logs")
+      .update({ status: "failed", error: failure })
+      .eq("id", logId)
+      .select("id");
+    marked = updatedOne(data);
+  }
 
   /*
-   * Someone is told (#71A). BEFORE the terminal/transient branch below, on
-   * purpose: the terminal case returns normally, so the job is marked
-   * succeeded and the queue's job_dead alert never fires for it. This line is
-   * the only path from that failure to a person. Best-effort by construction,
-   * so the throw below and the return after it are exactly what they were.
-   * No actor: a recruiter's WhatsApp send is queued, so nobody saw this error
-   * on a screen and nobody is left out of the fan-out.
+   * Someone is told (#71A), only for a mark that landed. Best-effort by
+   * construction. No actor: a recruiter's WhatsApp send is queued, so nobody
+   * saw this error on a screen and nobody is left out of the fan-out.
    */
-  if (updatedOne(marked)) {
+  if (marked) {
     await alertSendFailure(service, {
       logId,
       companyId,
@@ -382,30 +377,67 @@ export async function handleWhatsAppMessage(job: {
   }
 
   /*
-   * ── Terminal vs transient ──
+   * An automatic send ends here. Its failed row is never claimed again, so a
+   * retry could only find it failed: the bell is the signal, not a dead job.
    *
-   * A template that is not approved fails identically every time, so throwing
-   * would burn three attempts and an hour of backoff to reach the conclusion
-   * already available on the first. It is logged loudly and the job ENDS.
-   *
-   * A 429 or a 5xx is worth another go, so that one throws and takes the
-   * queue's normal retry path.
+   * A recruiter's send keeps its retry. A 429 or a 5xx is worth another go,
+   * and throwing takes the queue's normal retry path; a template that is not
+   * approved fails identically every time, so that one ends here too.
    */
-  if (result.kind === "transient") {
+  if (!owned && result.kind === "transient") {
     throw new Error(`send_message[whatsapp]: ${result.message}`);
   }
 
   console.error(
-    `[whatsapp] ${result.kind} failure for ${event}/${applicationId} — not retrying: ${result.message}`,
+    `[whatsapp] ${result.kind} failure for ${event}/${applicationId}, not retrying: ${result.message}`,
   );
 }
 
 /**
- * Postgres unique-violation. The partial index on (application_id, event,
- * channel) WHERE sent_by_name IS NULL is the only one this table can trip.
+ * Where this message would go, or why it must not go there.
+ *
+ * Both are local decisions, made before spending a message, and both are
+ * recorded as a skipped row rather than dropped, so the Messages page can show
+ * WHY this candidate got an email but no WhatsApp — silence there would look
+ * like the integration was broken.
+ *
+ * The opt-out is global: that person never hears from us again. By phone OR by
+ * any BSUID seen with that phone, and closed on any lookup error. The rule and
+ * its limits live in opt-out.ts; nothing about BSUIDs belongs in this file.
  */
-const UNIQUE_VIOLATION = "23505";
+async function sendTarget(
+  service: ReturnType<typeof createServiceClient>,
+  phone: string | null,
+): Promise<{ send: true; digits: string } | { send: false; toAddress: string; reason: string }> {
+  const recipient = resolveRecipient(phone);
+  if (!recipient.ok) return { send: false, toAddress: "unknown", reason: recipient.reason };
+  const optOut = await isWhatsAppOptedOut(service, recipient.digits);
+  if (optOut.status !== "clear") {
+    return {
+      send: false,
+      toAddress: recipient.digits,
+      reason: optOut.status === "opted_out" ? OPTED_OUT_REASON : OPT_OUT_CHECK_FAILED_REASON,
+    };
+  }
+  return { send: true, digits: recipient.digits };
+}
 
+/** Postgres unique_violation: the partial unique index on (application_id, event, channel). */
+const UNIQUE_VIOLATION = "23505";
+/** Postgres foreign_key_violation. Which key is settled by a read, never by the message. */
+const FOREIGN_KEY_VIOLATION = "23503";
+
+type WriteLogResult =
+  | { ok: true; id: string }
+  | { ok: false; error: { code?: string; message?: string } | null; status: number };
+
+/**
+ * Insert one row: a recruiter's queued row, or a skipped row. An automatic
+ * send's queued row never comes here; it is inserted by the database
+ * (insert_first_attempt_communication_log) so its stamp is the database's.
+ * Answers the failure rather than throwing it, because what a 23505 or a
+ * 23503 means depends on the caller.
+ */
 async function writeLog(
   service: ReturnType<typeof createServiceClient>,
   row: {
@@ -419,14 +451,12 @@ async function writeLog(
     /**
      * Null for an automatic send, which is what puts the row INSIDE the partial
      * unique index. The email path writes the same column from the same value
-     * (deliver.ts); until now this one never wrote it at all, so every WhatsApp
-     * row was null and the index could not tell a recruiter's send from a
-     * scheduled one.
+     * (deliver.ts).
      */
     sentByName?: string | null;
   },
-): Promise<string> {
-  const { data, error } = await service
+): Promise<WriteLogResult> {
+  const { data, error, status } = await service
     .from("communication_logs")
     .insert({
       company_id: row.companyId,
@@ -446,23 +476,6 @@ async function writeLog(
     .select("id")
     .single();
 
-  if (error || !data) {
-    /*
-     * A unique violation here means the index disagrees with the reasoning
-     * above — most likely its definition differs from the one this file was
-     * written against, which lives only in the database and not in any
-     * migration. Named explicitly so it is not mistaken for a transient fault,
-     * and thrown rather than swallowed: silently dropping a send is the class
-     * of bug this whole change exists to remove.
-     */
-    if (error?.code === UNIQUE_VIOLATION) {
-      throw new Error(
-        `whatsapp: communication_logs rejected a ${row.sentByName ? "recruiter" : "automatic"} ` +
-          `${row.event} row as a duplicate. Check the partial unique index on ` +
-          `(application_id, event, channel) WHERE sent_by_name IS NULL. ${error.message}`,
-      );
-    }
-    throw new Error(`whatsapp: could not write communication_log: ${error?.message}`);
-  }
-  return (data as { id: string }).id;
+  if (error || !data) return { ok: false, error, status };
+  return { ok: true, id: (data as { id: string }).id };
 }

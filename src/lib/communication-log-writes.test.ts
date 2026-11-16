@@ -12,6 +12,10 @@
  * passed by name, or the table name held in a variable all fail. This is the
  * test that fails when a NEW write path skips the redactor.
  *
+ * The same rule covers the one write that goes through a database function
+ * (#85): `.rpc("insert_first_attempt_communication_log", {...})` stores its
+ * `p_body`, so that key is held to it too.
+ *
  * The RUN drives the real deliverEmail with a fake database and checks what
  * was actually inserted. It is what proves the redactor is applied to the
  * value, not merely named near it, on the path every invite takes.
@@ -32,6 +36,8 @@ import ts from "typescript";
 
 const TABLE = "communication_logs";
 const WRITES = new Set(["insert", "update", "upsert"]);
+/** Database functions that store a body, and the argument that carries it. */
+const BODY_RPCS = new Map([["insert_first_attempt_communication_log", "p_body"]]);
 const REDACTOR = "redactCandidateLinks";
 const SRC = fileURLToPath(new URL("../", import.meta.url));
 
@@ -93,20 +99,22 @@ function mentionsBodyKey(node) {
 }
 
 /** Problems with one object literal written to the table. */
-function checkObject(obj, where) {
+function checkObject(obj, where, bodyKey = "body") {
   const problems = [];
   let bodies = 0;
   for (const p of obj.properties) {
     if (ts.isSpreadAssignment(p)) {
-      if (mentionsBodyKey(p)) problems.push(`${where}: a spread that may carry body`);
+      if (mentionsBodyKey(p) || bodyKey !== "body") {
+        problems.push(`${where}: a spread that may carry ${bodyKey}`);
+      }
       continue;
     }
-    if (ts.isShorthandPropertyAssignment(p) && p.name.text === "body") {
-      problems.push(`${where}: shorthand \`body\` is not redacted at the write`);
+    if (ts.isShorthandPropertyAssignment(p) && p.name.text === bodyKey) {
+      problems.push(`${where}: shorthand \`${bodyKey}\` is not redacted at the write`);
       bodies += 1;
       continue;
     }
-    if (ts.isPropertyAssignment(p) && propName(p.name) === "body") {
+    if (ts.isPropertyAssignment(p) && propName(p.name) === bodyKey) {
       bodies += 1;
       if (!isSafeBody(p.initializer)) {
         problems.push(`${where}: body is \`${p.initializer.getText()}\`, not ${REDACTOR}(...)`);
@@ -183,6 +191,27 @@ export function scanSource(fileName, text) {
     if (
       ts.isCallExpression(n) &&
       ts.isPropertyAccessExpression(n.expression) &&
+      n.expression.name.text === "rpc" &&
+      n.arguments[0] &&
+      ts.isStringLiteralLike(n.arguments[0]) &&
+      BODY_RPCS.has(n.arguments[0].text)
+    ) {
+      const bodyKey = BODY_RPCS.get(n.arguments[0].text);
+      const where = `${fileName}:${line(n)} .rpc(${n.arguments[0].text})`;
+      const arg = n.arguments[1];
+      if (!arg || !ts.isObjectLiteralExpression(arg)) {
+        problems.push(`${where}: arguments are not a literal, cannot verify ${bodyKey}`);
+        writes.push({ where, bodies: 0 });
+      } else {
+        const r = checkObject(arg, where, bodyKey);
+        problems.push(...r.problems);
+        if (r.bodies === 0) problems.push(`${where}: no ${bodyKey} argument`);
+        writes.push({ where, bodies: r.bodies });
+      }
+    }
+    if (
+      ts.isCallExpression(n) &&
+      ts.isPropertyAccessExpression(n.expression) &&
       WRITES.has(n.expression.name.text) &&
       isFromTable(n.expression.expression)
     ) {
@@ -222,6 +251,8 @@ function sourceFiles(dir) {
 
 const wrap = (payload) =>
   `async function f(s) { await s.from("communication_logs").insert(${payload}); }`;
+const rpc = (args) =>
+  `async function f(s) { await s.rpc("insert_first_attempt_communication_log", ${args}); }`;
 
 test("the scanner refuses every unsafe shape and accepts the safe ones", () => {
   const refused = {
@@ -236,6 +267,10 @@ test("the scanner refuses every unsafe shape and accepts the safe ones", () => {
     "a payload from elsewhere": `async function f(s, p) { await s.from("communication_logs").update(p); }`,
     "an array": wrap("[{ body: html }]"),
     "the table in a variable": `const T = "communication_logs"; async function f(s) { await s.from(T).insert({ body: html }); }`,
+    "an rpc with a raw p_body": rpc("{ p_status: 1, p_body: html }"),
+    "an rpc with a shorthand p_body": rpc("{ p_body }"),
+    "an rpc whose arguments are built elsewhere": `async function f(s, a) { await s.rpc("insert_first_attempt_communication_log", a); }`,
+    "an rpc with a spread": rpc("{ ...args }"),
   };
   for (const [name, src] of Object.entries(refused)) {
     assert.ok(scanSource("x.ts", src).problems.length > 0, `not refused: ${name}`);
@@ -248,6 +283,8 @@ test("the scanner refuses every unsafe shape and accepts the safe ones", () => {
     "a conditional spread without body": wrap("{ status, ...(sent ? { sent_at: now } : {}) }"),
     "a named payload with no body": `async function f(s) { const p = { status: "x" }; p.error = "e"; await s.from("communication_logs").update(p); }`,
     "a read": `async function f(s) { await s.from("communication_logs").select("body"); }`,
+    "an rpc with a redacted p_body": rpc("{ p_event: e, p_body: redactCandidateLinks(html) }"),
+    "an unrelated rpc": `async function f(s) { await s.rpc("claim_communication_log", { p_event: e }); }`,
   };
   for (const [name, src] of Object.entries(accepted)) {
     assert.deepEqual(scanSource("x.ts", src).problems, [], `refused: ${name}`);
@@ -273,6 +310,7 @@ test("every write to communication_logs in src stores a redacted body, or none",
   const bodyWrites = writes.filter((w) => w.bodies > 0).map((w) => w.where.split(":")[0]);
   assert.ok(writes.length >= 10, `only ${writes.length} writes found`);
   for (const file of [
+    "lib/communication-attempt.ts",
     "lib/email/candidate/deliver.ts",
     "lib/whatsapp/dispatch.ts",
     "lib/interviews/reminder.ts",
@@ -280,6 +318,12 @@ test("every write to communication_logs in src stores a redacted body, or none",
   ]) {
     assert.ok(bodyWrites.includes(file), `no body write found in ${file}`);
   }
+  assert.ok(
+    writes.some(
+      (w) => w.bodies > 0 && w.where.endsWith(".rpc(insert_first_attempt_communication_log)"),
+    ),
+    "the database-function write was not found, so its p_body went unchecked",
+  );
 });
 
 /* ── the real send path ───────────────────────────────────────── */

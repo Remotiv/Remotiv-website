@@ -154,11 +154,19 @@ function jobYieldConstructions() {
  *   interviews/live-scoring.ts:601 (rethrows)
  * Only the first two build a JobYield; the other five pass on one that was
  * built there. So the two constructions are pinned to one argument, no delay.
- * Negative control: give either construction a second argument, or add a new
- * construction anywhere in src, and this fails.
+ *
+ * The one delayed construction (#85, 3a-2) is pinned too, in
+ * lib/communication-attempt.ts: JobYield(E2, SEND_RETRY_DELAY_MS), a send
+ * waiting on another attempt's row (too_fresh, not_due). Its two arguments
+ * are the delay; communication-attempt.test.ts holds the delay under
+ * MAX_YIELD_DELAY_MS.
+ *
+ * Negative control: give either budget construction a second argument, or add
+ * a new construction anywhere in src, and this fails.
  */
-test("every existing JobYield is a budget yield: no delay, back on the queue now", () => {
+test("every JobYield construction is pinned: budget yields run again now, the one send wait is delayed", () => {
   assert.deepEqual(jobYieldConstructions(), [
+    "lib/communication-attempt.ts: 2",
     "lib/final-interviews/import.ts: 1",
     "lib/queue/job-context.ts: 1",
   ]);
