@@ -1896,7 +1896,7 @@ export default function AIVideoInterviewsPage() {
                   <p className="avi10-ntext">
                     A metric is reported once this workspace&rsquo;s own activity supports it.
                     Nothing here is modelled, benchmarked against other companies or estimated to
-                    fill a gap - where the evidence isn&rsquo;t there yet, Remotiv prints an em-dash
+                    fill a gap - where the evidence isn&rsquo;t there yet, Remotiv shows a dash
                     instead of a number it can&rsquo;t stand behind.
                   </p>
                 </figcaption>

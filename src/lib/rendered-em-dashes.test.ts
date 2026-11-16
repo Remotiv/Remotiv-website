@@ -538,7 +538,7 @@ export const RENDERED_EM_DASHES = {
   "app/admin/_components/talent-dashboard.tsx": { count: 5, note: "admin UI" },
   "app/ai-dashboard/(gated)/jobs/_jobs-client.tsx": { count: 5, note: "AI dashboard copy" },
   "app/ai-dashboard/(gated)/messages/_composer.tsx": { count: 5, note: "AI dashboard copy" },
-  "app/book/[token]/_booking-client.tsx": { count: 1, note: "candidate booking page" },
+  "app/book/[token]/_booking-client.tsx": { count: 0, note: "candidate booking page" },
   "app/layout.tsx": { count: 3, note: "marketing or public page" },
   "app/admin/_components/screening-question-builder.tsx": { count: 4, note: "admin UI" },
   "app/admin/companies/_queue-panel.tsx": { count: 4, note: "admin UI" },

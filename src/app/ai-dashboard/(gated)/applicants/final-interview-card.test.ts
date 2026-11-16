@@ -182,7 +182,7 @@ test("a screening call's page is unchanged: the old heading, no notice, nothing 
   const p = code(PAGE);
   assert.match(
     p,
-    /\{state\.candidateFirstName \? `Hi \$\{state\.candidateFirstName\} — pick` : "Pick"\} a\s+time/,
+    /\{state\.candidateFirstName \? `Hi \$\{state\.candidateFirstName\} - pick` : "Pick"\} a\s+time/,
   );
   // The notice block and the heading swap both hang off isFinalRound; nothing renders them otherwise.
   assert.equal((p.match(/recordingNotice/g) ?? []).length >= 2, true);

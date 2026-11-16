@@ -715,7 +715,7 @@ export function BookingClient({ token }: { token: string }) {
               ) : (
                 <>
                   <h1 className="font-heading text-2xl font-bold tracking-tight text-gray-900">
-                    {state.candidateFirstName ? `Hi ${state.candidateFirstName} — pick` : "Pick"} a
+                    {state.candidateFirstName ? `Hi ${state.candidateFirstName} - pick` : "Pick"} a
                     time
                   </h1>
                   <p className="mt-2 text-sm leading-relaxed text-gray-500">
