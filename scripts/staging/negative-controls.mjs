@@ -70,6 +70,7 @@ const JOB_SCOPE = "src/app/ai-dashboard/lib/job-scope.ts";
 const APPLICANTS_ACTIONS = "src/app/ai-dashboard/(gated)/applicants/actions.ts";
 const RESCORE_COLLECT = "src/lib/ai/rescore-collect.ts";
 const CV_PURGE = "src/lib/cv-purge.ts";
+const CV_SCORING = "src/lib/ai/cv-scoring.ts";
 const INTERVIEW_PURGE = "src/lib/interviews/purge.ts";
 const JOBS_QUEUE = "src/lib/jobs-queue.ts";
 const MIGRATION_051 = "src/lib/supabase/migrations/051_interview_sessions_purged_at.sql";
@@ -93,6 +94,7 @@ const PROBE_TEST = "src/app/api/staging-probe/probe.test.ts";
 const QUERY_ORDER_TEST = "scripts/staging/query-order.test.mjs";
 const RESCORE_COLLECT_TEST = "src/lib/ai/rescore-collect.test.ts";
 const CV_PURGE_TEST = "src/lib/cv-purge.test.ts";
+const CV_SCORING_EXPIRY_TEST = "src/lib/ai/cv-scoring-expiry.test.ts";
 const INTERVIEW_PURGE_TEST = "src/lib/interview-purge-decay.test.ts";
 const PURGE_ALARM_TEST = "src/lib/queue/interview-purge-alarm.test.ts";
 const PAGING_TEST = "src/lib/supabase/paging.test.ts";
@@ -219,6 +221,39 @@ const REVERSIONS = [
     test: CV_PURGE_TEST,
     expect:
       "#55a: a run that stops for budget says INCOMPLETE and reports 'so far' numbers, never a total",
+  },
+
+  /* ── #91: an expired CV keeps its score and loses the AI's words about it ── */
+  {
+    name: "#91: the CV purge leaves the AI's one-line verdict on an expired card",
+    // The verdict can name an employer or a school (the prompt only caps its
+    // length), so the cleared set without it keeps a piece of the CV.
+    file: CV_PURGE,
+    from: "  verdict: null,\n",
+    to: "",
+    test: CV_PURGE_TEST,
+    expect: "#91: the scores pass clears exactly the AI's words and nothing else",
+  },
+  {
+    name: "#91: re-scoring a job collects its expired applications again",
+    // The expired set is still read but never subtracted, so a re-score turns
+    // each kept score into a skipped card with no effective_score.
+    file: RESCORE_COLLECT,
+    from: ".filter((id) => !skip.has(id))",
+    to: "",
+    test: RESCORE_COLLECT_TEST,
+    expect: "#91: collectJobApplicationIds leaves out every expired application and keeps the rest",
+  },
+  {
+    name: "#91: a scoring run that expires mid-call treats the refused write as saved",
+    // writeScoreRow wrote nothing, but the success path goes on: the slot is
+    // kept and the hiring team is told about a card that does not exist.
+    file: CV_SCORING,
+    from: "    if (expired) return;\n",
+    to: "",
+    test: CV_SCORING_EXPIRY_TEST,
+    expect:
+      "#91: a job that starts before expiry and reaches the write after it writes nothing and gives the slot back",
   },
 
   /* ── #59: the interview purge marks what it finished, and pages by key ── */
