@@ -551,6 +551,9 @@ export function splitJobIsExplicit(params: ParamReader): boolean {
 
 export const PANEL_PARAM_NAMES = ["applicant", "tab"] as const;
 
+/** The drawer's first tab. It is never written: no `?tab=` means Profile. */
+export const DEFAULT_PANEL_TAB = "profile";
+
 /**
  * The query string for a panel that is open on `openId`, or closed when it is
  * null.
@@ -561,6 +564,10 @@ export const PANEL_PARAM_NAMES = ["applicant", "tab"] as const;
  * clears accumulates, and two routes to the same state stop producing the same
  * string — which is the property Back depends on.
  *
+ * `?tab=` is written only for a non-default tab (QA, 15 Nov: a Split row click
+ * wrote `&tab=profile` with no drawer open). Profile is what an absent `?tab=`
+ * already means, so writing it only added a second spelling of the same state.
+ *
  * Writing the params rather than mutating a URL in place so the decision is
  * reachable from a test; the caller does the `replaceState`.
  */
@@ -569,7 +576,7 @@ export function encodePanelUrl(current: string, openId: string | null, tab: stri
   for (const name of PANEL_PARAM_NAMES) params.delete(name);
   if (openId) {
     params.set("applicant", openId);
-    if (tab) params.set("tab", tab);
+    if (tab && tab !== DEFAULT_PANEL_TAB) params.set("tab", tab);
   }
   return params.toString();
 }

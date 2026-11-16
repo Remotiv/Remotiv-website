@@ -4043,7 +4043,7 @@ export function ApplicantsClient({
    * write reverting the first.
    */
   const syncPanelUrl = useCallback(
-    (applicantId: string | null, tab: PanelTab) => {
+    (applicantId: string | null, tab: PanelTab | null) => {
       const qs = encodePanelUrl(window.location.search, applicantId, tab);
       window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
     },
@@ -4061,9 +4061,13 @@ export function ApplicantsClient({
   const closePanel = useCallback(() => {
     setOpenId(null);
     // Split: the drawer only ever opens over the panel (1100+) or the sheet
-    // (below), and the URL names THEIR applicant, so closing the drawer leaves
-    // it alone. Below 1100 that keeps the sheet open under it (commit 7).
-    if (split) return;
+    // (below), and the URL names THEIR applicant, so closing the drawer keeps
+    // ?applicant= (below 1100 that keeps the sheet open under it, commit 7)
+    // and drops only the drawer's own ?tab=.
+    if (split) {
+      syncPanelUrl(new URLSearchParams(window.location.search).get("applicant"), null);
+      return;
+    }
     syncPanelUrl(null, panelTab);
   }, [syncPanelUrl, panelTab, split]);
 
@@ -4079,8 +4083,9 @@ export function ApplicantsClient({
   const openSheet = useCallback(
     (id: string) => {
       setSheetId(id);
+      // No tab: the sheet has none. ?tab= belongs to the drawer alone.
       const to = (applicantId: string | null) => {
-        const qs = encodePanelUrl(window.location.search, applicantId, panelTab);
+        const qs = encodePanelUrl(window.location.search, applicantId, null);
         return qs ? `${pathname}?${qs}` : pathname;
       };
       if (sheetPushed.current) {
@@ -4093,7 +4098,7 @@ export function ApplicantsClient({
       window.history.pushState(null, "", to(id));
       sheetPushed.current = true;
     },
-    [pathname, panelTab],
+    [pathname],
   );
 
   /**
@@ -4146,13 +4151,16 @@ export function ApplicantsClient({
     sheetPushed.current = false;
   }, [splitWide, sheetId]);
 
-  /** A click on a row in the Split list: the one place the panel writes the URL. */
+  /**
+   * A click on a row in the Split list: the one place the panel writes the URL.
+   * No tab: the panel has none, and ?tab= belongs to the drawer alone.
+   */
   const selectSplit = useCallback(
     (id: string) => {
       setSplitId(id);
-      syncPanelUrl(id, panelTab);
+      syncPanelUrl(id, null);
     },
-    [syncPanelUrl, panelTab],
+    [syncPanelUrl],
   );
 
   const selectPanelTab = useCallback(

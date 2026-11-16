@@ -150,7 +150,8 @@ describe("2. the URL is written on a click, never on auto-select", () => {
   test("selectSplit, the click handler, is the writer", () => {
     const m = code(CLIENT_SRC).match(/const selectSplit = useCallback\([\s\S]*?\n {2}\);/);
     assert.ok(m, "selectSplit not found");
-    assert.match(m[0], /setSplitId\(id\);\s*syncPanelUrl\(id, panelTab\);/);
+    // No tab: the panel has none; ?tab= belongs to the drawer (QA A3).
+    assert.match(m[0], /setSplitId\(id\);\s*syncPanelUrl\(id, null\);/);
   });
 
   test("a Split row calls selectSplit at 1100+ and opens the sheet below it (commit 7)", () => {

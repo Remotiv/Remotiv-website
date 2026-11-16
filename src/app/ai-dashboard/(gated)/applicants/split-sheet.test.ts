@@ -177,11 +177,11 @@ describe("history", () => {
     );
   });
 
-  test("closing the drawer under Split never writes the URL (the sheet stays under it)", () => {
+  test("closing the drawer under Split keeps ?applicant= (the sheet stays under it) and drops only ?tab=", () => {
     const body = fnBody("closePanel");
     assert.match(
       body,
-      /setOpenId\(null\);[\s\S]*if \(split\) return;\s*syncPanelUrl\(null, panelTab\);/,
+      /setOpenId\(null\);[\s\S]*if \(split\) \{\s*syncPanelUrl\(new URLSearchParams\(window\.location\.search\)\.get\("applicant"\), null\);\s*return;\s*\}\s*syncPanelUrl\(null, panelTab\);/,
     );
   });
 
