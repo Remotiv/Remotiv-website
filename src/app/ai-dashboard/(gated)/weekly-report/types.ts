@@ -74,6 +74,8 @@ export type WeekReport = {
   /** At most 4. `topTotal` is every scored applicant from the week. */
   top: TopMatch[];
   topTotal: number;
+  /** True when the week's scores could not be read: the card says so, never "nobody applied". */
+  topUnavailable: boolean;
   attention: AttentionItem[];
 
   /** Null on the earliest week. Drives every delta chip. */

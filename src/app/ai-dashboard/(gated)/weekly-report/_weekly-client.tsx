@@ -292,9 +292,11 @@ export function WeeklyClient({ initialWeek }: { initialWeek: WeekReport }) {
                 Top matches this week
               </h3>
               <p className="m-0 mt-[3px] text-[11.5px] text-[var(--ai-t3)]">
-                {week.top.length
-                  ? `Top ${week.top.length} of ${week.topTotal} scored, from the ${week.applied} who applied in this period`
-                  : "Nothing to rank for this period"}
+                {week.topUnavailable
+                  ? "Scores unavailable for this period"
+                  : week.top.length
+                    ? `Top ${week.top.length} of ${week.topTotal} scored, from the ${week.applied} who applied in this period`
+                    : "Nothing to rank for this period"}
               </p>
             </div>
             <Link
@@ -305,7 +307,19 @@ export function WeeklyClient({ initialWeek }: { initialWeek: WeekReport }) {
             </Link>
           </div>
 
-          {week.top.length === 0 ? (
+          {week.topUnavailable ? (
+            <div
+              role="status"
+              className="flex flex-col items-center px-6 pb-[42px] pt-[38px] text-center"
+            >
+              <h4 className="m-0 mb-1.5 font-heading text-[17px] font-extrabold tracking-[-0.02em] text-[var(--ai-t1)]">
+                Top matches are unavailable
+              </h4>
+              <p className="m-0 max-w-[330px] text-[13.5px] leading-relaxed text-[var(--ai-t3)]">
+                We couldn't load this week's scores. Try again in a moment.
+              </p>
+            </div>
+          ) : week.top.length === 0 ? (
             <div className="flex flex-col items-center px-6 pb-[42px] pt-[38px] text-center">
               <div className="mb-[15px] flex size-14 items-center justify-center rounded-[18px] bg-[var(--ai-inset)] text-[var(--ai-t4)]">
                 <User className="size-6" strokeWidth={2.2} />

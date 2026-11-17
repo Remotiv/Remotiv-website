@@ -277,7 +277,11 @@ export async function fetchWeekReport(offset: number): Promise<WeekReport> {
     : null;
 
   const roles = buildRoles(thisWeek, lastWeek, hasPrior);
-  const { top, scoredTotal } = await buildTopMatches(service, thisWeek);
+  const {
+    top,
+    scoredTotal,
+    unavailable: topUnavailable,
+  } = await buildTopMatches(service, thisWeek);
   const attention = await buildAttention(service, ctx.companyId, {
     stalled,
     roles,
@@ -307,6 +311,7 @@ export async function fetchWeekReport(offset: number): Promise<WeekReport> {
     quietRoles: roles.filter((r) => r.count === 0).length,
     top,
     topTotal: scoredTotal,
+    topUnavailable,
     attention,
     previous,
   };
@@ -366,8 +371,8 @@ function buildRoles(
 async function buildTopMatches(
   service: Service,
   weekApps: AppRow[],
-): Promise<{ top: TopMatch[]; scoredTotal: number }> {
-  if (weekApps.length === 0) return { top: [], scoredTotal: 0 };
+): Promise<{ top: TopMatch[]; scoredTotal: number; unavailable: boolean }> {
+  if (weekApps.length === 0) return { top: [], scoredTotal: 0, unavailable: false };
 
   const byId = new Map(weekApps.map((a) => [a.id, a]));
   const scores = new Map<string, number>();
@@ -375,10 +380,18 @@ async function buildTopMatches(
 
   // Chunked: a busy week would otherwise overflow the request URL.
   for (let i = 0; i < ids.length; i += 200) {
-    const { data } = await service
+    const { data, error } = await service
       .from("application_scores")
       .select("application_id, overall_score, human_adjusted_score")
       .in("application_id", ids.slice(i, i + 200));
+    // A failed chunk used to drop its scores silently, so the card ranked a
+    // subset as if it were the week (#31). The section says unavailable instead.
+    if (error) {
+      console.error("[weekly-report] top matches: a score read failed", {
+        code: error.code ?? "unknown",
+      });
+      return { top: [], scoredTotal: 0, unavailable: true };
+    }
     for (const row of (data ?? []) as {
       application_id: string;
       overall_score: number | null;
@@ -412,7 +425,7 @@ async function buildTopMatches(
       };
     });
 
-  return { top: ranked, scoredTotal: scores.size };
+  return { top: ranked, scoredTotal: scores.size, unavailable: false };
 }
 
 /**

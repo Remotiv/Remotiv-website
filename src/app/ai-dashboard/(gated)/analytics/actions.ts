@@ -97,6 +97,25 @@ async function loadApplications(
 }
 
 /** Split an id list for `.in()`, which travels in the URL. */
+/** Score chunks in flight at once: 10,000 applicants is 50 chunks of 200. */
+const SCORE_READS_IN_FLIGHT = 6;
+
+/**
+ * Run tasks with at most `size` in flight. The same small pool as
+ * messages/actions.ts, copied rather than shared: two call sites, a dozen
+ * lines. A task that throws rejects the whole run.
+ */
+async function inPool(tasks: ReadonlyArray<() => Promise<void>>, size: number): Promise<void> {
+  let next = 0;
+  const worker = async () => {
+    while (next < tasks.length) {
+      const i = next++;
+      await tasks[i]();
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(size, tasks.length) }, worker));
+}
+
 function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
@@ -233,7 +252,7 @@ export async function fetchAnalytics(range: AnalyticsRange = "90d"): Promise<Ana
 
   const [agreement, jobs, interview] = await Promise.all([
     buildAgreement(service, ctx.companyId, jobIds),
-    buildJobHealth(service, ctx.companyId, jobIds, applications, furthest, scores),
+    buildJobHealth(service, ctx.companyId, applications, furthest, scores),
     interviewCompletion(service, ctx.companyId, jobIds, since),
   ]);
 
@@ -737,25 +756,34 @@ async function scoreMap(
   ids: string[],
 ): Promise<Map<string, number>> {
   const out = new Map<string, number>();
-  for (let i = 0; i < ids.length; i += 200) {
-    const { data, error } = await service
-      .from("application_scores")
-      .select("application_id, overall_score, human_adjusted_score")
-      .eq("company_id", companyId)
-      .eq("status", "scored")
-      .in("application_id", ids.slice(i, i + 200));
-    if (error) {
-      throw new Error(`[analytics] scores failed at rows ${i}-${i + 199}`, { cause: error });
-    }
-    for (const r of (data ?? []) as {
-      application_id: string;
-      overall_score: number | null;
-      human_adjusted_score: number | null;
-    }[]) {
-      const shown = r.human_adjusted_score ?? r.overall_score;
-      if (typeof shown === "number") out.set(r.application_id, shown);
-    }
-  }
+  // At most 200 rows per chunk: application_scores is UNIQUE (application_id),
+  // so a chunk can never meet PostgREST's 1,000-row cap. The chunks run
+  // SCORE_READS_IN_FLIGHT at a time; each one writes disjoint keys, so the map
+  // is the same whatever order they finish in.
+  await inPool(
+    chunk(ids, 200).map((part, n) => async () => {
+      const { data, error } = await service
+        .from("application_scores")
+        .select("application_id, overall_score, human_adjusted_score")
+        .eq("company_id", companyId)
+        .eq("status", "scored")
+        .in("application_id", part);
+      if (error) {
+        throw new Error(`[analytics] scores failed at rows ${n * 200}-${n * 200 + 199}`, {
+          cause: error,
+        });
+      }
+      for (const r of (data ?? []) as {
+        application_id: string;
+        overall_score: number | null;
+        human_adjusted_score: number | null;
+      }[]) {
+        const shown = r.human_adjusted_score ?? r.overall_score;
+        if (typeof shown === "number") out.set(r.application_id, shown);
+      }
+    }),
+    SCORE_READS_IN_FLIGHT,
+  );
   return out;
 }
 
@@ -881,21 +909,32 @@ async function buildAgreement(
 async function buildJobHealth(
   service: ReturnType<typeof createServiceClient>,
   companyId: string,
-  jobIds: string[] | null,
   applications: AppRow[],
   furthest: Map<string, number>,
   scores: Map<string, number>,
 ): Promise<JobHealthRow[]> {
-  let jq = service
-    .from("jobs")
-    .select("id, title")
-    .eq("company_id", companyId)
-    .is("archived_at", null)
-    .is("deleted_at", null)
-    .limit(50);
-  if (jobIds) jq = jq.in("id", jobIds);
-  const { data: jobRows } = await jq;
-  const list = (jobRows ?? []) as { id: string; title: string | null }[];
+  /*
+   * Every job the table could show, and no other (#31). A row needs
+   * applications, so the candidates are exactly the jobs the loaded (already
+   * scoped) applications belong to, read by id with the same archived and
+   * deleted exclusions. This replaced an unordered `.limit(50)`: past 50 active
+   * jobs it returned an arbitrary 50, so the busiest roles could be missing
+   * from the table, and a failed read rendered as an empty table. A failure
+   * now throws, like every other read on this page.
+   */
+  const ids = [...new Set(applications.map((a) => a.job_id).filter((id): id is string => !!id))];
+  const list: { id: string; title: string | null }[] = [];
+  for (const part of chunk(ids, 200)) {
+    const { data, error } = await service
+      .from("jobs")
+      .select("id, title")
+      .eq("company_id", companyId)
+      .is("archived_at", null)
+      .is("deleted_at", null)
+      .in("id", part);
+    if (error) throw new Error("[analytics] job health: jobs read failed", { cause: error });
+    list.push(...((data ?? []) as { id: string; title: string | null }[]));
+  }
   if (list.length === 0) return [];
 
   const byJob = new Map<string, AppRow[]>();
@@ -940,7 +979,10 @@ async function buildJobHealth(
     });
   }
 
-  return rows.sort((a, b) => b.applications - a.applications).slice(0, 8);
+  // The jobId tiebreak makes equal volumes rank the same on every load.
+  return rows
+    .sort((a, b) => b.applications - a.applications || (a.jobId < b.jobId ? -1 : 1))
+    .slice(0, 8);
 }
 
 // ── Insights ─────────────────────────────────────────────────
