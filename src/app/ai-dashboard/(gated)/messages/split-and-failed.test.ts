@@ -30,7 +30,7 @@ register(new URL("../../../../test-support/messages-test-hook.mjs", import.meta.
 
 const { fakeService } = await import("../../../../test-support/fake-postgrest.mjs");
 const { fetchMessageAggregates, fetchMessages } = await import("./actions.ts");
-const { splitPercents } = await import("./message-status.ts");
+const { failedCaption, splitPercents } = await import("./message-status.ts");
 
 const CO = "c0000000-0000-0000-0000-000000000001";
 const JOB_1 = "a0000000-0000-0000-0000-000000000001";
@@ -397,4 +397,77 @@ test("the unrecognised-status warning is labelled a log, not an alert", () => {
     actions,
     /\/\/ A LOG, not an alert\. It lands in Vercel function logs that nobody\n\s*\/\/ reads; if this ever needs to wake someone, it needs a real channel\.\n\s*console\.warn\(/,
   );
+});
+
+/* ── #86: the Failed tile's caption ──────────────────────────── */
+
+const ZERO_FAILED = "No failed messages for current applicants";
+
+// Negative control per state: change any one return in failedCaption and its row fails.
+test("#86 the Failed caption has four states, each saying only what is counted", () => {
+  const cases = [
+    [{ failed: 0, sent: 0 }, "Nothing sent yet"],
+    [{ failed: 0, sent: 5 }, ZERO_FAILED],
+    [{ failed: 1, sent: 5 }, "1 message failed"],
+    [{ failed: 3, sent: 5 }, "3 messages failed"],
+    [{ failed: 2, sent: 0 }, "2 messages failed"],
+  ];
+  for (const [input, want] of cases) {
+    const got = failedCaption(input);
+    assert.equal(got, want, JSON.stringify(input));
+    assert.ok(!got.includes("%"), `${got}: no percentage, none is computed`);
+    assert.ok(!/deliver/i.test(got), `${got}: email delivery is never recorded`);
+    assert.ok(!got.includes("—"), `${got}: no em dash`);
+  }
+});
+
+test("#86 sent plus queued with nothing failed reads as zero failures, never a delivery claim", async () => {
+  const logs = [
+    log("S-sent", "manual", "sent"),
+    log("S-delivered", "booking_link", "delivered"),
+    log("S-queued", "manual", "queued"),
+  ];
+  const { agg } = await aggregates({ logs });
+  assert.equal(agg.failed, 0);
+  assert.equal(agg.sent, 2);
+  assert.equal(agg.scheduled, 1, "the queued row is pending, in neither count");
+  assert.equal(failedCaption(agg), ZERO_FAILED);
+});
+
+// Negative control: drop the erased-row exclusion and O-failed counts, giving "1 message failed".
+test("#86 an erased applicant's failure alone still reads as zero failures", async () => {
+  const erased = MIXED.find((l) => l.id === "O-failed");
+  assert.equal(erased.application_id, null, "the fixture is the erased row");
+  const { agg } = await aggregates({ logs: [log("E-sent", "manual", "sent"), erased] });
+  assert.equal(agg.failed, 0);
+  assert.equal(failedCaption(agg), ZERO_FAILED);
+});
+
+// Negative control: put the old inline ternary back and both assertions fail.
+test("#86 the Failed tile renders failedCaption, and 100% delivered is gone", () => {
+  const client = readFileSync(new URL("./_messages-client.tsx", import.meta.url), "utf8");
+  assert.match(
+    client,
+    /label="Failed"[\s\S]{0,200}?caption=\{failedCaption\(agg\)\}\s+captionWraps\s+ok=\{agg\.failed === 0\}/,
+  );
+  assert.ok(!client.includes("100% delivered"));
+  assert.ok(!client.includes("didn't arrive"));
+});
+
+/*
+ * The zero-failure caption is 214px at 11px DM Sans against 98px of cell at
+ * 360px, so it wraps. Only that tile: the other three captions stay on one line.
+ * Negative controls: drop captionWraps and the first assertion fails; make
+ * every caption wrap and the second does.
+ */
+test("#86 only the Failed caption may wrap", () => {
+  const client = readFileSync(new URL("./_messages-client.tsx", import.meta.url), "utf8");
+  const cells = client.match(/<HeroCell\b[\s\S]*?\/>/g);
+  assert.equal(cells.length, 4);
+  assert.deepEqual(
+    cells.map((c) => /\bcaptionWraps\b/.test(c)),
+    [false, false, false, true],
+    "Manual, Automatic and Pending keep one line; Failed wraps",
+  );
+  assert.match(client, /!captionWraps && "whitespace-nowrap"/, "nowrap is the default");
 });

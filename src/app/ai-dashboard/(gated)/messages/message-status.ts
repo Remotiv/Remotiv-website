@@ -52,3 +52,19 @@ export function splitPercents(
   const share = Math.min(100, Math.max(0, Math.round((manual / population) * 100)));
   return { manual: share, automatic: 100 - share };
 }
+
+/**
+ * The Failed tile's caption (#86).
+ *
+ * It names what is counted and claims nothing more. The counts cover current
+ * applicants only (an erased applicant's messages are excluded by design), so
+ * the zero-failure caption says so. It never says "delivered": an email row
+ * stops at 'sent' when Resend accepts it, and no bounce is ever recorded. It
+ * gives no percentage, because none is computed, and a queued message is in
+ * neither count, so it can still fail.
+ */
+export function failedCaption({ failed, sent }: { failed: number; sent: number }): string {
+  if (failed === 1) return "1 message failed";
+  if (failed > 1) return `${failed} messages failed`;
+  return sent > 0 ? "No failed messages for current applicants" : "Nothing sent yet";
+}

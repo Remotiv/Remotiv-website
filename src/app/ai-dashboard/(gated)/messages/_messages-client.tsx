@@ -30,8 +30,9 @@ import {
   sendScheduledNow,
 } from "./actions";
 import { useModalFocus } from "@/hooks/use-modal-focus";
+import { cn } from "@/lib/utils";
 import { Composer, initialsOf, tintFor } from "./_composer";
-import { splitPercents } from "./message-status";
+import { failedCaption, splitPercents } from "./message-status";
 import {
   MESSAGES_PAGE_SIZE,
   MESSAGE_KIND_LABELS,
@@ -389,13 +390,8 @@ export function MessagesClient({
             dot={agg.failed ? "#E0524B" : "#49D7A7"}
             value={agg.failed}
             width={100}
-            caption={
-              agg.failed
-                ? `${agg.failed} didn't arrive`
-                : agg.sent
-                  ? "100% delivered"
-                  : "Nothing sent yet"
-            }
+            caption={failedCaption(agg)}
+            captionWraps
             ok={agg.failed === 0}
           />
         </div>
@@ -762,6 +758,7 @@ function HeroCell({
   caption,
   first,
   ok,
+  captionWraps,
 }: {
   label: string;
   dot: string;
@@ -770,6 +767,8 @@ function HeroCell({
   caption: string;
   first?: boolean;
   ok?: boolean;
+  /** The Failed caption names its population and is too long for one line at phone widths (#86). */
+  captionWraps?: boolean;
 }) {
   return (
     <div
@@ -789,7 +788,11 @@ function HeroCell({
         />
       </div>
       <p
-        className={`m-0 mt-2 whitespace-nowrap text-[11px] ${ok ? "text-remotiv-green" : "text-white/40"}`}
+        className={cn(
+          "m-0 mt-2 text-[11px]",
+          !captionWraps && "whitespace-nowrap",
+          ok ? "text-remotiv-green" : "text-white/40",
+        )}
       >
         {caption}
       </p>
