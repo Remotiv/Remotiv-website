@@ -29,6 +29,12 @@
  */
 
 import { Redis } from "@upstash/redis";
+import {
+  redisCheckLine,
+  storeChoice,
+  storeChoiceLine,
+  throttledFailureLog,
+} from "@/app/api/_lib/redis-diagnostics";
 
 type Bucket = { count: number; resetAt: number };
 
@@ -42,6 +48,19 @@ const redis =
     ? Redis.fromEnv()
     : null;
 
+/*
+ * Diagnostics only (#48 / #57): which store this instance picked, and whether
+ * Redis answers, once per cold start; Redis errors at most once a minute. No
+ * decision reads any of this, and no line carries a value
+ * (redis-diagnostics.ts). Skipped while `next build` loads modules.
+ */
+const diagnosticsOn = process.env.NEXT_PHASE !== "phase-production-build";
+if (diagnosticsOn) {
+  console.info(storeChoiceLine(storeChoice(process.env)));
+  if (redis) void redisCheckLine(redis).then((line) => console.info(line));
+}
+const logSyncFailure = throttledFailureLog((line) => console.error(line));
+
 export type RateLimitResult =
   | { ok: true }
   | { ok: false; retryAfter: number };
@@ -49,8 +68,9 @@ export type RateLimitResult =
 /**
  * Fire-and-forget: bump the shared counter for this (key, window) and fold
  * the global count back into the local bucket once the response arrives.
- * Errors are swallowed — Redis being unreachable must degrade to
- * per-instance limiting, never break the request path.
+ * Errors never reach the request — Redis being unreachable must degrade to
+ * per-instance limiting, never break the request path — but they are logged
+ * as a reason code, at most once a minute (redis-diagnostics.ts).
  */
 function syncRemoteCount(key: string, windowMs: number, resetAt: number): void {
   if (!redis) return;
@@ -61,14 +81,14 @@ function syncRemoteCount(key: string, windowMs: number, resetAt: number): void {
       if (remoteCount === 1) {
         // First increment in this window — self-cleaning TTL, with 1s slack
         // so the key outlives the window boundary.
-        redis.pexpire(redisKey, windowMs + 1_000).catch(() => {});
+        redis.pexpire(redisKey, windowMs + 1_000).catch(logSyncFailure);
       }
       const bucket = buckets.get(key);
       if (bucket && bucket.resetAt === resetAt && remoteCount > bucket.count) {
         bucket.count = remoteCount;
       }
     })
-    .catch(() => {});
+    .catch(logSyncFailure);
 }
 
 function check(key: string, max: number, windowMs: number): RateLimitResult {
