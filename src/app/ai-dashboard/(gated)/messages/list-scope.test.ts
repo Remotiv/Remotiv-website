@@ -365,10 +365,11 @@ function parseCalls(calls) {
 
   for (const [method, ...args] of calls) {
     if (method === "select") continue;
-    // A page size, not a filter. The applications read sets limit(1000), and the
-    // largest seed in this file is 620 rows, so no page can truncate it and
-    // ignoring it is exact. Recorded either way — the SCALE tests read it back
-    // to tell the applicant pre-query from hydrate's read of the same table.
+    // A page size, not a filter. The name search pages the applications read
+    // with order + range (#22) and the largest seed in this file is 620 rows,
+    // one page, so ignoring a limit here is exact. The SCALE tests tell the
+    // applicant pre-query from hydrate's read of the same table by its range();
+    // name-search-scale.test.ts honours range for its 10,000-applicant seed.
     if (method === "limit") continue;
     if (method === "order") {
       orders.push({ col: args[0], ascending: args[1]?.ascending !== false });
@@ -891,13 +892,13 @@ test("JOB FILTER: it travels as an embedded predicate, not an application-id lis
 });
 
 test("JOB FILTER: the job-only path makes no applicant pre-query at all", async () => {
-  // Two readers hit job_applications. The pre-query carries .limit(1000);
-  // hydrate's read carries .in("id", …) and no limit, so they are told apart
+  // Two readers hit job_applications. The pre-query pages with .range();
+  // hydrate's read carries .in("id", …) and no range, so they are told apart
   // behaviourally rather than by matching on source text.
   const { service } = await listFor("owner", [], { jobId: JOB_B });
   const apps = service.queries.filter((q) => q.table === "job_applications");
   assert.deepEqual(
-    apps.filter((q) => q.calls.some((c) => c[0] === "limit")),
+    apps.filter((q) => q.calls.some((c) => c[0] === "range")),
     [],
     "a job filter with no search must not resolve application ids first",
   );
@@ -914,21 +915,19 @@ test("JOB FILTER: the pre-query still narrows by job when a search is present", 
    * The pre-query survives to resolve applicant NAMES, and it keeps its job
    * filter even though the builder's eq is what enforces correctness now.
    *
-   * The reason is the two bounds it still carries: .limit(1000) here and
-   * .slice(0, 300) on the id list it feeds. Spending those across every
-   * application in scope instead of the chosen job's would make the name search
-   * begin truncating at a LOWER applicant count than it does today. This test
-   * fails if someone later drops that filter as redundant — it is redundant for
-   * correctness and load-bearing for the budget.
+   * It no longer truncates anything (#22, #75): it reads every applicant in
+   * scope, page by page. The job filter keeps that read to the chosen job's
+   * applicants rather than every one in scope, which is what keeps a filtered
+   * search cheap. This test fails if someone later drops it as redundant.
    */
   const { service } = await listFor("recruiter", [JOB_A, JOB_B], {
     jobId: JOB_B,
     search: "grace",
   });
   const pre = service.queries.filter(
-    (q) => q.table === "job_applications" && q.calls.some((c) => c[0] === "limit"),
+    (q) => q.table === "job_applications" && q.calls.some((c) => c[0] === "range"),
   );
-  assert.equal(pre.length, 1, "exactly one applicant pre-query, for the name search");
+  assert.equal(pre.length, 1, "exactly one applicant pre-query page, for the name search");
   assert.ok(
     pre[0].calls.some((c) => c[0] === "eq" && c[1] === "job_id" && c[2] === JOB_B),
     "the pre-query must stay narrowed to the chosen job",
@@ -1266,7 +1265,7 @@ test("EXACTNESS: at this size the filter is still one request pair and no pre-qu
   );
   assert.deepEqual(
     service.queries.filter(
-      (q) => q.table === "job_applications" && q.calls.some((c) => c[0] === "limit"),
+      (q) => q.table === "job_applications" && q.calls.some((c) => c[0] === "range"),
     ),
     [],
     "620 application ids must never be resolved to filter by one job",
@@ -1367,9 +1366,10 @@ test("STRUCTURE: the job filter is on the builder and the id-list filter is gone
     "the job filter no longer resolves to an application-id list",
   );
   assert.ok(!/slice\(0,\s*500\)/.test(code), "and the 500-id truncation it fed is gone with it");
-  // Still present, and deliberately: these two bound the NAME search, which is
-  // the next pass. Asserted so their removal is a decision, not a drift.
-  assert.ok(/\.limit\(1000\)/.test(body) && /slice\(0,\s*300\)/.test(body));
+  // Removed, deliberately (#22, #75): they silently truncated the NAME search.
+  // Asserted absent so they cannot come back as a quiet "optimisation".
+  assert.ok(!/\.limit\(1000\)/.test(code), "the applicant read is paged, never capped");
+  assert.ok(!/slice\(0,\s*300\)/.test(code), "the name-match id list is chunked, never cut");
 });
 
 test("STRUCTURE: both halves of the page come from one builder function", () => {
@@ -1378,10 +1378,10 @@ test("STRUCTURE: both halves of the page come from one builder function", () => 
   // (PostgrestFilterBuilder.ts:171 and friends); only .select() clones. A
   // shared builder would let the count's filters leak into the page query.
   assert.ok(
-    /const build = \(head: boolean\) => \{/.test(body),
+    /const build = \(head: boolean, filter: SearchFilter, keys = false\) => \{/.test(body),
     "build must stay a function so the count and the page clone their own request",
   );
-  assert.ok(/build\(true\)/.test(body) && /build\(false\)/.test(body));
+  assert.ok(/build\(true, filter\)/.test(body) && /build\(false, filter\)/.test(body));
 });
 
 test("STRUCTURE: a failed read is never rendered as an empty page", () => {

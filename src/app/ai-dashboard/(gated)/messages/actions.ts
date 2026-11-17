@@ -457,6 +457,92 @@ export async function fetchMessageAggregates(): Promise<Read<MessageAggregates>>
   });
 }
 
+/** Applicants read per request by the name search: PostgREST's own row cap. */
+const APPLICANT_PAGE = 1000;
+/**
+ * Application ids per log request. One uuid costs 37 bytes in the query string
+ * and the request line stops being answered between 668 and 675 ids (measured,
+ * see fetchMessages); 300 is about 11 kB, well inside it.
+ */
+const NAME_ID_CHUNK = 300;
+/** Log keys read per request when the matches are merged. */
+const KEY_PAGE = 1000;
+/**
+ * Merged-path reads in flight at once. At 10,000 matching applicants there are
+ * 35 key reads (the subject side and 34 chunks of 300); unpooled they all went
+ * out together. Six keeps one page load from crowding the connection pool.
+ */
+const KEY_READS_IN_FLIGHT = 6;
+
+/** What a search adds to the log query: an or() disjunction, or the subject alone. */
+type SearchFilter = { anyOf?: string; subjectOnly?: boolean };
+
+/** Run tasks with at most `size` in flight, results in task order. */
+async function inPool<T>(tasks: ReadonlyArray<() => Promise<T>>, size: number): Promise<T[]> {
+  const out: T[] = new Array(tasks.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < tasks.length) {
+      const i = next++;
+      out[i] = await tasks[i]();
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(size, tasks.length) }, worker));
+  return out;
+}
+
+function chunked<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+/**
+ * Every row of each paged read, merged into one set, in the list's own order:
+ * created_at descending, then id descending. Each read is paged in id order
+ * until a short page, KEY_READS_IN_FLIGHT reads at a time. Null if any request
+ * failed: a partial union would be a confident wrong answer.
+ *
+ * created_at is compared as TEXT, deliberately, never as a Date. PostgREST
+ * writes every timestamptz in one UTC form, "...:SS+00:00" or "...:SS.f+00:00"
+ * with trailing zeros dropped, and in that form text order is time order: a
+ * missing fraction ends in "+", which sorts below every digit, and fractions
+ * compare digit by digit. A Date keeps milliseconds only, so two rows a
+ * microsecond apart would tie and fall to id order where Postgres orders them
+ * by time. name-search-scale.test.ts holds both.
+ */
+async function mergedKeys(
+  reads: ReadonlyArray<(from: number) => PromiseLike<{ data: unknown; error: unknown }>>,
+): Promise<{ id: string; created_at: string }[] | null> {
+  const seen = new Map<string, string>();
+  const complete = await inPool(
+    reads.map((read) => async () => {
+      for (let from = 0; ; from += KEY_PAGE) {
+        const { data, error } = await read(from);
+        if (error) return false;
+        const rows = (data ?? []) as { id: string; created_at: string }[];
+        for (const r of rows) seen.set(r.id, r.created_at);
+        if (rows.length < KEY_PAGE) return true;
+      }
+    }),
+    KEY_READS_IN_FLIGHT,
+  );
+  if (complete.includes(false)) return null;
+  return [...seen]
+    .map(([id, created_at]) => ({ id, created_at }))
+    .sort((a, b) =>
+      a.created_at !== b.created_at
+        ? a.created_at < b.created_at
+          ? 1
+          : -1
+        : a.id < b.id
+          ? 1
+          : a.id > b.id
+            ? -1
+            : 0,
+    );
+}
+
 /**
  * One page of the log under the active filters.
  *
@@ -516,47 +602,55 @@ export async function fetchMessages(input: {
    * disjunction it has to AND with it, which means it has to sit on the builder
    * — see build() below.
    *
-   * It is still narrowed by the chosen job, even though the builder's `eq` is
-   * what enforces correctness now. The caps here and in build() are NOT
-   * URL-limit guards — 500 ids is 18.5 kB and answers fine, measured — they
-   * silently truncate, and keeping this filter spends the 1000/300 budget on
-   * the one job rather than across every application in scope. Dropping it
-   * would make the name search begin truncating at a LOWER applicant count
-   * than it does today. The truncation is its own follow-up.
+   * It is still narrowed by the chosen job: the builder's `eq` is what enforces
+   * correctness, and this filter keeps the read to the applicants that can
+   * matter.
+   *
+   * ── No silent cap (#22, #75) ──
+   *
+   * This read used to stop at 1000 applicants (unordered, so an arbitrary 1000)
+   * and the id list it fed was cut at 300, so a name search in a big company
+   * silently missed applicants. It now reads every applicant in scope, a page of
+   * APPLICANT_PAGE at a time in id order, and matches each one exactly as
+   * before. The name match has to stay here, in code: PostgREST cannot put an
+   * embedded column in the same or() as the subject (PGRST100, measured), and
+   * the match is against "first last email role" joined, which no per-column
+   * filter reproduces ("ada lovelace" spans two columns).
    */
   let appIds: string[] | null = null;
   if (search) {
-    let q = service
-      .from("job_applications")
-      .select("id, first_name, last_name, email, job_title_snapshot, jobs(title)")
-      .eq("company_id_snapshot", ctx.companyId)
-      .limit(1000);
-    if (scope.scoped) q = q.in("job_id", scope.jobIds);
-    if (input.jobId) q = q.eq("job_id", input.jobId);
-    const { data, error } = await q;
-    // An unread filter is not an empty filter. Falling through with `data ??
-    // []` turns a failed request into `appIds = []`, and an empty appIds means
-    // "no applicant matched" — so a broken read would render as a confident
-    // "No messages" for a filter the user can see is set.
-    if (error) return unavailable();
-    // Unguarded now: the only way into this block is a non-empty search, so the
-    // `if (search)` that used to wrap this was always true once the job filter
-    // stopped entering here.
     const needle = search.toLowerCase();
-    const rows = ((data ?? []) as unknown as AppLite[]).filter((r) =>
-      [r.first_name, r.last_name, r.email, roleOf(r, "")]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(needle),
-    );
-    appIds = rows.map((r) => r.id);
+    const matched: string[] = [];
+    for (let from = 0; ; from += APPLICANT_PAGE) {
+      let q = service
+        .from("job_applications")
+        .select("id, first_name, last_name, email, job_title_snapshot, jobs(title)")
+        .eq("company_id_snapshot", ctx.companyId);
+      if (scope.scoped) q = q.in("job_id", scope.jobIds);
+      if (input.jobId) q = q.eq("job_id", input.jobId);
+      const { data, error } = await q.order("id").range(from, from + APPLICANT_PAGE - 1);
+      // An unread filter is not an empty filter. Falling through with `data ??
+      // []` turns a failed request into `appIds = []`, and an empty appIds means
+      // "no applicant matched" — so a broken read would render as a confident
+      // "No messages" for a filter the user can see is set.
+      if (error) return unavailable();
+      const rows = (data ?? []) as unknown as AppLite[];
+      for (const r of rows) {
+        const text = [r.first_name, r.last_name, r.email, roleOf(r, "")]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (text.includes(needle)) matched.push(r.id);
+      }
+      if (rows.length < APPLICANT_PAGE) break;
+    }
+    appIds = matched;
   }
 
   // A search that matches no applicant still has to match subjects, so the id
   // list is only ever one side of an OR. The job filter is no longer one of its
   // sides; it is an embedded predicate that ANDs with the whole disjunction.
-  const build = (head: boolean) => {
+  const build = (head: boolean, filter: SearchFilter, keys = false) => {
     let q = service
       .from("communication_logs")
       // One literal projection for both shapes, deliberately. The count request
@@ -568,8 +662,15 @@ export async function fetchMessages(input: {
       // confirmed it, failing the moment this became a literal. `head: true`
       // returns no body, so the wider projection changes nothing in the
       // response and the count comes off the same filters and the same join.
+      //
+      // `keys` is the one exception, and only above NAME_ID_CHUNK name matches:
+      // it reads just id and created_at, to merge and page across several
+      // requests. A ternary of two literals is safe for the scanner now, which
+      // reads both branches (#27, resolveSelectArg); both carry the same embed.
       .select(
-        "id, application_id, event, status, to_address, subject, body, scheduled_for, sent_at, sent_by_name, created_at, job_applications!inner(job_id, company_id_snapshot)",
+        keys
+          ? "id, created_at, job_applications!inner(job_id, company_id_snapshot)"
+          : "id, application_id, event, status, to_address, subject, body, scheduled_for, sent_at, sent_by_name, created_at, job_applications!inner(job_id, company_id_snapshot)",
         head ? { count: "exact", head: true } : undefined,
       )
       .eq("company_id", ctx.companyId)
@@ -595,16 +696,55 @@ export async function fetchMessages(input: {
 
     // Two paths, escaped differently (search-filter.ts): inside or=( … ) the
     // subject is quoted, and on the plain parameter it never is.
-    const idList = appIds?.slice(0, 300) ?? [];
-    q = applyTab(q, tab, idList.length ? subjectOrApplicants(search, idList) : undefined);
-    if (appIds !== null && !idList.length) q = q.ilike("subject", plainSubjectPattern(search));
+    q = applyTab(q, tab, filter.anyOf);
+    if (filter.subjectOnly) q = q.ilike("subject", plainSubjectPattern(search));
     return q;
   };
 
   const from = page * MESSAGES_PAGE_SIZE;
+
+  /*
+   * More name matches than one request can carry. Up to NAME_ID_CHUNK the
+   * search stays the single disjunction below; past it, the ids go in chunks,
+   * and a page cannot be cut from several requests by asking each for its own
+   * page. So the matching KEYS are collected, every one of them: the subject
+   * matches once, then each chunk's applicant matches. Merged, they give the
+   * exact total and the exact order; the page's own rows are then read by id.
+   */
+  if (appIds && appIds.length > NAME_ID_CHUNK) {
+    const filters: SearchFilter[] = [
+      { subjectOnly: true },
+      ...chunked(appIds, NAME_ID_CHUNK).map((ids) => ({
+        anyOf: `application_id.in.(${ids.join(",")})`,
+      })),
+    ];
+    const keyed = await mergedKeys(
+      filters.map(
+        (f) => (start: number) =>
+          build(false, f, true)
+            .order("id", { ascending: false })
+            .range(start, start + KEY_PAGE - 1),
+      ),
+    );
+    if (!keyed) return unavailable();
+    const pageIds = keyed.slice(from, from + MESSAGES_PAGE_SIZE).map((k) => k.id);
+    if (!pageIds.length) return answered({ rows: [], matching: keyed.length });
+    const listed = await build(false, { anyOf: `id.in.(${pageIds.join(",")})` });
+    if (listed.error) return unavailable();
+    const byId = new Map(((listed.data ?? []) as unknown as LogRow[]).map((r) => [r.id, r]));
+    const rows = pageIds.map((id) => byId.get(id)).filter((r): r is LogRow => r !== undefined);
+    return answered({ rows: await hydrate(ctx, service, rows), matching: keyed.length });
+  }
+
+  const filter: SearchFilter =
+    appIds === null
+      ? {}
+      : appIds.length
+        ? { anyOf: subjectOrApplicants(search, appIds) }
+        : { subjectOnly: true };
   const [total, listed] = await Promise.all([
-    build(true),
-    build(false)
+    build(true, filter),
+    build(false, filter)
       .order("created_at", { ascending: false })
       // created_at alone is not a total order: the seed puts 300 logs on one
       // timestamp and real sends share seconds too. Rows sharing a created_at
