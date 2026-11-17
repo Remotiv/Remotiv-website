@@ -30,7 +30,7 @@ register(new URL("../../../../test-support/messages-test-hook.mjs", import.meta.
 
 const { fakeService } = await import("../../../../test-support/fake-postgrest.mjs");
 const { fetchMessageAggregates, fetchMessages } = await import("./actions.ts");
-const { failedCaption, splitPercents } = await import("./message-status.ts");
+const { failedCaption, sentStatusLabel, splitPercents } = await import("./message-status.ts");
 
 const CO = "c0000000-0000-0000-0000-000000000001";
 const JOB_1 = "a0000000-0000-0000-0000-000000000001";
@@ -470,4 +470,76 @@ test("#86 only the Failed caption may wrap", () => {
     "Manual, Automatic and Pending keep one line; Failed wraps",
   );
   assert.match(client, /!captionWraps && "whitespace-nowrap"/, "nowrap is the default");
+});
+
+/* ── the drawer footer: the stored status, never upgraded ────── */
+
+const AT = "17 Nov 2026, 14:05";
+
+// Negative controls: make any one status return another's label and its row fails.
+test("each sent-group status gives its own footer, and the time is named as the send time", () => {
+  assert.equal(sentStatusLabel("sent", AT), `Sent · ${AT}`);
+  assert.equal(sentStatusLabel("delivered", AT), `Delivered · sent ${AT}`);
+  assert.equal(sentStatusLabel("read", AT), `Read · sent ${AT}`);
+  for (const s of ["sent", "delivered", "read"]) {
+    assert.ok(!/[\u2013\u2014]/.test(sentStatusLabel(s, AT)), `${s}: no en or em dash`);
+  }
+});
+
+/*
+ * Negative controls: give skipped its old "Delivered · {time}" and the first
+ * assertion fails; make the fallback "Delivered" and the loop fails; put the
+ * time back on skipped and the no-time assertion fails.
+ */
+test("a skipped row reads Not sent with no time, and an unknown status never claims delivery", () => {
+  assert.equal(sentStatusLabel("skipped", AT), "Not sent");
+  assert.ok(
+    !sentStatusLabel("skipped", AT).includes(AT),
+    "no time: created_at is not always the skip",
+  );
+  for (const other of ["bounced", "cancelled", "", "DELIVERED", "Delivered"]) {
+    const label = sentStatusLabel(other, AT);
+    assert.equal(label, "Status unknown", JSON.stringify(other));
+    assert.ok(!/deliver|sent|read/i.test(label), `${JSON.stringify(other)} claims nothing`);
+  }
+});
+
+// Negative control: label "sent" as Delivered and both rows below fail.
+test("an email row Resend accepted reads Sent, never Delivered; a WhatsApp receipt reads Delivered or Read", async () => {
+  const logs = [
+    log("E-sent", "manual", "sent", { channel: "email" }),
+    log("W-delivered", "booking_link", "delivered", { channel: "whatsapp" }),
+    log("W-read", "manual", "read", { channel: "whatsapp" }),
+  ];
+  const page = await list("all", { logs });
+  const footer = (id) => {
+    const row = page.rows.find((r) => r.id === id);
+    assert.ok(row, `${id} is listed`);
+    return sentStatusLabel(row.status, AT);
+  };
+  assert.equal(footer("E-sent"), `Sent · ${AT}`);
+  assert.ok(!/deliver/i.test(footer("E-sent")));
+  assert.equal(footer("W-delivered"), `Delivered · sent ${AT}`);
+  assert.equal(footer("W-read"), `Read · sent ${AT}`);
+});
+
+// Negative control: put back the hard-coded "Delivered · {when.exact}" (or any fallback) and this fails.
+test("the drawer footer is the stored-status label alone, with no Delivered literal left", () => {
+  const client = readFileSync(new URL("./_messages-client.tsx", import.meta.url), "utf8");
+  assert.match(client, /\{sentStatusLabel\(row\.status, when\.exact\)\}/);
+  assert.ok(!/Delivered/.test(client), "the client never writes Delivered itself");
+});
+
+/*
+ * Through the real fetchMessages: a skipped row is listed, and its footer says
+ * Not sent. Negative control: map skipped to Delivered and this fails.
+ */
+test("a listed skipped row's footer says Not sent, never Delivered", async () => {
+  const logs = [log("K-skipped", "manual", "skipped", { channel: "email", sent_at: null })];
+  const page = await list("all", { logs });
+  const row = page.rows.find((r) => r.id === "K-skipped");
+  assert.ok(row, "the skipped row is listed");
+  const label = sentStatusLabel(row.status, AT);
+  assert.equal(label, "Not sent");
+  assert.ok(!/deliver/i.test(label));
 });

@@ -68,3 +68,31 @@ export function failedCaption({ failed, sent }: { failed: number; sent: number }
   if (failed > 1) return `${failed} messages failed`;
   return sent > 0 ? "No failed messages for current applicants" : "Nothing sent yet";
 }
+
+/**
+ * The message drawer's footer for every row that is neither pending nor
+ * failed (those two keep their own footers), by the STORED status and never
+ * upgraded. Nothing but 'delivered' and 'read' ever says delivered or read.
+ *
+ * Only the WhatsApp webhook writes 'delivered' and 'read' (it looks rows up
+ * with channel = 'whatsapp'). An email row stops at 'sent' when Resend accepts
+ * it, because no email delivery receipt is ever recorded, so it never reads
+ * Delivered.
+ *
+ * The time is when the message was sent (sent_at, or created_at when that is
+ * missing). The webhook records no delivery or read time, so a delivered or
+ * read row still names its send time, and says so.
+ *
+ * A skipped row was never sent, and shows no time: its created_at is not
+ * always when it was skipped. Most skips insert a new row at that moment, but
+ * communication-attempt.ts marks an existing queued row skipped, so its
+ * created_at is when the message was queued. Any other status gets a plain
+ * "Status unknown", never a delivery claim.
+ */
+export function sentStatusLabel(status: string, sentTime: string): string {
+  if (status === "sent") return `Sent · ${sentTime}`;
+  if (status === "delivered") return `Delivered · sent ${sentTime}`;
+  if (status === "read") return `Read · sent ${sentTime}`;
+  if (status === "skipped") return "Not sent";
+  return "Status unknown";
+}

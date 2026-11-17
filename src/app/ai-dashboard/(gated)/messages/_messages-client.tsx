@@ -32,7 +32,7 @@ import {
 import { useModalFocus } from "@/hooks/use-modal-focus";
 import { cn } from "@/lib/utils";
 import { Composer, initialsOf, tintFor } from "./_composer";
-import { failedCaption, splitPercents } from "./message-status";
+import { failedCaption, sentStatusLabel, splitPercents } from "./message-status";
 import {
   MESSAGES_PAGE_SIZE,
   MESSAGE_KIND_LABELS,
@@ -949,7 +949,7 @@ function MessageViewer({
             ) : (
               <>
                 <Check className="size-3.5 shrink-0 text-[var(--ai-t4)]" strokeWidth={1.9} />
-                Delivered · {when.exact}
+                {sentStatusLabel(row.status, when.exact)}
               </>
             )}
           </span>
