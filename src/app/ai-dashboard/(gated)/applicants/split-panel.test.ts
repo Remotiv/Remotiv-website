@@ -318,6 +318,41 @@ describe("panel content", () => {
     assert.match(html, />Application</);
   });
 
+  test("QA R2 F2: a scored applicant's cards wait for the read, so the scorecard never lands on top of them", () => {
+    const scored = row({
+      city: "Lahore",
+      country: "Pakistan",
+      score: { ...row().score, status: "scored", ai_status: "scored", overall: 82, ai_overall: 82 },
+    });
+    const held = renderPanel(scored, { reading: true });
+    assert.match(held, /data-split-detail="loading"/);
+    assert.doesNotMatch(held, /data-split-columns|>Application<|>Location</);
+    assert.doesNotMatch(held, /data-split-unscored/, "one loading block, not two");
+
+    // Landed with no scorecard, or failed: the cards show, never stuck behind the block.
+    const landed = renderPanel(scored, { reading: false });
+    assert.doesNotMatch(landed, /data-split-detail="/);
+    assert.match(landed, /data-split-columns="true"[\s\S]*>Application<[\s\S]*>Location</);
+
+    // Unscored: unchanged. Its own loading block, and the cards at once.
+    const unscored = renderPanel(row({ city: "Lahore" }), { reading: true, unscored: "loading" });
+    assert.doesNotMatch(unscored, /data-split-detail="/);
+    assert.match(unscored, /data-split-unscored="loading"[\s\S]*>Application</);
+  });
+
+  test("QA R2 F2: the client marks the panel as reading until the read for THIS row lands, capped", () => {
+    assert.match(
+      CLIENT_SRC,
+      /reading: splitReading\(splitRow\.id, splitRead\?\.id, holdExpiredId\),/,
+    );
+    // The cap's timer runs per selected row while its read is pending (split-hold.test.ts drives it).
+    assert.match(
+      code(CLIENT_SRC),
+      /const splitReadPending = splitRow !== null && splitRead\?\.id !== splitRow\.id;\s*useEffect\(\(\) => \{\s*if \(!panelId \|\| !splitReadPending\) return;\s*return startHoldCap\(panelId, setHoldExpiredId\);\s*\}, \[panelId, splitReadPending\]\);/,
+    );
+    assert.match(code(PANEL_SRC), /const holdCards = reading && row\.score\.status === "scored";/);
+  });
+
   test("no em or en dashes in the panel's own copy", () => {
     const strings = [...code(PANEL_SRC).matchAll(/"([^"]*)"|>([^<>{}]+)</g)].map(
       (m) => m[1] ?? m[2],

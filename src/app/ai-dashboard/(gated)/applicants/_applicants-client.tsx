@@ -195,6 +195,7 @@ import {
   screeningCount,
   selectScreening,
 } from "./screening-state";
+import { splitReading, startHoldCap } from "./split-hold";
 import { autoSplitSelection, SPLIT_MIN_WIDTH_QUERY } from "./split-selection";
 import { splitUnscored } from "./split-unscored";
 import { TAB_FADE_PX, tabScrollLeft } from "./tab-scroll";
@@ -4659,6 +4660,16 @@ export function ApplicantsClient({
     : null;
   const splitDetail = splitRow && splitRead?.id === splitRow.id ? splitRead.scoreDetail : null;
 
+  // The panel holds a scored row's cards while its read is in flight, for at
+  // most SPLIT_HOLD_CAP_MS (split-hold.ts): a read that never returns must not
+  // hide them for good.
+  const [holdExpiredId, setHoldExpiredId] = useState<string | null>(null);
+  const splitReadPending = splitRow !== null && splitRead?.id !== splitRow.id;
+  useEffect(() => {
+    if (!panelId || !splitReadPending) return;
+    return startHoldCap(panelId, setHoldExpiredId);
+  }, [panelId, splitReadPending]);
+
   /** The Composer's one recipient: the drawer's applicant, else the panel's or the sheet's. */
   const composerRow = openRow ?? splitRow;
 
@@ -5552,6 +5563,7 @@ export function ApplicantsClient({
           />
         ),
         scoreDetail: splitDetail,
+        reading: splitReading(splitRow.id, splitRead?.id, holdExpiredId),
         unscored: splitUnscored({ row: splitRow, read: splitRead, canEdit: canRescore }),
         screening: selectScreening(splitRead?.screening ?? null, splitRow.id),
         applied: fmtApplied(splitRow.created_at, clock),

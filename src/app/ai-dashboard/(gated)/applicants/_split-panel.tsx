@@ -165,6 +165,8 @@ export type SplitPanelProps = {
   header: ReactNode;
   /** Null until the panel's read for this row lands, or when it failed. */
   scoreDetail: ApplicantScoreDetail | null;
+  /** The panel's read for this row has not landed yet (it may still fail). */
+  reading: boolean;
   /** The unscored block for this applicant (split-unscored.ts); null when it has a number. */
   unscored: SplitUnscored;
   screening: Screening;
@@ -220,6 +222,7 @@ export function SplitPanelContent({
   row,
   header,
   scoreDetail,
+  reading,
   unscored,
   screening,
   applied,
@@ -279,6 +282,28 @@ export function SplitPanelContent({
     left = [application];
     right = details ? [details] : [];
   }
+  const cards =
+    right.length > 0 ? (
+      <div data-split-columns className={SPLIT_COLUMNS}>
+        <div className={SPLIT_COLUMN}>{left}</div>
+        <div className={SPLIT_COLUMN}>{right}</div>
+      </div>
+    ) : (
+      left
+    );
+
+  /*
+   * QA R2 F2 (CLS 0.09 at 1440). For an applicant the list shows as scored,
+   * the read brings Summary and Scored dimensions (about 600px) ABOVE the
+   * cards. Painting the cards first and inserting those over them pushed the
+   * cards out of the panel's view as the read landed. Until it lands, one
+   * loading block stands in for all of them, so they appear together and
+   * nothing on screen moves. A failed read ends `reading` too: the cards
+   * then show without a scorecard, as before. So does a read still in flight
+   * after SPLIT_HOLD_CAP_MS (split-hold.ts), so one that never returns cannot
+   * hide the cards for good.
+   */
+  const holdCards = reading && row.score.status === "scored";
 
   return (
     <>
@@ -376,14 +401,7 @@ export function SplitPanelContent({
         )}
 
         {unscored === "loading" ? (
-          <div
-            aria-hidden
-            data-split-unscored="loading"
-            className={`${UNSCORED_FRAME} border-transparent`}
-          >
-            <div className="mx-auto h-4 w-40 animate-pulse rounded-full bg-[var(--ai-inset)]" />
-            <div className="mx-auto mt-3 h-3 w-full max-w-[360px] animate-pulse rounded-full bg-[var(--ai-inset)]" />
-          </div>
+          <LoadingBlock marker="data-split-unscored" />
         ) : (
           unscored && (
             <div
@@ -409,15 +427,22 @@ export function SplitPanelContent({
           <ScoredDimensionsSection scoreDetail={scoreDetail} />
         )}
 
-        {right.length > 0 ? (
-          <div data-split-columns className={SPLIT_COLUMNS}>
-            <div className={SPLIT_COLUMN}>{left}</div>
-            <div className={SPLIT_COLUMN}>{right}</div>
-          </div>
-        ) : (
-          left
-        )}
+        {holdCards ? <LoadingBlock marker="data-split-detail" /> : cards}
       </div>
     </>
+  );
+}
+
+/** Two pulsing bars that hold a place in the panel while its read is in flight. */
+function LoadingBlock({ marker }: { marker: "data-split-unscored" | "data-split-detail" }) {
+  return (
+    <div
+      aria-hidden
+      {...{ [marker]: "loading" }}
+      className={`${UNSCORED_FRAME} border-transparent`}
+    >
+      <div className="mx-auto h-4 w-40 animate-pulse rounded-full bg-[var(--ai-inset)]" />
+      <div className="mx-auto mt-3 h-3 w-full max-w-[360px] animate-pulse rounded-full bg-[var(--ai-inset)]" />
+    </div>
   );
 }
