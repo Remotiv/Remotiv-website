@@ -89,12 +89,16 @@ import type { createServiceClient } from "@/lib/supabase/server";
  *     actorMemberId, and interview-actions.ts supplying ctx.memberId.
  *   reminder.ts:333 (the automatic reminder). No actor exists for it, so
  *     nothing is missing there; it is listed so nobody looks for a gap.
- * calendar/notify.ts:247 and :467 pass none either: its argument objects
- * carry sentByName, a display name, and no member id. It needs an
- * actorMemberId in those argument types, passed from the dashboard callers
- * (applicants/booking-actions.ts and final-interview-actions.ts, from
- * ctx.memberId); the candidate-side /api/book route has no member and
- * passes null.
+ * calendar/notify.ts is closed (#87 part 2): its argument types carry
+ * actorMemberId. The final-interview link (final-interview-actions.ts, sendLink)
+ * passes ctx.memberId, because a failed link fails the action and the recruiter
+ * sees its error. The two recruiter cancellations (booking-actions.ts,
+ * cancelBookingAsRecruiter; final-interview-actions.ts, cancelFinalInterview)
+ * deliberately pass null: they report success whatever the email did and only
+ * log the problem, so the canceller's bell is their only sign the candidate was
+ * not told. Excluding them waits on the cancel UI reporting it. The
+ * candidate-side /api/book route passes null: nobody in the company acted.
+ * Pinned by calendar/notify-actor.test.ts.
  */
 
 type Service = ReturnType<typeof createServiceClient>;

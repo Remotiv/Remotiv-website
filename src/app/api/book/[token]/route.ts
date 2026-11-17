@@ -481,6 +481,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     companyName,
     meetingUrl,
     ...noticeExtras(ctx),
+    // The candidate acted; no company member did, so every member is told (#87).
+    actorMemberId: null,
   });
   reportNotices("booked", claim.row.id, notices);
 
@@ -596,6 +598,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ to
     companyName: ctx.company?.name ?? "",
     meetingUrl: moved.row.meeting_url,
     ...noticeExtras(ctx),
+    // The candidate acted; no company member did, so every member is told (#87).
+    actorMemberId: null,
   });
   reportNotices("rescheduled", moved.row.id, notices);
 
@@ -681,6 +685,8 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ t
     companyName: ctx.company?.name ?? "",
     meetingUrl: null,
     ...noticeExtras(ctx),
+    // The candidate acted; no company member did, so every member is told (#87).
+    actorMemberId: null,
   });
   reportNotices("cancelled", cancelled.row.id, notices);
 

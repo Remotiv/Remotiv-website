@@ -615,6 +615,7 @@ async function sendLink(
     durationMinutes,
     url: bookingUrl(created.rawToken),
     sentByName: host?.name ?? ctx.memberName,
+    actorMemberId: ctx.memberId,
   });
   if (!sent.ok) {
     // Same rule as the screening link: a link nobody received is deleted, not
@@ -830,6 +831,9 @@ export async function cancelFinalInterview(
       meetingUrl: null,
       interviewLabel: label,
       sentByName: host.name ?? ctx.memberName,
+      // Null on purpose (#87): this action reports success whatever the email
+      // did, so the bell is the canceller's only sign the candidate wasn't told.
+      actorMemberId: null,
     });
     for (const problem of notices.problems) {
       console.error(`[final-interview] cancel ${cancelled.row.id}: ${problem}`);

@@ -85,6 +85,16 @@ type NoticeArgs = {
    * be refused as a duplicate. A named sender sits outside that index.
    */
   sentByName?: string | null;
+  /**
+   * The company member to leave out of a failure bell, as company_members.id
+   * (the membership, never the auth user id). Set it only when that member is
+   * shown the failure on screen (#87). The recruiter cancellations deliberately
+   * pass null although a recruiter acted: those actions report success whatever
+   * the email did, so the bell is the canceller's only sign the candidate was
+   * not told. Also null on the candidate's own booking page, where no member
+   * acted.
+   */
+  actorMemberId?: string | null;
 };
 
 function timeBlock(ms: number, zone: string): string {
@@ -222,6 +232,12 @@ export async function sendFinalInterviewLinkEmail(args: {
   durationMinutes: number;
   url: string;
   sentByName: string;
+  /**
+   * company_members.id of the recruiter sending it. Their own failure rings no
+   * bell for them because they already see it: a failure here fails the
+   * action, and the dashboard shows its error (#87).
+   */
+  actorMemberId: string | null;
 }): Promise<{ ok: true } | { ok: false; message: string }> {
   const service = createServiceClient();
   const company = args.companyName.trim() || "The hiring team";
@@ -254,6 +270,7 @@ export async function sendFinalInterviewLinkEmail(args: {
       companyName: args.companyName,
       replyTo: null,
       sentByName: args.sentByName,
+      actorMemberId: args.actorMemberId,
     });
     if (!outcome.ok) {
       console.error(`[booking] final link: ${outcome.kind} - ${outcome.message}`);
@@ -474,6 +491,7 @@ async function deliverBooking(
       companyName: args.companyName,
       replyTo: null,
       sentByName: args.sentByName ?? null,
+      actorMemberId: args.actorMemberId ?? null,
     });
     if (!outcome.ok) {
       const problem = `candidate ${event}: ${outcome.kind} — ${outcome.message}`;

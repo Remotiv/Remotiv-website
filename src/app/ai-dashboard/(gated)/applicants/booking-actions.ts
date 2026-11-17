@@ -417,6 +417,9 @@ export async function cancelBookingAsRecruiter(
     jobTitle: app?.jobs?.title ?? "Interview",
     companyName: ctx.company.name,
     meetingUrl: null,
+    // Null on purpose (#87): this action reports success whatever the email
+    // did, so the bell is the canceller's only sign the candidate wasn't told.
+    actorMemberId: null,
   });
   for (const problem of notices.problems) {
     console.error(`[booking] recruiter cancel ${cancelled.row.id}: ${problem}`);
