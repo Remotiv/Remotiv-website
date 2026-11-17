@@ -716,7 +716,7 @@ async function syncInterviewQuestions(
       console.error("[jobs] interview question sync failed:", error.message);
       // The delete succeeded, so the job now has NO questions. Said plainly,
       // because it changes what the recruiter must do next.
-      return "The role saved, but its interview questions did not. The job currently has no questions — open it and add them again.";
+      return "The role saved, but its interview questions did not. The job currently has no questions - open it and add them again.";
     }
   } catch (err) {
     console.error("[jobs] interview question sync threw:", err);
@@ -1213,7 +1213,7 @@ export async function updateCompanyJobStatus(
       title: status === "open" ? `“${owned.title}” is live` : `“${owned.title}” was closed`,
       body:
         status === "open"
-          ? `${ctx.memberName} published it — it's on remotiv.work now.`
+          ? `${ctx.memberName} published it - it's on remotiv.work now.`
           : `${ctx.memberName} closed it. It no longer accepts applications.`,
       jobId,
       href: "/ai-dashboard/jobs",

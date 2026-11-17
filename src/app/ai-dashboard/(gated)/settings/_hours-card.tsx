@@ -154,7 +154,7 @@ export function HoursCard({
               timezone. Candidates see these times converted to their own.
             </>
           ) : (
-            <>Connect a calendar above — these hours need its timezone to mean anything.</>
+            <>Connect a calendar above - these hours need its timezone to mean anything.</>
           )}
         </p>
         <button

@@ -172,7 +172,7 @@ export function Composer({
         body: body.trim(),
       });
     } catch {
-      result = { success: false, error: "Couldn't send — please try again." };
+      result = { success: false, error: "Couldn't send - please try again." };
     }
     setBusy(false);
 
@@ -279,12 +279,12 @@ export function Composer({
               {replyToAddress ? (
                 <span>
                   Replies go to{" "}
-                  <b className="font-bold text-[var(--ai-t1)]">{replyToAddress}</b> — not to
+                  <b className="font-bold text-[var(--ai-t1)]">{replyToAddress}</b> - not to
                   your personal inbox.
                 </span>
               ) : (
                 <span>
-                  Nobody receives replies to this — set a reply-to address in{" "}
+                  Nobody receives replies to this - set a reply-to address in{" "}
                   <b className="font-bold text-[var(--ai-t1)]">Settings</b> if candidates
                   should be able to answer.
                 </span>
@@ -306,7 +306,7 @@ export function Composer({
               <option value="">Choose an applicant…</option>
               {recipients.map((r) => (
                 <option key={r.applicationId} value={r.applicationId}>
-                  {r.name} — {r.jobTitle}
+                  {r.name} - {r.jobTitle}
                 </option>
               ))}
             </select>
@@ -336,7 +336,7 @@ export function Composer({
             </select>
             {templates.length === 0 && (
               <p className="mt-[7px] text-xs leading-snug text-[var(--ai-t3)]">
-                No saved templates yet — write from scratch.
+                No saved templates yet - write from scratch.
               </p>
             )}
           </div>

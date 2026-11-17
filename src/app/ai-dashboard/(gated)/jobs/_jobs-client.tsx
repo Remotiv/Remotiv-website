@@ -131,13 +131,13 @@ function getTint(key: string) {
 function fmtPosted(iso: string, status: JobStatus): { main: string; sub: string } {
   const date = new Date(iso);
   const abs = Number.isNaN(date.getTime())
-    ? "—"
+    ? "-"
     : date.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
 
   if (status === "on_hold") return { main: "Not posted", sub: `Edited ${abs}` };
 
   const days = Math.floor((Date.now() - date.getTime()) / 86_400_000);
-  if (Number.isNaN(days)) return { main: "—", sub: abs };
+  if (Number.isNaN(days)) return { main: "-", sub: abs };
   if (days < 1) return { main: "Today", sub: abs };
   if (days === 1) return { main: "1d ago", sub: abs };
   return { main: `${days}d ago`, sub: abs };
@@ -612,7 +612,7 @@ function JobDrawer({
               <p className="mt-2 text-[10px] leading-relaxed text-[var(--ai-t4)]">
                 {job.status === "on_hold"
                   ? "Deleting a draft is permanent."
-                  : "Closing removes the post from remotiv.work. Deleting is permanent — applicants are kept, with the job title recorded against them."}
+                  : "Closing removes the post from remotiv.work. Deleting is permanent - applicants are kept, with the job title recorded against them."}
               </p>
             </DrawerSection>
           )}
@@ -1099,7 +1099,7 @@ export function JobsClient({
       }
       return {
         title: "No jobs yet",
-        text: "Post your first role and it goes live on remotiv.work instantly — your AI recruiter starts screening applicants the moment they apply.",
+        text: "Post your first role and it goes live on remotiv.work instantly - your AI recruiter starts screening applicants the moment they apply.",
       };
     }
     if (tab === "archived") {
@@ -1537,7 +1537,7 @@ export function JobsClient({
                       {confirm.job.applicant_count === 1 ? "" : "s"}
                     </span>{" "}
                     for <span className="font-semibold">{confirm.job.title}</span> will be re-scored
-                    against the job&apos;s current requirements — about{" "}
+                    against the job&apos;s current requirements - about{" "}
                     <span className="font-semibold">
                       ${(confirm.job.applicant_count * 0.02).toFixed(2)}
                     </span>{" "}

@@ -203,7 +203,7 @@ export function HiringTeamSection({
               <option value="">Choose someone…</option>
               {addable.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name} — {c.accountRole}
+                  {c.name} - {c.accountRole}
                 </option>
               ))}
             </select>
@@ -270,7 +270,7 @@ export function HiringTeamSection({
               <b className="font-bold text-[var(--ai-t2)]">
                 {siteWide.map((s) => s.name).join(", ")}
               </b>{" "}
-              — owners and admins see every job without being assigned.
+              - owners and admins see every job without being assigned.
             </>
           )}
           {assigned.length === 0 && siteWide.length === 0 && (

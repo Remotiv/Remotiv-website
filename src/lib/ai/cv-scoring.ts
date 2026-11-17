@@ -469,7 +469,7 @@ function unmatchedEssentials(answers: ScreeningAnswerSnapshot[]): string[] {
     .map((a) => {
       const given = a.answer_label || a.answer || "no answer";
       const wanted = a.ideal_label || a.ideal;
-      return `Screening: "${a.question}" — answered "${given}", you asked for "${wanted}"`;
+      return `Screening: "${a.question}" - answered "${given}", you asked for "${wanted}"`;
     });
 }
 

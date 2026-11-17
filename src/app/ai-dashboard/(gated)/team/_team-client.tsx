@@ -237,9 +237,9 @@ function fmtInvitedBy(row: TeamMemberRow): string {
 const INVITE_TTL_DAYS = 7;
 
 function fmtInviteExpiry(row: TeamMemberRow): string {
-  if (!row.invited_at) return "—";
+  if (!row.invited_at) return "-";
   const sent = new Date(row.invited_at).getTime();
-  if (Number.isNaN(sent)) return "—";
+  if (Number.isNaN(sent)) return "-";
 
   const expiresAt = sent + INVITE_TTL_DAYS * 86_400_000;
   const msLeft = expiresAt - Date.now();
@@ -612,7 +612,7 @@ function MemberDrawer({
                     />
                   </div>
                   <p className="mt-1.5 text-xs leading-relaxed text-[var(--ai-t3)]">
-                    {COMPANY_ROLE_ACCESS[member.role]} — changes apply
+                    {COMPANY_ROLE_ACCESS[member.role]} - changes apply
                     immediately.
                   </p>
                 </div>
@@ -652,7 +652,7 @@ function MemberDrawer({
               <p className="mt-2 text-[10px] leading-relaxed text-[var(--ai-t4)]">
                 {pending
                   ? "The invitation link stops working immediately. You can invite them again later."
-                  : `They lose access to the ${companyName} workspace. Their account isn't deleted — you can re-invite them later.`}
+                  : `They lose access to the ${companyName} workspace. Their account isn't deleted - you can re-invite them later.`}
               </p>
             </DrawerSection>
           )}
@@ -761,7 +761,7 @@ function RolePermissionsDrawer({
                       >
                         {cap.label}
                         <span className="sr-only">
-                          {allowed ? " — allowed" : " — not allowed"}
+                          {allowed ? " - allowed" : " - not allowed"}
                         </span>
                         {cap.pending && allowed && (
                           <span className="ml-1.5 whitespace-nowrap rounded-[5px] bg-[var(--ai-amber-tint)] px-1.5 py-px text-[9.5px] font-bold uppercase tracking-[0.04em] text-[var(--ai-amber-ink)]">
@@ -779,7 +779,7 @@ function RolePermissionsDrawer({
           <p className="m-0 rounded-xl bg-[var(--ai-inset)] px-3.5 py-3 text-[11.5px] leading-relaxed text-[var(--ai-t3)]">
             The live AI interviewer and candidate verification aren&apos;t built yet.
             When they ship they&apos;ll follow these same roles, and this list updates
-            with them. Only the owner&apos;s role is fixed — it can&apos;t be
+            with them. Only the owner&apos;s role is fixed - it can&apos;t be
             changed or reassigned here.
           </p>
         </div>
@@ -1319,7 +1319,7 @@ export function TeamClient({
           </h1>
           <p className="mt-2.5 max-w-[520px] text-[14.5px] leading-relaxed text-[var(--ai-t2)]">
             {ledeCount} Roles decide <LimeHighlight>who sees what</LimeHighlight>{" "}
-            — from the whole workspace down to a single assigned job.
+            - from the whole workspace down to a single assigned job.
           </p>
         </div>
         <div className="flex shrink-0 gap-2.5">
@@ -1682,7 +1682,7 @@ export function TeamClient({
                   <>
                     <span className="font-semibold">{removeTarget.name}</span> will
                     lose access to the {companyName} workspace. Their account
-                    isn&apos;t deleted — you can re-invite them later.
+                    isn&apos;t deleted - you can re-invite them later.
                   </>
                 )}
               </p>

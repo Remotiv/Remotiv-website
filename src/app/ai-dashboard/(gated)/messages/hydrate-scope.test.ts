@@ -308,7 +308,7 @@ test("hydrate still refuses to name a drifted applicant it is handed anyway", as
   assert.equal(drifted.candidateName, "Deleted applicant");
   assert.equal(drifted.candidateEmail, "");
   assert.equal(drifted.jobId, null);
-  assert.equal(drifted.jobTitle, "—");
+  assert.equal(drifted.jobTitle, "-", "the empty-value placeholder is a hyphen (#48)");
   // Our own log's columns are untouched: the filter narrows the candidate read,
   // not the record of what this company sent.
   assert.equal(drifted.subject, "Scheduling");

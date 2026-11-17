@@ -284,7 +284,7 @@ async function hydrate(
         : fullName(app?.first_name ?? null, app?.last_name ?? null, email),
       candidateEmail: deleted ? "" : email,
       jobId: app?.job_id ?? null,
-      jobTitle: roleOf(app, "—"),
+      jobTitle: roleOf(app, "-"),
       subject: l.subject ?? "",
       body: htmlToPlain(l.body ?? ""),
       // Raw, never defaulted. A NULL read as 'manual' would file the row under
@@ -1060,7 +1060,7 @@ export async function fetchRecipients(): Promise<MessageRecipient[]> {
       applicationId: r.id,
       name: fullName(r.first_name, r.last_name, (r.email ?? "").trim()),
       email: (r.email ?? "").trim(),
-      jobTitle: roleOf(r, "—"),
+      jobTitle: roleOf(r, "-"),
     }));
 }
 

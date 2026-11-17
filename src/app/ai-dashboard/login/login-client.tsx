@@ -25,7 +25,7 @@ const FAILURE_MESSAGES = {
   not_company: REASON_MESSAGES.unauthorized,
   unavailable: "We couldn't verify your account just now. Try again in a moment.",
   error:
-    "Something went wrong signing you in. This isn't your password — please try again, and contact your account manager if it keeps happening.",
+    "Something went wrong signing you in. This isn't your password - please try again, and contact your account manager if it keeps happening.",
 } as const;
 
 export function CompanyLoginClient({ reason }: { reason: string | null }) {
@@ -122,7 +122,7 @@ export function CompanyLoginClient({ reason }: { reason: string | null }) {
             <span className="text-remotiv-purple">screen smarter.</span>
           </h1>
           <p className="mt-5 max-w-md text-base leading-relaxed text-gray-600">
-            AI-powered screening and video interviews — all in one place.
+            AI-powered screening and video interviews - all in one place.
           </p>
           <div className="mt-7 flex flex-wrap gap-2">
             <Pill>AI screening</Pill>

@@ -88,6 +88,7 @@ import {
   suggestScreeningQuestions,
   updateCompanyJob,
 } from "../actions";
+import { currencySymbol, salaryRange } from "./salary-range";
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -390,7 +391,7 @@ function JdGenerateButton({
           What are you looking for in a candidate?
         </label>
         <p className="m-0 mt-1 text-[12.5px] leading-snug text-[var(--ai-t2)]">
-          Anything you already know — must-have skills, tools, years, certifications, the kind of
+          Anything you already know - must-have skills, tools, years, certifications, the kind of
           person who does well on your team. We&apos;ll write the description around it.
         </p>
         <textarea
@@ -409,7 +410,7 @@ function JdGenerateButton({
           empty box has a chance to look like homework.
         */}
         <p className="m-0 mt-2 text-[12.5px] font-semibold text-[var(--ai-t2)]">
-          Optional — skip it and we&apos;ll write from the job title.
+          Optional - skip it and we&apos;ll write from the job title.
         </p>
         <div className="mt-2.5 flex flex-wrap gap-2">
           <button
@@ -659,7 +660,7 @@ function QuestionSuggestPanel({
 const FAILURE_COPY: Record<string, string> = {
   below_heuristic:
     "AI didn't beat the criteria already pulled from your description, so nothing was changed.",
-  default: "Couldn't write criteria just now — nothing was changed.",
+  default: "Couldn't write criteria just now - nothing was changed.",
 };
 
 /** "the 3 must-haves you have", "the 2 behavioural criteria you have", or both. */
@@ -751,7 +752,7 @@ const QUESTION_TYPES: ReadonlyArray<{ value: ScreeningQuestion["type"]; label: s
 const NUMERIC_MODES: ReadonlyArray<{ value: NumericMode; label: string }> = [
   { value: "min", label: "At least (minimum)" },
   { value: "max", label: "At most (maximum)" },
-  { value: "none", label: "No threshold — just collect it" },
+  { value: "none", label: "No threshold - just collect it" },
 ];
 
 const NUMERIC_MODE_LABEL: Record<NumericMode, string> = {
@@ -788,7 +789,7 @@ const AI_VIDEO_INTERVIEWER_NAME_ERROR =
 
 const QUESTION_IDEAL_ERROR: Record<ScreeningQuestion["type"], (n: number) => string> = {
   numeric: (n) =>
-    `Question ${n} needs a threshold above 0 — or set it to collect the number without one.`,
+    `Question ${n} needs a threshold above 0 - or set it to collect the number without one.`,
   multiple: (n) => `Question ${n} needs its ideal option chosen.`,
   yesno: (n) => `Question ${n} needs an ideal answer chosen.`,
 };
@@ -842,16 +843,7 @@ function reviewTypeLabel(q: ScreeningQuestion): string {
   if (q.type !== "numeric") return base;
   const mode = resolveNumericMode(q);
   if (mode === "none") return "Numeric · collected only";
-  return `Numeric · ${mode === "max" ? "max" : "min"} ${q.ideal || "—"}`;
-}
-
-function fmtNumber(value: string): string {
-  const n = Number.parseInt(String(value).replace(/[^0-9]/g, ""), 10);
-  return Number.isNaN(n) ? "" : n.toLocaleString("en-US");
-}
-
-function currencySymbol(currency: string): string {
-  return currency === "USD" ? "$" : "PKR";
+  return `Numeric · ${mode === "max" ? "max" : "min"} ${q.ideal || "-"}`;
 }
 
 /**
@@ -1326,7 +1318,7 @@ export function WizardClient({
     if (!original || original === q.type) return null;
     const answered = answeredCounts?.[q.id] ?? 0;
     if (answered === 0) return null;
-    return `${answered} ${answered === 1 ? "person has" : "people have"} already answered this question. Changing the answer type makes their answers incomparable — consider adding a new question instead.`;
+    return `${answered} ${answered === 1 ? "person has" : "people have"} already answered this question. Changing the answer type makes their answers incomparable - consider adding a new question instead.`;
   }
 
   // Publishing inserts a row; a double-click would create two jobs.
@@ -1379,7 +1371,7 @@ export function WizardClient({
         const key = `${QUESTION_ERR_PREFIX}${q.id}`;
         if (next[key]) return;
         if (!q.question.trim()) {
-          next[key] = `Question ${i + 1} has no text — write it or remove it.`;
+          next[key] = `Question ${i + 1} has no text - write it or remove it.`;
         } else if (q.type === "multiple" && liveOptions(q).length < 2) {
           next[key] = `Question ${i + 1} needs at least two answer options.`;
         } else if (!hasUsableIdeal(q)) {
@@ -1756,13 +1748,16 @@ export function WizardClient({
 
   // ── Preview ────────────────────────────────────────────────
 
-  const compensation = useMemo(() => {
-    if (!state.show_salary) return null;
-    const min = fmtNumber(state.salary_min);
-    const max = fmtNumber(state.salary_max);
-    if (!min && !max) return null;
-    return `${currencySymbol(state.salary_currency)} ${min || "—"} – ${max || "—"}`;
-  }, [state.show_salary, state.salary_min, state.salary_max, state.salary_currency]);
+  const compensation = useMemo(
+    () =>
+      salaryRange({
+        show: state.show_salary,
+        min: state.salary_min,
+        max: state.salary_max,
+        currency: state.salary_currency,
+      }),
+    [state.show_salary, state.salary_min, state.salary_max, state.salary_currency],
+  );
 
   // One list, so a step added to any group is found without touching this.
   // Indexing STEPS by position would silently return Basics for anything late.
@@ -2063,7 +2058,7 @@ export function WizardClient({
                     maxLength={JOB_TEXT_MAX}
                     rows={16}
                     placeholder={
-                      "Write the whole thing here — the overview, what they'll do, and what you're looking for.\n\n" +
+                      "Write the whole thing here - the overview, what they'll do, and what you're looking for.\n\n" +
                       "Paste it however it comes. If it has no headings we'll add them for you."
                     }
                     className={`${TEXTAREA_CLS} min-h-[360px] ${errors.description ? INPUT_ERR_CLS : ""}`}
@@ -2099,7 +2094,7 @@ export function WizardClient({
                       void generateDraft();
                     }}
                   />
-                  <CharCount value={jdBox} hint="Markdown isn't supported — plain text only." />
+                  <CharCount value={jdBox} hint="Markdown isn't supported - plain text only." />
                 </>
               )}
 
@@ -2662,13 +2657,13 @@ export function WizardClient({
                 <>
                   <div className="mb-3 grid grid-cols-1 gap-3 min-[525px]:grid-cols-2">
                     <ReviewCard label="Role" onEdit={() => setStep(1)}>
-                      {state.title || "—"}{" "}
+                      {state.title || "-"}{" "}
                       <span className="text-[var(--ai-t4)]">
                         · {state.category} · {state.experience_level}
                       </span>
                     </ReviewCard>
                     <ReviewCard label="Location & type" onEdit={() => setStep(1)}>
-                      {state.location || "—"}{" "}
+                      {state.location || "-"}{" "}
                       <span className="text-[var(--ai-t4)]">
                         · {state.work_type} · {state.contract_type} · {state.positions} opening
                         {state.positions === "1" ? "" : "s"}
@@ -2678,10 +2673,12 @@ export function WizardClient({
 
                   <div className="mb-3">
                     <ReviewCard label="Compensation" onEdit={() => setStep(3)}>
-                      {compensation ? (
+                      {compensation.kind === "range" ? (
                         <>
-                          {compensation} <small className="text-[var(--ai-t3)]">/mo</small>
+                          {compensation.text} <small className="text-[var(--ai-t3)]">/mo</small>
                         </>
+                      ) : compensation.kind === "unspecified" ? (
+                        <span className="text-[var(--ai-t4)]">Not specified</span>
                       ) : (
                         <span className="text-[var(--ai-t4)]">Not shown publicly</span>
                       )}
@@ -2778,7 +2775,7 @@ export function WizardClient({
                     </p>
                     <OptionRow
                       title="List on the Remotiv job board"
-                      desc="Shows this role on remotiv.work/jobs, the public board we run — listed beside roles from other companies, with candidates arriving from Remotiv rather than from your own page."
+                      desc="Shows this role on remotiv.work/jobs, the public board we run - listed beside roles from other companies, with candidates arriving from Remotiv rather than from your own page."
                       live
                       on={state.listed_on_remotiv}
                       onToggle={() => set("listed_on_remotiv", !state.listed_on_remotiv)}
@@ -2790,7 +2787,7 @@ export function WizardClient({
                           fear it has hidden the role from its own candidates. */}
                       <p className="m-0 mt-2.5 text-[11.5px] leading-relaxed text-[var(--ai-t3)]">
                         Your careers page and this role&apos;s own link work either way. Turning
-                        this off removes it from our board and from search results we submit — it
+                        this off removes it from our board and from search results we submit - it
                         does not unpublish the role.
                       </p>
                     </OptionRow>
@@ -2963,7 +2960,7 @@ export function WizardClient({
                         ) : (
                           <>
                             <b className="font-bold text-white">
-                              This job is a draft — it isn&apos;t public yet.
+                              This job is a draft - it isn&apos;t public yet.
                             </b>{" "}
                             Saving keeps it private. Set the status to Published to put it live on
                             remotiv.work/jobs.
@@ -3122,13 +3119,17 @@ export function WizardClient({
                 {state.location || "Location TBD"}
               </p>
               <p className="mb-[13px] font-heading text-base font-extrabold tracking-[-0.01em]">
-                {compensation ? (
+                {compensation.kind === "range" ? (
                   <>
-                    {compensation}
+                    {compensation.text}
                     <small className="font-sans text-[11.5px] font-medium tracking-normal text-[var(--ai-t3)]">
                       /mo
                     </small>
                   </>
+                ) : compensation.kind === "unspecified" ? (
+                  <small className="font-sans text-[13px] font-medium text-[var(--ai-t3)]">
+                    Compensation not specified
+                  </small>
                 ) : (
                   <small className="font-sans text-[13px] font-medium text-[var(--ai-t3)]">
                     Compensation not shown
@@ -3431,7 +3432,7 @@ function WeightingStep({
         </h3>
         <p className="mb-4 text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
           A question set to <b>Most</b> counts three times as much as a <b>Normal</b> one;{" "}
-          <b>Less</b> counts half. Questions are edited in step 5 — this only changes what they are
+          <b>Less</b> counts half. Questions are edited in step 5 - this only changes what they are
           worth.
         </p>
 
@@ -3689,7 +3690,7 @@ function TeamCallFields({
       </p>
       <p className="m-0 mb-4 text-xs leading-relaxed text-[var(--ai-t3)]">
         A colleague meets the candidate. Separate from the recorded questions above, and from AI
-        Video Interview — those two have no one on the call. When you send a booking link, this is
+        Video Interview - those two have no one on the call. When you send a booking link, this is
         the meeting the candidate picks a time for.
       </p>
 
@@ -3782,7 +3783,7 @@ function TeamCallFields({
       ) : (
         <p className="m-0 mt-2 text-xs leading-relaxed text-[var(--ai-t3)]">
           {state.interview_duration_minutes === null
-            ? "Not set — booking links for this job use the 30-minute default."
+            ? "Not set - booking links for this job use the 30-minute default."
             : `Candidates will be offered ${state.interview_duration_minutes}-minute slots, starting every ${slotStepPreview} minutes.`}
         </p>
       )}
@@ -3800,7 +3801,7 @@ function TeamCallFields({
           </span>
           <span className="mt-0.5 block text-xs leading-relaxed text-[var(--ai-t3)]">
             Optional. Leave this off and candidates are offered your own interview hours from
-            Settings — which is what almost every role wants.
+            Settings - which is what almost every role wants.
           </span>
         </span>
       </label>
@@ -3982,7 +3983,7 @@ function AutoshortlistStep({
             }}
             className={INPUT_CLS}
           >
-            <option value="both">{AUTOSHORTLIST_SOURCE_LABELS.both} — CV or interview</option>
+            <option value="both">{AUTOSHORTLIST_SOURCE_LABELS.both} - CV or interview</option>
             <option value="cv">{AUTOSHORTLIST_SOURCE_LABELS.cv}</option>
             <option value="interview">{AUTOSHORTLIST_SOURCE_LABELS.interview}</option>
           </select>
@@ -4025,15 +4026,15 @@ function AutoshortlistStep({
         <div>
           <p className={LABEL_CLS}>How they will look</p>
           <div className="flex flex-col gap-2">
-            <PreviewRow kind="top" name="Ayesha Khan" sub="Scored 94 — the AI's own ranking" />
+            <PreviewRow kind="top" name="Ayesha Khan" sub="Scored 94 - the AI's own ranking" />
             <PreviewRow
               kind="look"
               name="Bilal Ahmed"
               sub={
                 showInterview && typeof interviewMark === "number"
-                  ? `Interview scored ${Math.min(100, interviewMark + 9)} — above your mark of ${interviewMark}`
+                  ? `Interview scored ${Math.min(100, interviewMark + 9)} - above your mark of ${interviewMark}`
                   : typeof cvMark === "number"
-                    ? `CV scored ${Math.min(100, cvMark + 9)} — above your mark of ${cvMark}`
+                    ? `CV scored ${Math.min(100, cvMark + 9)} - above your mark of ${cvMark}`
                     : "Set a mark to see this"
               }
             />
@@ -4060,7 +4061,7 @@ function estimateCopy(
   if (estimating && !estimate) return "Counting…";
   if (!estimate) return "Set a mark to see how many applicants it would flag.";
   if (estimate.total === 0) {
-    return "No applicants yet to estimate against — this will fill in once people apply.";
+    return "No applicants yet to estimate against - this will fill in once people apply.";
   }
   return (
     <>
@@ -4352,7 +4353,7 @@ function ScoringCriteriaStep({
         </div>
 
         <p className="m-0 mt-2.5 text-[11.5px] leading-relaxed text-[var(--ai-t3)]">
-          A missing one is reported, never punished — it does not reject anyone, filter anyone out,
+          A missing one is reported, never punished - it does not reject anyone, filter anyone out,
           or lower a score.
         </p>
       </div>
@@ -4404,7 +4405,7 @@ function ScoringCriteriaStep({
 
       {emptyCv && (
         <p className="mb-3 rounded-[13px] border border-dashed border-[var(--ai-line-strong)] px-3.5 py-3.5 text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
-          Nothing in this job description is something a CV could evidence — it describes how
+          Nothing in this job description is something a CV could evidence - it describes how
           someone works rather than what they have done. The behavioural criteria below were filled
           in instead. Add must-haves here in your own words if you want them.
         </p>
@@ -4413,7 +4414,7 @@ function ScoringCriteriaStep({
       <label htmlFor="must-have-input" className={LABEL_CLS}>
         Must-haves{" "}
         <span className="font-normal text-[var(--ai-t3)]">
-          — {items.length} of {MUST_HAVE_MAX}. Edit or remove any you don&apos;t want.
+          ({items.length} of {MUST_HAVE_MAX}). Edit or remove any you don&apos;t want.
         </span>
       </label>
       <div className="flex gap-2">
@@ -4424,7 +4425,7 @@ function ScoringCriteriaStep({
           maxLength={MUST_HAVE_MAX_LENGTH}
           placeholder={
             full
-              ? `That's ${MUST_HAVE_MAX} — remove one to add another`
+              ? `That's ${MUST_HAVE_MAX} - remove one to add another`
               : "A skill, tool or experience a strong candidate shows"
           }
           onChange={(e) => setDraft(e.target.value)}
@@ -4478,7 +4479,7 @@ function ScoringCriteriaStep({
         {suggestions.cv.length === 0 ? (
           <p className="m-0 text-[12px] leading-relaxed text-[var(--ai-t3)]">
             {state.requirements.trim() || state.responsibilities.trim()
-              ? "Nothing here reads as a separate requirement — add must-haves above in your own words."
+              ? "Nothing here reads as a separate requirement - add must-haves above in your own words."
               : "Add requirements or responsibilities in step 2 and they'll show up here as suggestions."}
           </p>
         ) : (
@@ -4501,7 +4502,7 @@ function ScoringCriteriaStep({
 
       {items.length === 0 && (
         <p className="mt-6 rounded-[13px] border border-dashed border-[var(--ai-line-strong)] px-3.5 py-4 text-center text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
-          No must-haves is a perfectly good answer — this job will score exactly as it does today.
+          No must-haves is a perfectly good answer - this job will score exactly as it does today.
         </p>
       )}
 
@@ -4512,13 +4513,13 @@ function ScoringCriteriaStep({
           wizard already uses for exactly this pair of sources. */}
       <div className="mt-8 border-t border-[var(--ai-line)] pt-6">
         <p className={LABEL_CLS}>
-          Behavioural criteria — checked against the interview{" "}
+          Behavioural criteria - checked against the interview{" "}
           <span className="font-normal text-[var(--ai-t3)]">
-            — {criteria.length} of {INTERVIEW_CRITERIA_MAX}
+            ({criteria.length} of {INTERVIEW_CRITERIA_MAX})
           </span>
         </p>
         <p className="m-0 mb-3 text-[12px] leading-relaxed text-[var(--ai-t3)]">
-          Things a conversation shows and a CV cannot — how someone follows up, handles pressure,
+          Things a conversation shows and a CV cannot - how someone follows up, handles pressure,
           explains their thinking. Checked against what they actually said, and reported the same
           way: quoted, or not found.
         </p>
@@ -4526,7 +4527,7 @@ function ScoringCriteriaStep({
         {!hasInterview && (
           <p className="mb-3 rounded-[13px] border border-dashed border-[var(--ai-line-strong)] px-3.5 py-4 text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
             This job has no interview questions yet, so there is no transcript to check these
-            against. Add questions in step 5 and this section becomes live — anything saved here is
+            against. Add questions in step 5 and this section becomes live - anything saved here is
             kept either way.
           </p>
         )}
@@ -4568,7 +4569,7 @@ function ScoringCriteriaStep({
             maxLength={MUST_HAVE_MAX_LENGTH}
             placeholder={
               criteriaFull
-                ? `That's ${INTERVIEW_CRITERIA_MAX} — remove one to add another`
+                ? `That's ${INTERVIEW_CRITERIA_MAX} - remove one to add another`
                 : "A behaviour an interview would reveal"
             }
             onChange={(e) => setCriteriaDraft(e.target.value)}

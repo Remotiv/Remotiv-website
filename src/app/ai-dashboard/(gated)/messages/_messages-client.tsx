@@ -71,9 +71,9 @@ const TABS: ReadonlyArray<{ key: MessageTab; label: string }> = [
 
 /** "in 2 days" / "6h ago" — the relative half of the When column. */
 function relative(iso: string | null): string {
-  if (!iso) return "—";
+  if (!iso) return "-";
   const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return "—";
+  if (Number.isNaN(then)) return "-";
   const diff = then - Date.now();
   const abs = Math.abs(diff);
   const mins = Math.round(abs / 60000);
@@ -285,7 +285,7 @@ export function MessagesClient({
   const emptyCopy = loadFailed
     ? {
         title: "We couldn't load your messages",
-        text: "Nothing has been lost — this is a problem on our side. Reload the page to try again.",
+        text: "Nothing has been lost - this is a problem on our side. Reload the page to try again.",
       }
     : unassigned
     ? {
@@ -295,7 +295,7 @@ export function MessagesClient({
     : search
     ? {
         title: `Nothing matches “${search}”`,
-        text: "Try a different candidate, subject, or role — or clear the filters.",
+        text: "Try a different candidate, subject, or role - or clear the filters.",
       }
     : tab === "scheduled"
       ? {
@@ -305,7 +305,7 @@ export function MessagesClient({
       : agg.all === 0
         ? {
             title: "No messages yet",
-            text: "Every email sent to a candidate lands here — including the automatic ones sent on application.",
+            text: "Every email sent to a candidate lands here - including the automatic ones sent on application.",
           }
         : {
             title: "No messages here",
@@ -324,13 +324,13 @@ export function MessagesClient({
             <span className="relative z-0 inline-block px-[5px] font-bold text-[var(--ai-t1)] before:absolute before:inset-y-[4%] before:-inset-x-[3px] before:-z-10 before:-rotate-[1.2deg] before:rounded-[3px] before:bg-remotiv-lime before:content-['']">
               automatically
             </span>{" "}
-            — the ones you write are marked.
+            - the ones you write are marked.
           </p>
         </div>
         <div className="flex shrink-0 gap-3 pb-1">
           <button
             type="button"
-            onClick={() => setToast("Template library — coming soon")}
+            onClick={() => setToast("Template library - coming soon")}
             className="inline-flex items-center gap-2.5 whitespace-nowrap rounded-[14px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-5 py-[13px] text-sm font-semibold text-[var(--ai-t2)] transition-colors hover:border-[var(--ai-sidebar)] hover:bg-[var(--ai-sidebar)] hover:text-white"
           >
             <FileText className="size-4" strokeWidth={1.9} />
@@ -553,7 +553,7 @@ export function MessagesClient({
                         {row.sentByName}
                       </>
                     ) : (
-                      <span className="text-[var(--ai-t4)]">—</span>
+                      <span className="text-[var(--ai-t4)]">-</span>
                     )}
                   </span>
 
@@ -660,7 +660,7 @@ export function MessagesClient({
             {replyToAddress ? (
               <>
                 Candidates reply to{" "}
-                <b className="font-bold text-[var(--ai-t2)]">{replyToAddress}</b> — Remotiv
+                <b className="font-bold text-[var(--ai-t2)]">{replyToAddress}</b> - Remotiv
                 never receives replies.
               </>
             ) : (

@@ -81,7 +81,7 @@ export function AcceptClient({
           <p className="mt-2 text-sm text-[var(--ai-t2)]">
             {signInMode ? (
               <>
-                Hi {greeting} — you already have a Remotiv account. Enter your
+                Hi {greeting} - you already have a Remotiv account. Enter your
                 existing password to join as a{" "}
                 <span className="font-semibold text-[var(--ai-t1)]">{roleLabel}</span>.
               </>

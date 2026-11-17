@@ -43,7 +43,7 @@ const OUTCOMES: Record<string, { tone: "good" | "bad"; message: string }> = {
     message:
       "Connected, but Google did not report a timezone for this calendar. Set one in Google Calendar, then reconnect.",
   },
-  cancelled: { tone: "bad", message: "Connection cancelled — nothing was changed." },
+  cancelled: { tone: "bad", message: "Connection cancelled - nothing was changed." },
   expired: { tone: "bad", message: "That took too long and the request expired. Try again." },
   invalid_state: {
     tone: "bad",

@@ -250,7 +250,7 @@ export function SettingsClient({
     try {
       result = await updateCompanyProfile(co);
     } catch {
-      result = { success: false, error: "Couldn't save — please try again." };
+      result = { success: false, error: "Couldn't save - please try again." };
     }
     setCoBusy(false);
 
@@ -292,7 +292,7 @@ export function SettingsClient({
     try {
       result = await updateOwnAccount(ac);
     } catch {
-      result = { success: false, error: "Couldn't save — please try again." };
+      result = { success: false, error: "Couldn't save - please try again." };
     }
     setAcBusy(false);
 
@@ -353,7 +353,7 @@ export function SettingsClient({
         return;
       }
       setLogoUrl(null);
-      showToast("Logo removed — letter fallback in use");
+      showToast("Logo removed - letter fallback in use");
       router.refresh();
     } finally {
       setLogoBusy(false);
@@ -380,7 +380,7 @@ export function SettingsClient({
               />
               public on every job post
             </span>{" "}
-            — your account below is only ever visible to you.
+            - your account below is only ever visible to you.
           </p>
         </div>
         <div className="flex shrink-0 gap-3 pb-1">
@@ -489,7 +489,7 @@ export function SettingsClient({
               <b className="font-bold text-[var(--ai-t1)]">
                 Company profile is read-only for your role.
               </b>{" "}
-              Owners and admins can edit it — ask one of them on the{" "}
+              Owners and admins can edit it - ask one of them on the{" "}
               <Link href="/ai-dashboard/team" className="font-semibold text-remotiv-purple hover:underline">
                 Team page
               </Link>
@@ -659,7 +659,7 @@ export function SettingsClient({
                   className={INPUT_CLS}
                 />
                 <p className={HINT_CLS}>
-                  A range reads better than a number — &ldquo;40–60 people&rdquo;, not
+                  A range reads better than a number - &ldquo;40–60 people&rdquo;, not
                   &ldquo;52&rdquo;. Shown on your careers page.
                 </p>
               </div>
@@ -677,7 +677,7 @@ export function SettingsClient({
                   className={INPUT_CLS}
                 />
                 <p className={HINT_CLS}>
-                  A place and how you work — &ldquo;Dubai · Remote&rdquo;. Shown on your careers
+                  A place and how you work - &ldquo;Dubai · Remote&rdquo;. Shown on your careers
                   page.
                 </p>
               </div>
@@ -748,7 +748,7 @@ export function SettingsClient({
                   })}
                 </div>
                 <p className={HINT_CLS}>
-                  Used on your careers page and on every job post we host for you — the header,
+                  Used on your careers page and on every job post we host for you - the header,
                   the headline panel and the Apply button. Five to choose from, all checked for
                   legibility against white text.{" "}
                   {company.slug && (
@@ -780,7 +780,7 @@ export function SettingsClient({
               )}
               <p className={HINT_CLS}>
                 Candidates replying to your emails reach this address. Leave it
-                blank and they can&apos;t reply to you at all — replies go to an
+                blank and they can&apos;t reply to you at all - replies go to an
                 unmonitored address and nobody reads them.
               </p>
             </div>
@@ -1018,7 +1018,7 @@ export function SettingsClient({
                   </p>
                   <p className="m-0 mt-1 text-xs leading-relaxed text-[var(--ai-t3)]">
                     The starting value for every job you post from now on. It
-                    doesn&apos;t change jobs that are already live — switch those on
+                    doesn&apos;t change jobs that are already live - switch those on
                     one at a time from the job&apos;s own edit screen.
                   </p>
                 </div>

@@ -330,7 +330,7 @@ function vet(
     const list = unknown.map((u) => `{{${u}}}`).join(", ");
     return {
       ok: false,
-      error: `${list} ${unknown.length === 1 ? "isn't a placeholder we can fill" : "aren't placeholders we can fill"} — ${unknown.length === 1 ? "it" : "they"} would send as nothing. Available: ${PLACEHOLDER_KEYS.map((k) => `{{${k}}}`).join(", ")}.`,
+      error: `${list} ${unknown.length === 1 ? "isn't a placeholder we can fill" : "aren't placeholders we can fill"} - ${unknown.length === 1 ? "it" : "they"} would send as nothing. Available: ${PLACEHOLDER_KEYS.map((k) => `{{${k}}}`).join(", ")}.`,
     };
   }
 

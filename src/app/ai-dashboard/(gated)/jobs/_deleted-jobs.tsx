@@ -8,7 +8,7 @@ const ROW_GRID =
 
 function deletedAgo(iso: string): string {
   const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return "—";
+  if (Number.isNaN(then)) return "-";
   const days = Math.floor((Date.now() - then) / 86_400_000);
   if (days <= 0) return "Today";
   if (days === 1) return "Yesterday";
@@ -93,7 +93,7 @@ export function DeletedJobsPanel({
               >
                 <p className="font-semibold text-[14.5px] text-[var(--ai-t1)]">{job.title}</p>
                 <p className="mt-1 text-[12.5px] text-[var(--ai-t3)]">
-                  {job.location || "—"} · deleted {deletedAgo(job.deleted_at).toLowerCase()}
+                  {job.location || "-"} · deleted {deletedAgo(job.deleted_at).toLowerCase()}
                 </p>
                 <p className="mt-1 text-[12.5px] text-[var(--ai-t3)]">
                   {job.applicant_count} applicant{job.applicant_count === 1 ? "" : "s"}
@@ -137,10 +137,10 @@ export function DeletedJobsPanel({
                       {job.title}
                     </p>
                     <p className="mt-0.5 truncate text-[12.5px] text-[var(--ai-t3)]">
-                      {job.location || "—"}
+                      {job.location || "-"}
                     </p>
                   </div>
-                  <span className="text-[13px] text-[var(--ai-t3)]">{job.status || "—"}</span>
+                  <span className="text-[13px] text-[var(--ai-t3)]">{job.status || "-"}</span>
                   <span className="text-[13px] text-[var(--ai-t2)]">{job.applicant_count}</span>
                   <span className="text-[13px] text-[var(--ai-t3)]">
                     {deletedAgo(job.deleted_at)}

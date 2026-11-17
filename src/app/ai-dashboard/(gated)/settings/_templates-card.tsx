@@ -48,7 +48,7 @@ export function TemplatesCard({
     }
     // The row is written server-side; refresh brings it back with its key so
     // the editor opens on the real record rather than an optimistic stand-in.
-    onToast("New template created — give it a subject and a message");
+    onToast("New template created - give it a subject and a message");
     router.refresh();
   }
 
@@ -115,7 +115,7 @@ export function TemplatesCard({
                       <span
                         className={`mt-[3px] block text-xs leading-snug ${t.sending ? "text-[var(--ai-t3)]" : "font-semibold text-[var(--ai-t4)]"}`}
                       >
-                        {t.sending ? t.trigger : "Not sending — turned off"}
+                        {t.sending ? t.trigger : "Not sending - turned off"}
                       </span>
                     </span>
                     <span
@@ -263,7 +263,7 @@ function TemplateEditor({
     try {
       result = await saveTemplate({ event: template.key, subject, body });
     } catch {
-      result = { success: false, error: "Couldn't save — please try again." };
+      result = { success: false, error: "Couldn't save - please try again." };
     }
     setBusy(false);
     if (!result.success) {
@@ -291,7 +291,7 @@ function TemplateEditor({
     try {
       result = await revertTemplate(template.key);
     } catch {
-      result = { success: false, error: "Couldn't revert — please try again." };
+      result = { success: false, error: "Couldn't revert - please try again." };
     }
     setBusy(false);
     if (!result.success) {
@@ -340,7 +340,7 @@ function TemplateEditor({
                 {template.name}
               </p>
               <p className="m-0 mt-1.5 text-[12.5px] leading-snug text-white/50">
-                {template.sending ? template.trigger : "Not sending — turned off"}
+                {template.sending ? template.trigger : "Not sending - turned off"}
               </p>
             </div>
             <button
@@ -409,7 +409,7 @@ function TemplateEditor({
 
           <div className="mt-[13px] rounded-xl border border-[var(--ai-line)] bg-[var(--ai-inset)] px-3.5 py-3">
             <p className="m-0 mb-2 text-[11.5px] font-semibold text-[var(--ai-t3)]">
-              Available placeholders — click to insert
+              Available placeholders - click to insert
             </p>
             <div className="flex flex-wrap gap-1.5">
               {PLACEHOLDER_KEYS.map((k) => (
@@ -436,7 +436,7 @@ function TemplateEditor({
               {preview ? preview.body || "(empty message)" : "…"}
             </p>
             <p className="m-0 mt-[11px] border-t border-dashed border-[var(--ai-line)] pt-2.5 text-[11.5px] leading-snug text-[var(--ai-t4)]">
-              This is what we send, rendered by the sender itself — sample candidate
+              This is what we send, rendered by the sender itself - sample candidate
               Fatima Khan, Senior Frontend Engineer.
             </p>
           </div>
