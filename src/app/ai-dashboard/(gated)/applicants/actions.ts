@@ -408,17 +408,23 @@ function toRow(r: ApplicantQueryRow, score?: ScoreSummaryRow): CompanyApplicantR
      * 'manual_upload' as well, and for an imported row "your team added this
      * person" is false — Remotiv did, in bulk, from a spreadsheet.
      *
-     * This is harmless TODAY and only because of an unrelated fact: the
-     * importer writes no company_id_snapshot, and every read here filters on
-     * it, so imported rows never reach this mapper. The badge is correct by
-     * accident of another bug, not by construction.
+     * Imported rows never reach this mapper, by design: the importer
+     * (scripts/import-candidates.mjs) writes no company_id_snapshot, and every
+     * read here filters on it. A NULL snapshot is not a gap. Those rows are
+     * Remotiv's own recruitment board: the company-less jobs Remotiv posts
+     * itself (admin/jobs/actions.ts, "client_id null = Remotiv-owned").
      *
-     * So: if imported rows are ever backfilled with a company — which is the
-     * obvious fix for their invisibility — they become visible AND acquire a
-     * badge claiming the company's own team added them. Backfilling the
-     * snapshot without settling this is the thing to watch. The durable fix is
-     * a column recording WHO added the row; `source` cannot answer it, because
-     * it describes the mechanism and three different actors share it.
+     * company_id_snapshot must NEVER be backfilled on them. A decided rule (16
+     * Oct 2026, re-confirmed 20 Oct 2026): NULL-snapshot applications belong to
+     * Remotiv's own board, sit permanently outside every company's dashboard,
+     * and are never written to. A backfill would fix nothing: it would hand
+     * Remotiv's candidates to a customer company, add them to that company's
+     * counts, and badge each one as added by the company's own team.
+     *
+     * The badge's real limit is narrower: `source` records the mechanism, not
+     * the actor, and three different actors share 'manual_upload'. If a
+     * company-scoped import is ever built, it needs a column recording WHO added
+     * the row before this badge can be trusted for it.
      */
     added_manually: r.source === "manual_upload",
     // Passed through exactly as stored. Nothing here decides whether someone is

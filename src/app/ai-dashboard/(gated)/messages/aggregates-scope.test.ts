@@ -291,6 +291,28 @@ function matches(row, f) {
   throw new Error(`test: unhandled op ${f.op}`);
 }
 
+/**
+ * The job_applications embeds in a select string, as PostgREST reads them: an
+ * optional alias, then `!` modifiers, which are an FK hint and/or a join type
+ * in either order (#30). Inner only when one modifier is `inner`; a plain embed,
+ * an embed with only a hint, or `!left` is a LEFT join. So
+ * `job_applications!inner(`, `job_applications!communication_logs_application_id_fkey!inner(`
+ * and `app:job_applications!inner(` are inner, and `job_applications(` is not.
+ */
+function jobApplicationsEmbeds(text) {
+  const out = [];
+  const re =
+    /(?:[A-Za-z_][A-Za-z0-9_]*\s*:\s*)?\bjob_applications((?:\s*!\s*[A-Za-z0-9_]+)*)\s*\(/g;
+  for (const m of text.matchAll(re)) {
+    const mods = m[1]
+      .split("!")
+      .map((x) => x.trim())
+      .filter(Boolean);
+    out.push({ inner: mods.includes("inner"), mods });
+  }
+  return out;
+}
+
 /** What PostgREST would answer for a HEAD count on communication_logs. */
 function countLogs(calls) {
   const select = calls.find((c) => c[0] === "select");
@@ -298,8 +320,9 @@ function countLogs(calls) {
   const columns = String(select[1] ?? "");
   const options = select[2] ?? {};
 
-  const inner = /job_applications!inner\s*\(/.test(columns);
-  const plainEmbed = !inner && /job_applications\s*\(/.test(columns);
+  const embeds = jobApplicationsEmbeds(columns);
+  const inner = embeds.some((e) => e.inner);
+  const plainEmbed = !inner && embeds.length > 0;
 
   const filters = parseFilters(calls);
   const parent = filters.filter((f) => !f.embedded);
@@ -622,8 +645,17 @@ test("STRUCTURE: base() is a function, not a shared query builder", () => {
 test("STRUCTURE: the embed, the two tenant filters and the head count are all present", () => {
   const body = aggregatesBody();
 
+  // Any correct inner embed, an FK hint included (#30), and no other kind.
+  // Read off the code with comments removed: the prose quotes old shapes.
+  const code = body
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("\n")
+    .filter((l) => !l.trim().startsWith("//"))
+    .join("\n");
+  const embeds = jobApplicationsEmbeds(code);
+  assert.ok(embeds.length > 0, "the counts embed job_applications");
   assert.ok(
-    /job_applications!inner\(/.test(body),
+    embeds.every((e) => e.inner),
     "without !inner the embedded filters do not restrict the logs",
   );
   assert.ok(
@@ -652,4 +684,49 @@ test("STRUCTURE: the embed, the two tenant filters and the head count are all pr
     !/scopedApplicationIds\s*\(/.test(body),
     "this site no longer builds an application allow-list",
   );
+});
+
+/* ── #30: any correct inner embed, never a left one ─────────── */
+
+const HINT = "communication_logs_application_id_fkey";
+
+test("#30 an FK-hinted inner embed is read as inner; a plain, hinted-only or !left embed is not", () => {
+  const inner = (cols) => jobApplicationsEmbeds(cols).every((e) => e.inner);
+  for (const cols of [
+    "id, job_applications!inner(job_id, company_id_snapshot)",
+    `id, job_applications!${HINT}!inner(job_id, company_id_snapshot)`,
+    `id, job_applications!inner!${HINT}(job_id, company_id_snapshot)`,
+    "id, app:job_applications!inner(job_id)",
+  ]) {
+    assert.equal(inner(cols), true, cols);
+  }
+  for (const cols of [
+    "id, job_applications(job_id, company_id_snapshot)",
+    `id, job_applications!${HINT}(job_id)`,
+    "id, job_applications!left(job_id)",
+  ]) {
+    assert.equal(inner(cols), false, cols);
+  }
+});
+
+/*
+ * The same count three ways. The hinted inner embed must count exactly as the
+ * plain !inner does: the drift row (another company's application) and the
+ * orphan are dropped. A plain embed is a LEFT join, so the embedded tenant
+ * filter stops restricting the logs and the count grows: the leak this test
+ * file exists to catch. Negative control: put back the literal
+ * "job_applications!inner(" check in countLogs and the hinted count is wrong.
+ */
+test("#30 a hinted inner embed counts like !inner, and a plain left embed does not", () => {
+  const count = (cols) =>
+    countLogs([
+      ["select", cols, { count: "exact", head: true }],
+      ["eq", "company_id", CO],
+      ["eq", "job_applications.company_id_snapshot", CO],
+    ]).count;
+  const plainInner = count("id, job_applications!inner(job_id, company_id_snapshot)");
+  const hinted = count(`id, job_applications!${HINT}!inner(job_id, company_id_snapshot)`);
+  const left = count("id, job_applications(job_id, company_id_snapshot)");
+  assert.equal(hinted, plainInner, "the hint changes nothing about which rows count");
+  assert.ok(left > plainInner, `a left embed must over-count (${left} vs ${plainInner})`);
 });
