@@ -1177,7 +1177,7 @@ export async function sendManualMessage(input: {
   const { data: appData } = await service
     .from("job_applications")
     .select(
-      "id, first_name, last_name, email, job_title_snapshot, jobs(title), company_id_snapshot",
+      "id, first_name, last_name, email, job_id, job_title_snapshot, jobs(title), company_id_snapshot",
     )
     .eq("id", applicationId)
     .eq("company_id_snapshot", ctx.companyId)
