@@ -203,6 +203,36 @@ export async function fetchTeamMembers(): Promise<TeamMemberRow[]> {
 
 // ── Mutations ────────────────────────────────────────────────
 
+/**
+ * Revoke the pending invitations a member SENT in this company (#49). Their
+ * authority to invite ends when they are removed or stop being an owner or
+ * admin, so the invitations they issued must not be redeemable afterwards.
+ * Called BEFORE the membership write and fails closed: the caller reports
+ * failure rather than a removal or demotion that left the invitations live.
+ * accept_company_invite (migration 062) also re-checks the inviter under a row
+ * lock, so this is the tidy half (the Pending list stops showing them) and the
+ * function is the guarantee. Same lock order as that function: invites first,
+ * then the member row.
+ */
+async function revokeInvitesSentBy(
+  service: ReturnType<typeof createServiceClient>,
+  companyId: string,
+  inviterUserId: string | null,
+): Promise<boolean> {
+  if (!inviterUserId) return true;
+  const { error } = await service
+    .from("company_invites")
+    .update({ status: "revoked" })
+    .eq("company_id", companyId)
+    .eq("invited_by", inviterUserId)
+    .eq("status", "pending");
+  if (error) {
+    console.error(`[team] revoking invitations sent by a member failed: ${error.code ?? "error"}`);
+    return false;
+  }
+  return true;
+}
+
 export async function updateMemberRole(
   memberId: string,
   role: string,
@@ -245,6 +275,13 @@ export async function updateMemberRole(
 
   const subjectName =
     (target.name ?? "").trim() || (target.email ?? "").trim() || "A member";
+
+  // A member who can no longer invite loses the invitations they sent (#49).
+  if (role !== "owner" && role !== "admin") {
+    if (!(await revokeInvitesSentBy(service, ctx.companyId, target.user_id))) {
+      return { success: false, error: "Couldn't change this member's role. Please try again." };
+    }
+  }
 
   const { error } = await service
     .from("company_members")
@@ -363,6 +400,11 @@ export async function removeMember(
       );
       return { success: false, error: "Couldn't remove this member. Please try again." };
     }
+  }
+
+  // 1b. ...and every pending invitation they SENT here (#49), same fail-closed rule.
+  if (!(await revokeInvitesSentBy(service, ctx.companyId, target.user_id))) {
+    return { success: false, error: "Couldn't remove this member. Please try again." };
   }
 
   // 2. Soft removal: the status enum already carries "removed", so we keep

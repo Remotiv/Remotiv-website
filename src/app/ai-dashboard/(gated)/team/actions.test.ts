@@ -53,7 +53,7 @@ export async function resolve(specifier, context, next) {
 );
 
 const { fakeService } = await import("../../../../test-support/fake-postgrest.mjs");
-const { removeMember } = await import("./actions.ts");
+const { removeMember, updateMemberRole } = await import("./actions.ts");
 const { acceptInvite } = await import("../../accept/actions.ts");
 
 const CO = "c0000000-0000-0000-0000-000000000001";
@@ -104,13 +104,19 @@ function world({
   members = [],
   users = [],
   revokeFails = null,
+  revokeSentFails = null,
   removeFails = null,
   hooks = {},
+  inviters = [
+    { id: "m-owner", company_id: CO, user_id: "u-owner", role: "owner", status: "active" },
+  ],
 } = {}) {
   const state = {
     invites: structuredClone(invites),
     members: structuredClone(members),
     users: structuredClone(users),
+    // Who SENT the invitations (#49); apart from `members`, which is the joiner side.
+    inviters: structuredClone(inviters),
   };
   const events = [];
   const logged = [];
@@ -119,6 +125,99 @@ function world({
   const service = fakeService(async (table, calls) => {
     const eqs = eqMap(calls);
     const op = calls[0]?.[0];
+    if (table === "rpc:accept_company_invite") {
+      // Migration 062 as one atomic step: the burn hooks bracket the WHOLE
+      // transaction, because nothing can land between its burn and its grant
+      // (the locks; proven on real Postgres by scripts/staging/proofs-062.mjs).
+      const a = calls[0][1];
+      state.rpcCalls = (state.rpcCalls ?? 0) + 1;
+      if (hooks.beforeBurn) await hooks.beforeBurn();
+      const decide = () => {
+        const inv = state.invites.find((i) => i.token_hash === a.p_token_hash);
+        if (!inv) return "invalid";
+        if (inv.status !== "pending" || !(inv.expires_at > new Date().toISOString())) {
+          events.push("burn:lost");
+          return "not_pending";
+        }
+        const invited = inv.email.trim().toLowerCase();
+        if ((a.p_email ?? "").trim().toLowerCase() !== invited) return "email_mismatch";
+        if (
+          !state.users.some((u) => u.id === a.p_user_id && u.email.trim().toLowerCase() === invited)
+        ) {
+          return "user_mismatch";
+        }
+        const ok = (m) =>
+          m.company_id === inv.company_id &&
+          m.user_id === inv.invited_by &&
+          m.status === "active" &&
+          (m.role === "owner" || m.role === "admin");
+        if (!inv.invited_by || ![...state.inviters, ...state.members].some(ok))
+          return "inviter_invalid";
+        inv.status = "accepted";
+        events.push("burn:won");
+        const m = state.members.find(
+          (x) => x.company_id === inv.company_id && x.user_id === a.p_user_id,
+        );
+        if (!m) {
+          events.push("member:insert");
+          state.members.push({
+            id: `m-${nextId++}`,
+            company_id: inv.company_id,
+            user_id: a.p_user_id,
+            name: a.p_name,
+            email: invited,
+            role: inv.role,
+            status: "active",
+          });
+          return "joined";
+        }
+        if (m.status === "active") return "already_member";
+        if (m.status === "removed") {
+          if (m.removed_at == null || !(m.removed_at < inv.created_at)) return "stale_removal";
+        } else if (m.removed_at != null) {
+          return "status_changed";
+        }
+        events.push("member:update");
+        Object.assign(m, {
+          status: "active",
+          role: inv.role,
+          name: a.p_name,
+          email: invited,
+          removed_at: null,
+        });
+        return "joined";
+      };
+      const outcome = decide();
+      if (hooks.afterBurn) hooks.afterBurn();
+      return { data: outcome, error: null };
+    }
+    if (table === "company_members" && op === "select" && calls.some((c) => c[0] === "in")) {
+      // acceptInvite's early, read-only inviter check (#49).
+      const roles = calls.find((c) => c[0] === "in")[2];
+      const row = [...state.inviters, ...state.members].find(
+        (m) =>
+          m.company_id === eqs.company_id &&
+          m.user_id === eqs.user_id &&
+          m.status === eqs.status &&
+          roles.includes(m.role),
+      );
+      return { data: row ? { id: row.id } : null, error: null };
+    }
+    if (table === "company_invites" && op === "update" && "invited_by" in eqs) {
+      // removeMember / updateMemberRole: revoke what the member SENT here (#49).
+      events.push("invites:revoke-sent");
+      if (revokeSentFails) return { data: null, error: revokeSentFails };
+      for (const row of state.invites) {
+        if (
+          row.company_id === eqs.company_id &&
+          row.invited_by === eqs.invited_by &&
+          row.status === eqs.status
+        ) {
+          row.status = calls[0][1].status;
+        }
+      }
+      return { data: null, error: null };
+    }
     if (table === "company_members" && op === "select") {
       if ("id" in eqs) {
         const row = state.members.find((m) => m.id === eqs.id) ?? null;
@@ -283,6 +382,7 @@ const activeRae = {
   status: "active",
 };
 const invite = (overrides = {}) => ({
+  invited_by: "u-owner",
   id: "inv-1",
   company_id: CO,
   email: "rae@acme.test",
@@ -301,14 +401,18 @@ test("1. removing a member revokes that company's pending invitation for them; a
   assert.deepEqual(removed, { success: true, data: undefined });
   assert.equal(w.state.members[0].status, "removed");
   assert.equal(w.state.invites[0].status, "revoked", "no longer pending");
-  assert.deepEqual(w.events, ["invites:revoke", "member:remove"], "revoke FIRST, then remove");
+  assert.deepEqual(
+    w.events,
+    ["invites:revoke", "invites:revoke-sent", "member:remove"],
+    "revoke FIRST, then remove",
+  );
 
   const accepted = await w.accept("tok-1");
   assert.deepEqual(accepted, { success: false, error: "This invitation is no longer active." });
   assert.equal(w.state.members[0].status, "removed", "nothing reactivated");
   assert.deepEqual(
     w.events,
-    ["invites:revoke", "member:remove"],
+    ["invites:revoke", "invites:revoke-sent", "member:remove"],
     "and nothing written by the acceptance",
   );
 });
@@ -441,7 +545,12 @@ test("7a. race, revoke lands before the burn: the acceptance is refused and the 
   const [removal, acceptance] = await Promise.all([w.remove("m-rae"), w.accept("tok-1")]);
   assert.deepEqual(removal, { success: true, data: undefined });
   assert.deepEqual(acceptance, { success: false, error: "This invitation has already been used." });
-  assert.deepEqual(w.events, ["invites:revoke", "burn:lost", "member:remove"]);
+  assert.deepEqual(w.events, [
+    "invites:revoke",
+    "invites:revoke-sent",
+    "burn:lost",
+    "member:remove",
+  ]);
   assert.equal(w.state.members[0].status, "removed", "final state: removed");
   assert.equal(
     w.state.invites[0].status,
@@ -467,7 +576,13 @@ test("7b. race, the burn lands before the revoke: they are reactivated, then rem
   const [removal, accepted] = await Promise.all([w.remove("m-rae"), acceptance]);
   assert.deepEqual(accepted, { success: true });
   assert.deepEqual(removal, { success: true, data: undefined });
-  assert.deepEqual(w.events, ["burn:won", "member:update", "invites:revoke", "member:remove"]);
+  assert.deepEqual(w.events, [
+    "burn:won",
+    "member:update",
+    "invites:revoke",
+    "invites:revoke-sent",
+    "member:remove",
+  ]);
   assert.equal(w.state.members[0].status, "removed", "final state: removed");
   assert.equal(w.state.invites[0].status, "accepted", "the token is spent, not pending");
 });
@@ -510,38 +625,67 @@ const raeMovedUser = { id: "u-rae", email: Y, password: PASSWORD };
 const inviteToY = (overrides = {}) =>
   invite({ id: "inv-y", email: Y, token_hash: hash("tok-y"), ...overrides });
 
-test("7c. (#100, closed by 057) burn, then a full removal, then the acceptance resumes - the member ends removed", async () => {
-  const burned = latch();
+/*
+ * 7c, rewritten for #49 (migration 062). Before 062 the acceptance was three
+ * separate writes, and this test drove a removal BETWEEN its burn and its
+ * membership write. accept_company_invite burns and grants in ONE transaction
+ * holding the joiner's membership row FOR UPDATE, so that interleaving no
+ * longer exists: a removal lands wholly before the function or wholly after
+ * it. Both serial orders are below; that nothing can land between is proven on
+ * a real Postgres by scripts/staging/proofs-062.mjs, not by this fake.
+ */
+test("7c-i. (#49) the removal lands BEFORE the atomic acceptance: refused by 057, the member stays removed, the stale token is spent", async () => {
   const removed = latch();
   const w = world({
     invites: [inviteToY()],
     members: [activeRae], // email X, active
     users: [raeMovedUser], // the same account, now on Y
-    hooks: {
-      afterBurn: burned.release, // the removal starts only once the token is burned
-      beforeRevoke: burned.wait,
-      beforeMemberLookup: removed.wait, // the acceptance resumes only after the removal is done
-    },
+    hooks: { beforeBurn: removed.wait },
   });
   const removal = w.remove("m-rae").then((r) => {
     removed.release();
     return r;
   });
   const [removalResult, acceptance] = await Promise.all([removal, w.accept("tok-y")]);
-  assert.deepEqual(
-    removalResult,
-    { success: true, data: undefined },
-    "the removal reported success",
-  );
-  assert.deepEqual(w.events, ["burn:won", "invites:revoke", "member:remove", "member:update"]);
-  assert.equal(acceptance.success, false, "the stale acceptance is refused by the predicate");
+  assert.deepEqual(removalResult, { success: true, data: undefined });
+  assert.deepEqual(w.events, [
+    "invites:revoke",
+    "invites:revoke-sent",
+    "member:remove",
+    "burn:won",
+  ]);
+  assert.equal(acceptance.success, false, "refused: the invitation predates the removal");
   assert.equal(
     acceptance.error,
     "Couldn't finish joining the workspace. Please ask for a new invitation.",
-    "the same string as any failed join; nothing about why",
   );
   assert.equal(w.state.members[0].status, "removed", "final state: removed");
   assert.equal(w.state.invites[0].status, "accepted", "the stale token is consumed harmlessly");
+});
+
+test("7c-ii. (#49) the atomic acceptance lands BEFORE the removal: already a member, token spent, then removed", async () => {
+  const accepted = latch();
+  const w = world({
+    invites: [inviteToY()],
+    members: [activeRae], // email X, active
+    users: [raeMovedUser], // the same account, now on Y
+    hooks: { afterBurn: accepted.release, beforeRevoke: accepted.wait },
+  });
+  const [removalResult, acceptance] = await Promise.all([w.remove("m-rae"), w.accept("tok-y")]);
+  assert.deepEqual(acceptance, { success: true }, "already an active member: nothing to grant");
+  assert.deepEqual(removalResult, { success: true, data: undefined });
+  assert.deepEqual(w.events, [
+    "burn:won",
+    "invites:revoke",
+    "invites:revoke-sent",
+    "member:remove",
+  ]);
+  assert.equal(w.state.members[0].status, "removed", "final state: removed");
+  assert.equal(
+    w.state.invites[0].status,
+    "accepted",
+    "the token is spent, nothing pending survives",
+  );
 });
 
 test("7d. (#100, closed by 057) no race: row on X, invitation to Y, removal misses Y, the later acceptance does not reactivate", async () => {
@@ -645,3 +789,144 @@ test("control: under 057 even the remove-first order cannot reactivate - the pre
     .eq("status", "pending");
   assert.equal(w.state.members[0].status, "removed", "before 057 this read 'active'");
 });
+
+/* ── #49: an invitation dies with its inviter's authority ─────────────────────
+ * X is an admin of the company who sends an invitation to a new address. The
+ * owner (the action's caller, OWNER_CTX) removes or demotes X. Synthetic data.
+ */
+const adminX = {
+  id: "m-x",
+  company_id: CO,
+  user_id: "u-x",
+  email: "x@acme.test",
+  name: "X",
+  role: "admin",
+  status: "active",
+};
+const fromX = (overrides = {}) =>
+  invite({
+    id: "inv-x",
+    email: "new@acme.test",
+    token_hash: hash("tok-x"),
+    invited_by: "u-x",
+    ...overrides,
+  });
+const NO_LONGER_VALID = "This invitation is no longer valid. Ask your team to send a new one.";
+const rpcCount = (w) => w.state.rpcCalls ?? 0;
+
+test("49-1. inviter REMOVED before acceptance (legacy invite, never revoked): refused at the door, no account, no call, still pending", async () => {
+  const w = world({
+    invites: [fromX()],
+    members: [{ ...adminX, status: "removed", removed_at: REMOVED_EARLIER }],
+  });
+  const r = await w.accept("tok-x");
+  assert.deepEqual(r, { success: false, error: NO_LONGER_VALID });
+  assert.equal(rpcCount(w), 0, "the early check stops it before the function");
+  assert.equal(w.state.users.length, 0, "no account created");
+  assert.equal(w.state.invites[0].status, "pending");
+  assert.equal(w.state.members.length, 1);
+});
+
+test("49-2. inviter DEMOTED to recruiter before acceptance: refused the same way", async () => {
+  const w = world({ invites: [fromX()], members: [{ ...adminX, role: "recruiter" }] });
+  assert.deepEqual(await w.accept("tok-x"), { success: false, error: NO_LONGER_VALID });
+  assert.equal(rpcCount(w), 0);
+  assert.equal(w.state.users.length, 0);
+});
+
+test("49-3. invited_by NULL: refused, no account, nothing written", async () => {
+  const w = world({ invites: [fromX({ invited_by: null })] });
+  assert.deepEqual(await w.accept("tok-x"), { success: false, error: NO_LONGER_VALID });
+  assert.equal(rpcCount(w), 0);
+  assert.equal(w.state.users.length, 0);
+});
+
+test("49-4. inviter still an active ADMIN (not the owner): joins", async () => {
+  const w = world({ invites: [fromX()], members: [adminX] });
+  assert.deepEqual(await w.accept("tok-x"), { success: true });
+  assert.ok(w.state.members.some((m) => m.email === "new@acme.test" && m.status === "active"));
+  assert.equal(w.state.invites[0].status, "accepted");
+});
+
+test("49-5. removeMember(X) revokes the invitations X SENT, before the removal; another inviter's survive", async () => {
+  const other = invite({ id: "inv-o", email: "o@acme.test", token_hash: hash("tok-o") });
+  const w = world({ invites: [fromX(), other], members: [adminX] });
+  assert.deepEqual(await w.remove("m-x"), { success: true, data: undefined });
+  assert.deepEqual(w.events, ["invites:revoke", "invites:revoke-sent", "member:remove"]);
+  assert.equal(w.state.invites.find((i) => i.id === "inv-x").status, "revoked");
+  assert.equal(
+    w.state.invites.find((i) => i.id === "inv-o").status,
+    "pending",
+    "the owner's invite is untouched",
+  );
+  assert.deepEqual(await w.accept("tok-x"), {
+    success: false,
+    error: "This invitation is no longer active.",
+  });
+});
+
+test("49-6. updateMemberRole(X, recruiter) revokes X's invitations before the role write; to admin revokes nothing", async () => {
+  const w = world({ invites: [fromX()], members: [adminX, { ...activeRae, role: "recruiter" }] });
+  const demoted = await capturedCall(() => updateMemberRole("m-x", "recruiter"));
+  assert.deepEqual(demoted, { success: true, data: undefined });
+  assert.deepEqual(w.events, ["invites:revoke-sent", "member:update"]);
+  assert.equal(w.state.invites[0].status, "revoked");
+  w.events.length = 0;
+  const promoted = await capturedCall(() => updateMemberRole("m-rae", "admin"));
+  assert.deepEqual(promoted, { success: true, data: undefined });
+  assert.deepEqual(w.events, ["member:update"], "a promotion revokes nothing");
+});
+
+test("49-7. the revoke of X's invitations fails: removal and demotion both FAIL CLOSED, X unchanged, the code logged", async () => {
+  const fail = {
+    code: "57014",
+    message: "canceling statement due to statement timeout on company_invites",
+  };
+  const w = world({ invites: [fromX()], members: [adminX], revokeSentFails: fail });
+  assert.deepEqual(await w.remove("m-x"), {
+    success: false,
+    error: "Couldn't remove this member. Please try again.",
+  });
+  const demoted = await capturedCall(() => updateMemberRole("m-x", "recruiter"));
+  assert.deepEqual(demoted, {
+    success: false,
+    error: "Couldn't change this member's role. Please try again.",
+  });
+  assert.equal(w.state.members[0].status, "active");
+  assert.equal(w.state.members[0].role, "admin");
+  assert.ok(!w.events.includes("member:remove") && !w.events.includes("member:update"));
+  assert.ok(
+    w.logged.every((l) => !l.includes("company_invites")),
+    "the code only",
+  );
+});
+
+test("49-8. race: X is removed AFTER the early check but BEFORE the atomic grant: the function refuses, the new account is rolled back, nothing granted, still pending", async () => {
+  const w = world({
+    invites: [fromX()],
+    members: [adminX],
+    hooks: {
+      // Inside the window the early check cannot see: the inviter's row changes.
+      beforeBurn: async () => {
+        w.state.members.find((m) => m.id === "m-x").status = "removed";
+      },
+    },
+  });
+  const r = await w.accept("tok-x");
+  assert.deepEqual(r, { success: false, error: NO_LONGER_VALID });
+  assert.equal(rpcCount(w), 1, "the function made the decision");
+  assert.equal(w.state.users.length, 0, "the account created for the dead invitation is deleted");
+  assert.equal(w.state.invites[0].status, "pending", "not burned");
+  assert.ok(!w.state.members.some((m) => m.email === "new@acme.test"), "no membership");
+});
+
+/** updateMemberRole with console.error captured into the same world log. */
+async function capturedCall(fn) {
+  const real = console.error;
+  console.error = () => {};
+  try {
+    return await fn();
+  } finally {
+    console.error = real;
+  }
+}

@@ -90,20 +90,109 @@ function world({
   burnGate = null,
   flipOnRead = null,
   expireOnRead = false,
+  inviters = DEFAULT_INVITERS,
 } = {}) {
   const state = {
     invites: structuredClone(invites),
     members: structuredClone(members),
     users: structuredClone(users),
+    // The members who SENT the invitations (#49), kept apart from `members` so
+    // the counts the older cases assert are about the joiner only.
+    inviters: structuredClone(inviters),
   };
   const events = [];
   const notified = [];
   const logged = [];
+  const rpcCalls = [];
   let nextId = 1;
 
   const service = fakeService(async (table, calls) => {
     const eqs = eqMap(calls);
     const op = calls[0]?.[0];
+    if (table === "rpc:accept_company_invite") {
+      // Migration 062, step for step. One JS turn is one transaction here, so
+      // this fake shows the DECISIONS; the locking itself is proven on a real
+      // Postgres by scripts/staging/proofs-062.mjs.
+      const a = calls[0][1];
+      rpcCalls.push(a);
+      if (burnGate) await burnGate.arrive();
+      const inv = state.invites.find((i) => i.token_hash === a.p_token_hash);
+      if (!inv) return { data: "invalid", error: null };
+      if (inv.status !== "pending") {
+        events.push("burn:lost");
+        return { data: "not_pending", error: null };
+      }
+      if (!(inv.expires_at > new Date().toISOString())) {
+        events.push("burn:lost");
+        return { data: "expired", error: null };
+      }
+      const invited = inv.email.trim().toLowerCase();
+      if ((a.p_email ?? "").trim().toLowerCase() !== invited)
+        return { data: "email_mismatch", error: null };
+      if (
+        !state.users.some((u) => u.id === a.p_user_id && u.email.trim().toLowerCase() === invited)
+      ) {
+        return { data: "user_mismatch", error: null };
+      }
+      const inviterOk = (m) =>
+        m.company_id === inv.company_id &&
+        m.user_id === inv.invited_by &&
+        m.status === "active" &&
+        (m.role === "owner" || m.role === "admin");
+      if (!inv.invited_by || ![...state.inviters, ...state.members].some(inviterOk)) {
+        return { data: "inviter_invalid", error: null };
+      }
+      // A failed write raises inside the function: the WHOLE transaction rolls
+      // back, the burn included, so nothing below is applied.
+      if (memberWriteFails) return { data: null, error: memberWriteFails };
+      inv.status = "accepted";
+      inv.accepted_at = new Date().toISOString();
+      events.push("burn:won");
+      const m = state.members.find(
+        (x) => x.company_id === inv.company_id && x.user_id === a.p_user_id,
+      );
+      if (!m) {
+        events.push("member:insert");
+        state.members.push({
+          id: `m-${nextId++}`,
+          company_id: inv.company_id,
+          user_id: a.p_user_id,
+          name: a.p_name,
+          email: invited,
+          role: inv.role,
+          status: "active",
+        });
+        return { data: "joined", error: null };
+      }
+      if (m.status === "active") return { data: "already_member", error: null };
+      if (m.status === "removed") {
+        if (m.removed_at == null || !(m.removed_at < inv.created_at))
+          return { data: "stale_removal", error: null };
+      } else if (m.removed_at != null) {
+        return { data: "status_changed", error: null };
+      }
+      events.push("member:update");
+      Object.assign(m, {
+        status: "active",
+        role: inv.role,
+        name: a.p_name,
+        email: invited,
+        removed_at: null,
+      });
+      return { data: "joined", error: null };
+    }
+    if (table === "company_members" && op === "select" && calls.some((c) => c[0] === "in")) {
+      // The early, read-only inviter check (accept/actions.ts step 1b).
+      const roles = calls.find((c) => c[0] === "in")[2];
+      const row = [...state.inviters, ...state.members].find(
+        (m) =>
+          m.company_id === eqs.company_id &&
+          m.user_id === eqs.user_id &&
+          m.status === eqs.status &&
+          roles.includes(m.role),
+      );
+      return { data: row ? { id: row.id ?? "m-inviter" } : null, error: null };
+    }
     if (table === "company_invites" && op === "select") {
       const row = state.invites.find((i) => i.token_hash === eqs.token_hash) ?? null;
       const seen = row ? { ...row } : null;
@@ -244,7 +333,7 @@ function world({
       console.error = realError;
     }
   };
-  return { state, events, notified, logged, run };
+  return { state, events, notified, logged, rpcCalls, run };
 }
 
 function gate(expected) {
@@ -276,7 +365,26 @@ function tick() {
 const REMOVED_AT = "2026-11-10T10:00:00.000Z";
 const INVITED_AT = "2026-11-10T11:00:00.000Z";
 
+/** Whoever sent the invitations: an active owner of both test companies (#49). */
+const DEFAULT_INVITERS = [
+  {
+    id: "m-owner-1",
+    company_id: "c0000000-0000-0000-0000-000000000001",
+    user_id: "u-owner",
+    role: "owner",
+    status: "active",
+  },
+  {
+    id: "m-owner-2",
+    company_id: "c0000000-0000-0000-0000-000000000002",
+    user_id: "u-owner",
+    role: "owner",
+    status: "active",
+  },
+];
+
 const invite = (overrides = {}) => ({
+  invited_by: "u-owner",
   id: "inv-1",
   company_id: CO,
   email: "rae@acme.test",
@@ -454,13 +562,15 @@ test("7. a failing membership write: a fixed string, and no constraint, table or
   );
   const everything = [result.error, ...w.logged].join("\n");
   for (const needle of LEAKS) assert.ok(!everything.includes(needle), `leaked ${needle}`);
-  assert.deepEqual(w.logged, ["[accept-invite] write membership: 23505"], "the code only");
+  assert.deepEqual(w.logged, ["[accept-invite] accept invite: 23505"], "the code only");
   assert.ok(w.events.includes("auth:delete"), "the account WE created is rolled back");
   assert.equal(w.state.users.length, 0);
+  // Changed by #49 (migration 062): burn and grant are one transaction now, so
+  // a failed grant rolls the burn back too and the SAME link can be retried.
   assert.equal(
     w.state.invites[0].status,
-    "accepted",
-    "the token is spent: a new invitation is the way back",
+    "pending",
+    "the token is NOT spent: the burn rolled back",
   );
 });
 
@@ -511,11 +621,11 @@ test("13. an invitation created at EXACTLY the removal's instant is refused: str
     "accepted",
     "the token is spent: a fresh invitation is the way back",
   );
-  assert.deepEqual(w.logged, ["[accept-invite] reactivate membership: stale_or_removed_again"]);
+  assert.deepEqual(w.logged, ["[accept-invite] accept invite: stale_removal"]);
   assert.deepEqual(
     w.events,
-    ["auth:create", "auth:signin", "burn:won", "member:update"],
-    "one conditional write that matched nothing",
+    ["auth:create", "auth:signin", "burn:won"],
+    "the function burns and decides; no membership write is attempted",
   );
 });
 
