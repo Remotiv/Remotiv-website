@@ -41,7 +41,8 @@ import {
  * LOGS (names and reason codes only, never a value): the store chosen, once
  * at module load, `[invite-password-limit] store=redis source=upstash|kv`,
  * `store=memory` or `store=production-without-redis missing=...`; each refused attempt,
- * `[invite-password-limit] attempt refused reason=<CODE>`, with the codes of
+ * `[invite-password-limit] attempt refused reason=<CODE>` (`code send refused`,
+ * `code check refused` for the email code, #51), with the codes of
  * api/_lib/redis-diagnostics.ts.
  *
  * FAILS CLOSED. If the shared store cannot answer (Redis configured but
@@ -181,15 +182,35 @@ export type ReserveResult =
   | { ok: false; reason: "unavailable" };
 
 /** Take an attempt slot for this account. Refused once locked, or if the count cannot be taken. */
-export async function reserveInvitePasswordAttempt(email: string): Promise<ReserveResult> {
+export function reserveInvitePasswordAttempt(email: string): Promise<ReserveResult> {
+  return reserve(invitePasswordKey(email), INVITE_PASSWORD_MAX_ATTEMPTS, "attempt");
+}
+
+/**
+ * The email code every invitation acceptance now requires (#51) uses the SAME
+ * store, the same atomic reservation and the same fail-closed rule, under two
+ * more keys per invited address: one for sending a code (each send is an email
+ * to that address, so an admin re-inviting cannot flood it) and one for
+ * checking a code (a wrong guess costs a slot BEFORE the code reaches Supabase).
+ * Keyed on the address like the password count, so a Resend or another
+ * company's invitation shares the budget.
+ */
+export const INVITE_CODE_SEND_MAX = 5;
+export const INVITE_CODE_VERIFY_MAX = 10;
+
+export function inviteCodeKey(kind: "send" | "verify", email: string): string {
+  return `invite-code-${kind}:${createHash("sha256").update(email.trim().toLowerCase()).digest("hex")}`;
+}
+
+async function reserve(key: string, max: number, what: string): Promise<ReserveResult> {
   let count: number;
   try {
-    count = await store.increment(invitePasswordKey(email), INVITE_PASSWORD_LOCK_MS);
+    count = await store.increment(key, INVITE_PASSWORD_LOCK_MS);
   } catch (err) {
-    console.error(`${LOG} attempt refused reason=${redisReasonCode(err)}`);
+    console.error(`${LOG} ${what} refused reason=${redisReasonCode(err)}`);
     return { ok: false, reason: "unavailable" };
   }
-  if (count > INVITE_PASSWORD_MAX_ATTEMPTS) {
+  if (count > max) {
     return {
       ok: false,
       reason: "locked",
@@ -197,6 +218,23 @@ export async function reserveInvitePasswordAttempt(email: string): Promise<Reser
     };
   }
   return { ok: true };
+}
+
+/** One code email to this address. Refused once 5 have gone in the window, or if the count cannot be taken. */
+export function reserveInviteCodeSend(email: string): Promise<ReserveResult> {
+  return reserve(inviteCodeKey("send", email), INVITE_CODE_SEND_MAX, "code send");
+}
+
+/** One code check for this address. Refused once 10 have been tried in the window, or if the count cannot be taken. */
+export function reserveInviteCodeVerify(email: string): Promise<ReserveResult> {
+  return reserve(inviteCodeKey("verify", email), INVITE_CODE_VERIFY_MAX, "code check");
+}
+
+/** A correct code: the address's check count starts again. The send count is left to expire. */
+export async function clearInviteCodeVerify(email: string): Promise<void> {
+  await store.clear(inviteCodeKey("verify", email)).catch((err) => {
+    console.error(`${LOG} clear failed reason=${redisReasonCode(err)}`);
+  });
 }
 
 /** A correct password: the account's count starts again. */

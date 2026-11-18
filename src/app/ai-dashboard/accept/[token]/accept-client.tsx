@@ -3,7 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Eye, EyeOff } from "lucide-react";
-import { acceptInvite } from "../actions";
+import { sendInviteCode } from "../actions";
+import { CodeStep } from "./code-step";
 
 export function AcceptClient({
   token,
@@ -28,6 +29,8 @@ export function AcceptClient({
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // #51: every acceptance proves the address with an emailed code.
+  const [codeSent, setCodeSent] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -43,19 +46,22 @@ export function AcceptClient({
     }
 
     setLoading(true);
-    const result = await acceptInvite({ token, password });
+    const result = await sendInviteCode({ token, password, existingAccount: signInMode });
+    setLoading(false);
 
     if (!result.success) {
       if (result.needsExistingPassword) setSignInMode(true);
       setError(result.error);
-      setLoading(false);
       return;
     }
+    setCodeSent(true);
+  }
 
-    // Full-page navigation, NOT router.push: the session cookie was just set
-    // server-side, and an RSC navigation would render the gated layout with
-    // stale cookies. `loading` stays true — the page is being replaced.
-    window.location.assign("/ai-dashboard");
+  function backToPassword(message: string) {
+    setSignInMode(true);
+    setPassword("");
+    setCodeSent(false);
+    setError(message);
   }
 
   const greeting = inviteeName || email.split("@")[0];
@@ -102,7 +108,18 @@ export function AcceptClient({
             </p>
           </div>
 
-          {error && (
+          {codeSent && (
+            <CodeStep
+              token={token}
+              password={password}
+              existingAccount={signInMode}
+              email={email}
+              submitLabel={signInMode ? "Sign in & join" : `Join ${companyName}`}
+              onNeedsPassword={backToPassword}
+            />
+          )}
+
+          {error && !codeSent && (
             <p
               role="alert"
               aria-live="assertive"
@@ -112,7 +129,7 @@ export function AcceptClient({
             </p>
           )}
 
-          <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
+          <form onSubmit={handleSubmit} hidden={codeSent} className="mt-6 flex flex-col gap-4">
             <div>
               <label
                 htmlFor="accept-password"
@@ -178,11 +195,7 @@ export function AcceptClient({
               aria-busy={loading}
               className="mt-2 w-full rounded-xl bg-remotiv-purple py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
             >
-              {loading
-                ? "Joining…"
-                : signInMode
-                  ? "Sign in & join"
-                  : `Join ${companyName}`}
+              {loading ? "Sending code…" : "Continue"}
             </button>
           </form>
 

@@ -44,10 +44,12 @@ const STUBS = {
   "@/lib/supabase/server": [
     "export function createServiceClient() { return globalThis.__acceptService(); }",
     "export async function createClient() { return globalThis.__acceptAuthClient(); }",
+    "export function createStatelessClient() { return globalThis.__acceptStateless(); }",
   ].join("\\n"),
   "@/app/api/_lib/rate-limit": "export function rateLimitByKey() { return { ok: true }; }",
-  "@/lib/notifications/company": "export async function notifyCompany(input) { globalThis.__acceptNotified.push(input); }",
   "@/lib/company-identity": "export function isAlreadyRegistered(m) { return /already|exists|registered/i.test(m); }",
+  "@/lib/notifications/company": "export async function notifyCompany(input) { globalThis.__acceptNotified.push(input); }",
+  "@/lib/email/send": "export async function sendEmail(payload) { return globalThis.__acceptEmail(payload); }",
 };
 export async function resolve(specifier, context, next) {
   if (specifier in STUBS) return { url: "data:text/javascript," + encodeURIComponent(STUBS[specifier]), shortCircuit: true };
@@ -56,7 +58,10 @@ export async function resolve(specifier, context, next) {
 );
 
 const { fakeService } = await import("../../../test-support/fake-postgrest.mjs");
-const { acceptInvite } = await import("./actions.ts");
+const { acceptInvite, sendInviteCode } = await import("./actions.ts");
+// The real limiter module, the same instance the action imports: every world
+// starts it on a fresh memory store, so one test's sends never lock another's.
+const limit = await import("../../../lib/invite-password-limit.ts");
 
 const CO = "c0000000-0000-0000-0000-000000000001";
 const TOMORROW = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
@@ -86,12 +91,23 @@ function world({
   members = [],
   users = [],
   memberWriteFails = null,
+  setPasswordFails = null,
   createUserFails = null,
   burnGate = null,
   flipOnRead = null,
   expireOnRead = false,
   inviters = DEFAULT_INVITERS,
+  sameCode = false,
+  linkError = null,
+  emailFails = false,
+  companies = [
+    { id: CO, name: "Acme & Sons" },
+    { id: "c0000000-0000-0000-0000-000000000002", name: "Beta" },
+  ],
+  verifiedEmail = null,
+  keepLimit = false,
 } = {}) {
+  if (!keepLimit) limit.setInvitePasswordStoresForTests(limit.memoryAttemptStore());
   const state = {
     invites: structuredClone(invites),
     members: structuredClone(members),
@@ -104,6 +120,20 @@ function world({
   const notified = [];
   const logged = [];
   const rpcCalls = [];
+  const signOuts = [];
+  // The code Supabase last emailed to each address. Each works once, and a
+  // newer send replaces it: staging refused the older code once a newer one
+  // was issued for an account that already existed, which every send here is
+  // (scripts/staging/proofs-051.mjs, N). `expired` holds codes past their
+  // lifetime. `sameCode` keeps one reusable code so two racing acceptances
+  // both get past it to the burn (test 6).
+  const codes = new Map(); // address -> the last code its INBOX received
+  const issued = new Map();
+  const minted = [];
+  const emails = [];
+  const expired = new Set();
+  let nextCode = 100001;
+  let inviteReads = 0;
   let nextId = 1;
 
   const service = fakeService(async (table, calls) => {
@@ -196,8 +226,11 @@ function world({
     if (table === "company_invites" && op === "select") {
       const row = state.invites.find((i) => i.token_hash === eqs.token_hash) ?? null;
       const seen = row ? { ...row } : null;
-      if (row && flipOnRead) row.status = flipOnRead; // withdrawn after the read, before the burn
-      if (row && expireOnRead) row.expires_at = YESTERDAY; // expired after the read, before the burn
+      // The second read is acceptInvite's (the first is sendInviteCode's):
+      // the change lands after it, before the burn.
+      inviteReads += 1;
+      if (row && flipOnRead && inviteReads === 2) row.status = flipOnRead;
+      if (row && expireOnRead && inviteReads === 2) row.expires_at = YESTERDAY;
       return { data: seen, error: null };
     }
     if (table === "company_invites" && op === "update") {
@@ -281,25 +314,63 @@ function world({
       state.members.push({ id: `m-${nextId++}`, ...row });
       return { data: null, error: null };
     }
+    if (table === "companies" && op === "select") {
+      const row = companies.find((c) => c.id === eqs.id);
+      return { data: row ? { name: row.name } : null, error: null };
+    }
     throw new Error(`unexpected ${op} on ${table}`);
   });
   service.auth = {
     admin: {
-      async createUser({ email, password }) {
-        events.push("auth:create");
-        if (createUserFails) return { data: { user: null }, error: createUserFails };
+      async updateUserById(id, attrs) {
+        events.push("auth:set-password");
+        if (setPasswordFails) return { data: { user: null }, error: setPasswordFails };
+        const user = state.users.find((u) => u.id === id);
+        user.password = attrs.password;
+        user.meta = { ...(user.meta ?? {}), ...attrs.user_metadata };
+        user.app = { ...(user.app ?? {}), ...attrs.app_metadata };
+        return { data: { user: { id } }, error: null };
+      },
+      async createUser({ email, password, email_confirm, app_metadata }) {
         if (state.users.some((u) => u.email === email)) {
           return {
             data: { user: null },
             error: {
               message: "A user with this email address has already been registered",
               code: "email_exists",
+              status: 422,
             },
           };
         }
-        const user = { id: `u-${nextId++}`, email, password };
+        if (createUserFails) return { data: { user: null }, error: createUserFails };
+        const user = {
+          id: `u-${nextId++}`,
+          email,
+          password: password ?? null,
+          confirmed: email_confirm === true,
+          app: { ...app_metadata },
+        };
         state.users.push(user);
+        events.push("auth:create");
         return { data: { user: { id: user.id } }, error: null };
+      },
+      /** Mints a code and sends NOTHING, as Supabase's does. */
+      async generateLink({ type, email }) {
+        if (linkError) return { data: null, error: linkError };
+        let user = state.users.find((u) => u.email === email);
+        if (!user) {
+          // Supabase would create an unmarked account here; the action never lets it.
+          user = { id: `u-${nextId++}`, email, password: null };
+          state.users.push(user);
+          events.push("auth:link-create");
+        }
+        const fresh = sameCode ? "424242" : String(nextCode++);
+        issued.set(email, [fresh]);
+        minted.push(fresh);
+        return {
+          data: { user: { id: user.id }, properties: { email_otp: fresh, type } },
+          error: null,
+        };
       },
       async deleteUser(id) {
         events.push("auth:delete");
@@ -308,6 +379,55 @@ function world({
       },
     },
   };
+  /** Checks on a client with NO cookies: nothing here signs the browser in. */
+  const stateless = () => ({
+    auth: {
+      async signInWithPassword({ email, password }) {
+        const user = state.users.find(
+          (u) => u.email === email && u.password != null && u.password === password,
+        );
+        events.push(user ? "auth:check" : "auth:check-failed");
+        return user
+          ? { data: { user: { id: user.id } }, error: null }
+          : { data: { user: null }, error: { message: "Invalid login credentials", status: 400 } };
+      },
+      // Never called for an invitation (#51): this would be a Supabase email.
+      async signInWithOtp() {
+        events.push("auth:supabase-email");
+        return { data: {}, error: null };
+      },
+      async verifyOtp({ email, token, type }) {
+        const user = state.users.find((u) => u.email === email);
+        const valid = issued.get(email) ?? [];
+        if (type !== "email" || !user || !valid.includes(token) || expired.has(token)) {
+          events.push("auth:code-wrong");
+          return { data: { user: null }, error: { code: "otp_expired", status: 403 } };
+        }
+        if (!sameCode)
+          issued.set(
+            email,
+            valid.filter((c) => c !== token),
+          );
+        events.push("auth:code-ok");
+        return {
+          data: {
+            user: {
+              id: user.id,
+              email: verifiedEmail ?? user.email,
+              user_metadata: { ...(user.meta ?? {}) },
+              app_metadata: { provider: "email", ...(user.app ?? {}) },
+            },
+          },
+          error: null,
+        };
+      },
+      async signOut(opts) {
+        signOuts.push(opts?.scope);
+        return { error: null };
+      },
+    },
+  });
+  /** The cookie-bound client: signing in here signs the BROWSER in. */
   const authClient = {
     auth: {
       async signInWithPassword({ email, password }) {
@@ -322,18 +442,55 @@ function world({
 
   globalThis.__acceptService = () => service;
   globalThis.__acceptAuthClient = () => authClient;
+  globalThis.__acceptStateless = stateless;
+  /** Our Resend path: records every email, and the code the recipient can read. */
+  globalThis.__acceptEmail = async (payload) => {
+    emails.push(payload);
+    if (emailFails) return { ok: false, error: "Resend error" };
+    const code = /letter-spacing: 8px;">(\d+)</.exec(payload.html)?.[1];
+    if (code) codes.set(payload.to, code);
+    events.push("email:code");
+    return { ok: true };
+  };
   globalThis.__acceptNotified = notified;
 
   const realError = console.error;
-  const run = async (token, password = PASSWORD) => {
+  const quiet = async (fn) => {
     console.error = (...args) => logged.push(args.map(String).join(" "));
     try {
-      return await acceptInvite({ token, password });
+      return await fn();
     } finally {
       console.error = realError;
     }
   };
-  return { state, events, notified, logged, rpcCalls, run };
+  const emailOf = (token) => state.invites.find((i) => i.token_hash === hash(token))?.email ?? "";
+  /** What the page's form does: the existing-account hint, like hasExistingAccount. */
+  const hint = (token) => state.users.some((u) => u.email === emailOf(token) && u.password != null);
+  const send = (token, password = PASSWORD, existingAccount = hint(token)) =>
+    quiet(() => sendInviteCode({ token, password, existingAccount }));
+  const accept = (token, password = PASSWORD, code = codes.get(emailOf(token)) ?? "") =>
+    quiet(() => acceptInvite({ token, password, code }));
+  /** Both steps, with the code the address received, as a person would. */
+  const run = async (token, password = PASSWORD, { existingAccount, code } = {}) => {
+    const sent = await send(token, password, existingAccount ?? hint(token));
+    if (!sent.success) return sent;
+    return accept(token, password, code ?? codes.get(emailOf(token)) ?? "");
+  };
+  return {
+    state,
+    events,
+    notified,
+    logged,
+    rpcCalls,
+    signOuts,
+    codes,
+    expired,
+    minted,
+    emails,
+    send,
+    accept,
+    run,
+  };
 }
 
 function gate(expected) {
@@ -419,7 +576,15 @@ test("1. a removed member accepting a FRESH invitation is reactivated: active, t
   assert.equal(row.role, "recruiter", "the role comes from the NEW invitation, not the old row");
   assert.equal(row.name, "Rae Recruiter", "and so does the name");
   assert.equal(w.state.invites[0].status, "accepted", "the token is spent");
-  assert.deepEqual(w.events, ["auth:create", "auth:signin", "burn:won", "member:update"]);
+  assert.deepEqual(w.events, [
+    "auth:check",
+    "email:code",
+    "auth:code-ok",
+    "auth:check",
+    "burn:won",
+    "member:update",
+    "auth:signin",
+  ]);
   assert.equal(w.notified.length, 1);
   assert.ok(!w.logged.some((l) => /23505|duplicate/.test(l)), "no duplicate-key error anywhere");
 });
@@ -468,7 +633,13 @@ test("2d. withdrawn between the read and the burn: the burn's own predicate refu
   });
   const result = await w.run("tok-1");
   assert.deepEqual(result, { success: false, error: "This invitation has already been used." });
-  assert.deepEqual(w.events, ["auth:create", "auth:signin", "burn:lost"]);
+  assert.deepEqual(w.events, [
+    "auth:check",
+    "email:code",
+    "auth:code-ok",
+    "auth:check",
+    "burn:lost",
+  ]);
   assert.equal(w.state.members[0].status, "removed", "membership untouched");
   assert.equal(w.state.invites[0].status, "revoked", "and the invite stays as withdrawn");
 });
@@ -482,7 +653,13 @@ test("2e. expired between the read and the burn: the burn's own expires_at predi
   });
   const result = await w.run("tok-1");
   assert.deepEqual(result, { success: false, error: "This invitation has already been used." });
-  assert.deepEqual(w.events, ["auth:create", "auth:signin", "burn:lost"]);
+  assert.deepEqual(w.events, [
+    "auth:check",
+    "email:code",
+    "auth:code-ok",
+    "auth:check",
+    "burn:lost",
+  ]);
   assert.equal(w.state.invites[0].status, "pending", "not consumed: the burn did not match");
   assert.equal(w.state.members[0].status, "removed", "membership untouched");
 });
@@ -506,7 +683,11 @@ test("4. an active member re-clicking a valid link: short-circuits, writes nothi
   });
   const result = await w.run("tok-1");
   assert.deepEqual(result, { success: true });
-  assert.deepEqual(w.events, ["auth:create", "auth:signin", "burn:won"], "no membership write");
+  assert.deepEqual(
+    w.events,
+    ["auth:check", "email:code", "auth:code-ok", "auth:check", "burn:won", "auth:signin"],
+    "no membership write",
+  );
   assert.equal(w.state.members[0].role, "owner", "the existing role is not touched");
   assert.equal(w.state.invites[0].status, "accepted");
   assert.equal(w.notified.length, 0, "nobody joined, so no bell");
@@ -521,12 +702,24 @@ test("5. a brand new address: account created, membership inserted, one row, sig
   assert.equal(w.state.members[0].user_id, w.state.users[0].id);
   assert.equal(w.state.members[0].status, "active");
   assert.equal(w.state.members[0].role, "recruiter");
-  assert.deepEqual(w.events, ["auth:create", "burn:won", "member:insert", "auth:signin"]);
+  assert.deepEqual(w.events, [
+    "auth:create",
+    "email:code",
+    "auth:code-ok",
+    "auth:set-password",
+    "burn:won",
+    "member:insert",
+    "auth:signin",
+  ]);
   assert.equal(w.notified.length, 1);
 });
 
 test("6. TWO CONCURRENT ACCEPTANCES of one token: exactly one succeeds, the other is told it was used, one row", async () => {
-  const w = world({ invites: [invite({ email: "new@acme.test" })], burnGate: gate(2) });
+  const w = world({
+    invites: [invite({ email: "new@acme.test" })],
+    burnGate: gate(2),
+    sameCode: true,
+  });
   const [a, b] = await Promise.all([w.run("tok-1"), w.run("tok-1")]);
   const results = [a, b];
   assert.equal(results.filter((r) => r.success).length, 1, "exactly one success");
@@ -574,21 +767,21 @@ test("7. a failing membership write: a fixed string, and no constraint, table or
   );
 });
 
-test("8. a wrong password on an existing account does not spend the token (account before burn)", async () => {
+test("8. a wrong password on an existing account does not spend the token, and sends no code", async () => {
   const w = world({ invites: [invite()], members: [removedRae], users: [raeUser] });
   const result = await w.run("tok-1", "not the password");
   assert.equal(result.success, false);
   assert.equal(result.needsExistingPassword, true);
-  assert.deepEqual(w.events, ["auth:create", "auth:signin-failed"]);
+  assert.deepEqual(w.events, ["auth:check-failed"]);
   assert.equal(w.state.invites[0].status, "pending", "still usable with the right password");
   assert.equal(w.state.members[0].status, "removed");
 });
 
-test("9. an account that cannot be created: a fixed string, the code logged, the token not spent", async () => {
+test("9. a new account whose password cannot be set: a fixed string, the code logged, the token not spent", async () => {
   const w = world({
     invites: [invite({ email: "new@acme.test" })],
-    createUserFails: {
-      message: "Database error saving new user: relation auth.users",
+    setPasswordFails: {
+      message: "Database error updating user: relation auth.users",
       status: 500,
     },
   });
@@ -597,9 +790,9 @@ test("9. an account that cannot be created: a fixed string, the code logged, the
     success: false,
     error: "Couldn't create your account. Please try again.",
   });
-  assert.deepEqual(w.logged, ["[accept-invite] create account: 500"]);
+  assert.deepEqual(w.logged, ["[accept-invite] set password: 500"]);
   assert.equal(w.state.invites[0].status, "pending");
-  assert.deepEqual(w.events, ["auth:create"]);
+  assert.deepEqual(w.events, ["auth:create", "email:code", "auth:code-ok", "auth:set-password"]);
 });
 
 /* ── 057: the reactivation predicate (#100) ─────────────────────────────── */
@@ -624,7 +817,7 @@ test("13. an invitation created at EXACTLY the removal's instant is refused: str
   assert.deepEqual(w.logged, ["[accept-invite] accept invite: stale_removal"]);
   assert.deepEqual(
     w.events,
-    ["auth:create", "auth:signin", "burn:won"],
+    ["auth:check", "email:code", "auth:code-ok", "auth:check", "burn:won"],
     "the function burns and decides; no membership write is attempted",
   );
 });
@@ -684,7 +877,6 @@ test("control: the fake refuses a duplicate (company_id, user_id) the way the da
  * instance the action imports), with a fresh memory store and a hand clock per
  * test. Sam has an existing login and no membership anywhere.
  */
-const limit = await import("../../../lib/invite-password-limit.ts");
 const CO2 = "c0000000-0000-0000-0000-000000000002";
 const LOCKED = "Too many incorrect passwords for this account. Please try again in 15 minutes.";
 const samUser = { id: "u-sam", email: "sam@acme.test", password: PASSWORD };
@@ -700,11 +892,12 @@ function freshLimit() {
   limit.setInvitePasswordStoresForTests(limit.memoryAttemptStore(() => t));
   return { advance: (ms) => (t += ms) };
 }
-const signIns = (w) => w.events.filter((e) => e.startsWith("auth:signin")).length;
+/** Password checks that reached Supabase, right or wrong. */
+const signIns = (w) => w.events.filter((e) => e.startsWith("auth:check")).length;
 
 test("48-1. ten wrong passwords, then locked: the 11th never reaches the password check and spends nothing", async () => {
   freshLimit();
-  const w = world({ invites: [samInvite(1)], users: [samUser] });
+  const w = world({ keepLimit: true, invites: [samInvite(1)], users: [samUser] });
   for (let i = 0; i < 10; i++) {
     const r = await w.run("sam-1", `wrong password ${i}`);
     assert.equal(r.needsExistingPassword, true);
@@ -720,6 +913,7 @@ test("48-1. ten wrong passwords, then locked: the 11th never reaches the passwor
 test("48-2. a Resend (new token) and another company's invitation to the same account are still locked", async () => {
   freshLimit();
   const w = world({
+    keepLimit: true,
     invites: [samInvite(1), samInvite(2), samInvite(3, { company_id: CO2 })],
     users: [samUser],
   });
@@ -733,6 +927,7 @@ test("48-2. a Resend (new token) and another company's invitation to the same ac
 test("48-3. concurrent: 30 attempts across three tokens and two companies at once, at most 10 password checks", async () => {
   freshLimit();
   const w = world({
+    keepLimit: true,
     invites: [samInvite(1), samInvite(2), samInvite(3, { company_id: CO2 })],
     users: [samUser],
   });
@@ -745,7 +940,7 @@ test("48-3. concurrent: 30 attempts across three tokens and two companies at onc
 
 test("48-4. after the lock window, the right password joins", async () => {
   const c = freshLimit();
-  const w = world({ invites: [samInvite(1)], users: [samUser] });
+  const w = world({ keepLimit: true, invites: [samInvite(1)], users: [samUser] });
   for (let i = 0; i < 11; i++) await w.run("sam-1", `wrong password ${i}`);
   c.advance(limit.INVITE_PASSWORD_LOCK_MS + 1000);
   const ok = await w.run("sam-1", PASSWORD);
@@ -759,7 +954,11 @@ test("48-4. after the lock window, the right password joins", async () => {
 
 test("48-5. the right password clears the count: the next invitation gets a full ten again", async () => {
   freshLimit();
-  const w = world({ invites: [samInvite(1), samInvite(2, { company_id: CO2 })], users: [samUser] });
+  const w = world({
+    keepLimit: true,
+    invites: [samInvite(1), samInvite(2, { company_id: CO2 })],
+    users: [samUser],
+  });
   for (let i = 0; i < 9; i++) await w.run("sam-1", `wrong password ${i}`);
   assert.equal((await w.run("sam-1", PASSWORD)).success, true);
   for (let i = 0; i < 10; i++) {
@@ -770,7 +969,10 @@ test("48-5. the right password clears the count: the next invitation gets a full
 
 test("48-6. a NEW address (no existing login) is not counted: account creation is not a password guess", async () => {
   freshLimit();
-  const w = world({ invites: [invite({ email: "new@acme.test", token_hash: hash("new-1") })] });
+  const w = world({
+    keepLimit: true,
+    invites: [invite({ email: "new@acme.test", token_hash: hash("new-1") })],
+  });
   const r = await w.run("new-1", PASSWORD);
   assert.equal(r.success, true);
   assert.equal((await limit.reserveInvitePasswordAttempt("new@acme.test")).ok, true);
@@ -783,7 +985,7 @@ test("48-7. the attempt store unavailable: FAILS CLOSED - refused before the pas
     },
     async clear() {},
   });
-  const w = world({ invites: [samInvite(1)], users: [samUser] });
+  const w = world({ keepLimit: true, invites: [samInvite(1)], users: [samUser] });
   const r = await w.run("sam-1", PASSWORD);
   assert.deepEqual(r, {
     success: false,
@@ -794,6 +996,469 @@ test("48-7. the attempt store unavailable: FAILS CLOSED - refused before the pas
   assert.equal(w.state.invites[0].status, "pending");
   assert.equal(w.state.members.length, 0);
   freshLimit();
+});
+
+/* ── #51: an emailed code for EVERY acceptance ────────────────────────────
+ * The code goes to the INVITED address; the account it proves must be that
+ * address; a wrong or expired code writes nothing; an existing account proves
+ * its password as well; sending and checking are limited per address, on the
+ * #48 store, failing closed.
+ */
+const CODE_WRONG = "That code is not right or has expired.";
+const WRONG_PASSWORD =
+  "That password doesn't match your existing Remotiv account. Enter your current password to join.";
+const newInvite = (overrides = {}) =>
+  invite({ email: "new@acme.test", name: "New Person", ...overrides });
+
+test("51-1. a new address: the send creates the account with NO password and NO membership, and emails a code", async () => {
+  const w = world({ invites: [newInvite()] });
+  assert.deepEqual(await w.send("tok-1"), { success: true });
+  assert.equal(w.state.users.length, 1);
+  assert.equal(w.state.users[0].password, null, "no password until the code is proved");
+  assert.equal(w.state.users[0].app.remotiv_invite_signup, true, "marked, in app_metadata");
+  assert.equal(w.state.users[0].confirmed, false, "unconfirmed until the code is proved");
+  assert.equal(w.state.users[0].meta, undefined, "nothing in user_metadata");
+  assert.equal(w.state.members.length, 0);
+  assert.equal(w.state.invites[0].status, "pending");
+  assert.deepEqual(w.events, ["auth:create", "email:code"]);
+});
+
+test("51-2. a wrong code writes nothing: no password, no burn, no membership, nobody signed in", async () => {
+  const w = world({ invites: [newInvite()] });
+  await w.send("tok-1");
+  const r = await w.accept("tok-1", PASSWORD, "000000");
+  assert.deepEqual(r, { success: false, error: CODE_WRONG });
+  assert.deepEqual(w.events, ["auth:create", "email:code", "auth:code-wrong"]);
+  assert.equal(w.state.users[0].password, null);
+  assert.equal(w.state.invites[0].status, "pending");
+  assert.equal(w.state.members.length, 0);
+  assert.equal(w.rpcCalls.length, 0);
+});
+
+test("51-3. an expired code and a code replaced by a newer send write nothing; the newest code joins", async () => {
+  const w = world({ invites: [newInvite()] });
+  await w.send("tok-1");
+  const first = w.codes.get("new@acme.test");
+  await w.send("tok-1");
+  const second = w.codes.get("new@acme.test");
+  assert.deepEqual(await w.accept("tok-1", PASSWORD, first), { success: false, error: CODE_WRONG });
+  w.expired.add(second);
+  assert.deepEqual(await w.accept("tok-1", PASSWORD, second), {
+    success: false,
+    error: CODE_WRONG,
+  });
+  assert.equal(w.state.members.length, 0);
+  assert.equal(w.state.users[0].password, null);
+  assert.equal(w.state.invites[0].status, "pending");
+  w.expired.delete(second);
+  assert.deepEqual(await w.accept("tok-1", PASSWORD, second), { success: true });
+  assert.equal(w.state.members.length, 1);
+});
+
+test("51-4. a code works ONCE: replaying it after a join is refused", async () => {
+  const w = world({ invites: [newInvite()] });
+  await w.send("tok-1");
+  const code = w.codes.get("new@acme.test");
+  assert.deepEqual(await w.accept("tok-1", PASSWORD, code), { success: true });
+  const again = await w.accept("tok-1", PASSWORD, code);
+  assert.equal(again.success, false);
+});
+
+test("51-5. a code that does not look like one never reaches Supabase and costs no check", async () => {
+  const w = world({ invites: [newInvite()] });
+  await w.send("tok-1");
+  for (const code of ["", "12345", "abcdef", "12345678901", " 1 2 3 4 5 6"]) {
+    assert.deepEqual(await w.accept("tok-1", PASSWORD, code), {
+      success: false,
+      error: CODE_WRONG,
+    });
+  }
+  assert.ok(!w.events.some((e) => e.startsWith("auth:code-wrong")), "verifyOtp never called");
+  assert.equal(
+    (await limit.reserveInviteCodeVerify("new@acme.test")).ok,
+    true,
+    "the check budget is untouched",
+  );
+});
+
+test("51-6. an existing account needs its password AND the code: the right code with a wrong password writes nothing", async () => {
+  const w = world({ invites: [invite()], members: [removedRae], users: [raeUser] });
+  assert.deepEqual(await w.send("tok-1"), { success: true });
+  const r = await w.accept("tok-1", "not the password");
+  assert.deepEqual(r, { success: false, error: WRONG_PASSWORD, needsExistingPassword: true });
+  assert.equal(w.rpcCalls.length, 0, "never reaches the grant");
+  assert.equal(w.state.members[0].status, "removed");
+  assert.equal(w.state.invites[0].status, "pending");
+  assert.equal(raeUser.password, PASSWORD);
+  assert.equal(w.state.users[0].password, PASSWORD, "the existing password is not changed");
+  assert.ok(!w.events.includes("auth:signin"), "the browser is not signed in");
+});
+
+test("51-7. an existing account with the right password but the wrong code writes nothing", async () => {
+  const w = world({ invites: [invite()], members: [removedRae], users: [raeUser] });
+  await w.send("tok-1");
+  const r = await w.accept("tok-1", PASSWORD, "999999");
+  assert.deepEqual(r, { success: false, error: CODE_WRONG });
+  assert.equal(w.rpcCalls.length, 0);
+  assert.equal(w.state.members[0].status, "removed");
+  assert.ok(!w.events.includes("auth:signin"));
+});
+
+test("51-8. an existing account sent down the NEW path (a wrong hint) still has to prove its password: nothing written, password unchanged", async () => {
+  const w = world({ invites: [invite()], members: [removedRae], users: [raeUser] });
+  const sent = await w.send("tok-1", "a brand new password", false);
+  assert.deepEqual(sent, { success: true }, "the code goes to the owner of the address");
+  assert.ok(!w.events.includes("auth:create"), "no second account");
+  assert.equal(w.state.users.length, 1);
+  assert.equal(w.state.users[0].app, undefined, "an account that existed is never marked");
+  const r = await w.accept("tok-1", "a brand new password");
+  assert.deepEqual(r, { success: false, error: WRONG_PASSWORD, needsExistingPassword: true });
+  assert.ok(!w.events.includes("auth:set-password"), "the code alone never sets a password");
+  assert.equal(w.state.users[0].password, PASSWORD);
+  assert.equal(w.rpcCalls.length, 0);
+});
+
+test("51-9. the account the code proves must BE the invited address: any other is refused, nothing written", async () => {
+  const w = world({ invites: [newInvite()], verifiedEmail: "someone.else@acme.test" });
+  await w.send("tok-1");
+  const r = await w.accept("tok-1");
+  assert.deepEqual(r, { success: false, error: CODE_WRONG });
+  assert.ok(!w.events.includes("auth:set-password"));
+  assert.equal(w.rpcCalls.length, 0);
+  assert.equal(w.state.members.length, 0);
+  assert.deepEqual(w.logged, ["[accept-invite] check code: email_mismatch"]);
+});
+
+test("51-10. the browser is signed in only after the grant; every session the checks opened is closed", async () => {
+  const fresh = world({ invites: [newInvite()] });
+  assert.deepEqual(await fresh.run("tok-1"), { success: true });
+  assert.equal(fresh.events.at(-1), "auth:signin");
+  assert.ok(fresh.events.indexOf("auth:signin") > fresh.events.indexOf("burn:won"));
+  assert.deepEqual(fresh.signOuts, ["local"], "the code's session, locally only");
+
+  const existing = world({ invites: [invite()], members: [removedRae], users: [raeUser] });
+  assert.deepEqual(await existing.run("tok-1"), { success: true });
+  assert.equal(existing.events.filter((e) => e === "auth:signin").length, 1);
+  assert.ok(existing.events.indexOf("auth:signin") > existing.events.indexOf("burn:won"));
+  assert.deepEqual(
+    existing.signOuts,
+    ["local", "local", "local"],
+    "two password checks and the code",
+  );
+
+  const refused = world({ invites: [invite()], members: [removedRae], users: [raeUser] });
+  await refused.send("tok-1");
+  await refused.accept("tok-1", "not the password");
+  assert.ok(!refused.events.includes("auth:signin"));
+  assert.ok(
+    refused.signOuts.every((x) => x === "local"),
+    "never a global sign-out",
+  );
+});
+
+test("51-11. a new account's password is set and its marker cleared: the next invitation asks for that password", async () => {
+  const w = world({
+    invites: [newInvite(), newInvite({ id: "inv-2", company_id: CO2, token_hash: hash("tok-2") })],
+  });
+  assert.deepEqual(await w.run("tok-1"), { success: true });
+  assert.equal(w.state.users[0].password, PASSWORD);
+  assert.equal(w.state.users[0].app.remotiv_invite_signup, null);
+  const sent = await w.send("tok-2", "another password!", false);
+  assert.equal(sent.success, true);
+  const r = await w.accept("tok-2", "another password!");
+  assert.deepEqual(r, { success: false, error: WRONG_PASSWORD, needsExistingPassword: true });
+  assert.equal(w.state.users[0].password, PASSWORD, "not overwritten by the code");
+  assert.deepEqual(await w.run("tok-2", PASSWORD), { success: true }, "the real password joins");
+});
+
+test("51-12. a refused grant deletes the account the code step made, never one that existed", async () => {
+  const made = world({
+    invites: [newInvite()],
+    memberWriteFails: { code: "XX000", message: "boom" },
+  });
+  assert.equal((await made.run("tok-1")).success, false);
+  assert.ok(made.events.includes("auth:delete"));
+  assert.equal(made.state.users.length, 0, "the account this invitation made is rolled back");
+
+  const existing = world({
+    invites: [invite()],
+    members: [removedRae],
+    users: [raeUser],
+    memberWriteFails: { code: "XX000", message: "boom" },
+  });
+  assert.equal((await existing.run("tok-1")).success, false);
+  assert.ok(!existing.events.includes("auth:delete"));
+  assert.equal(existing.state.users.length, 1, "an existing account is never deleted");
+
+  // Refused by the early, read-only check (the inviter went between the two
+  // steps): nothing is deleted, and the address keeps an account with no
+  // password and no membership, as the send left it.
+  const early = world({ invites: [newInvite()] });
+  await early.send("tok-1");
+  early.state.inviters.length = 0;
+  assert.equal((await early.accept("tok-1")).success, false);
+  assert.ok(!early.events.includes("auth:code-ok"), "the code is not even checked");
+  assert.equal(early.state.users.length, 1);
+  assert.equal(early.state.members.length, 0);
+});
+
+test("51-13. sending is limited per ADDRESS: 5, then refused, across a Resend and another company; nothing more is emailed", async () => {
+  const w = world({
+    invites: [newInvite(), newInvite({ id: "inv-2", company_id: CO2, token_hash: hash("tok-2") })],
+  });
+  for (let i = 0; i < 5; i++) assert.deepEqual(await w.send("tok-1"), { success: true });
+  const locked = "Too many codes were sent to this email. Please try again in 15 minutes.";
+  assert.deepEqual(await w.send("tok-1"), { success: false, error: locked });
+  assert.deepEqual(await w.send("tok-2"), { success: false, error: locked });
+  assert.equal(w.events.filter((e) => e === "email:code").length, 5);
+});
+
+test("51-14. checking is limited per ADDRESS: 10 wrong codes, then even the right code is refused before Supabase", async () => {
+  const w = world({ invites: [newInvite()] });
+  await w.send("tok-1");
+  for (let i = 0; i < 10; i++) {
+    assert.equal((await w.accept("tok-1", PASSWORD, `00000${i}`)).error, CODE_WRONG);
+  }
+  const r = await w.accept("tok-1");
+  assert.deepEqual(r, {
+    success: false,
+    error: "Too many incorrect codes for this email. Please try again in 15 minutes.",
+  });
+  assert.equal(
+    w.events.filter((e) => e.startsWith("auth:code-")).length,
+    10,
+    "10 checked; the 11th never reached Supabase",
+  );
+  assert.equal(w.state.members.length, 0);
+});
+
+test("51-15. the limit store unavailable: FAILS CLOSED, no code emailed and no code checked", async () => {
+  const w = world({ invites: [newInvite()] });
+  await w.send("tok-1");
+  limit.setInvitePasswordStoresForTests({
+    async increment() {
+      throw new Error("ECONNREFUSED");
+    },
+    async clear() {},
+  });
+  assert.deepEqual(await w.send("tok-1"), {
+    success: false,
+    error: "We couldn't send a code just now. Please try again in a moment.",
+  });
+  assert.deepEqual(await w.accept("tok-1"), {
+    success: false,
+    error: "We couldn't check your code just now. Please try again in a moment.",
+  });
+  assert.deepEqual(w.events, ["auth:create", "email:code"], "nothing after the outage");
+  assert.equal(w.state.members.length, 0);
+});
+
+test("51-16. our email fails: the fixed message, the account this send made is deleted, nothing else written, the code never logged", async () => {
+  const fresh = world({ invites: [newInvite()], emailFails: true });
+  assert.deepEqual(await fresh.send("tok-1"), {
+    success: false,
+    error: "We couldn't send a code just now. Please try again in a moment.",
+  });
+  assert.equal(fresh.emails.length, 1, "one attempt, to Resend");
+  assert.equal(fresh.state.users.length, 0, "the account made for it is undone");
+  assert.ok(fresh.events.includes("auth:delete"));
+  assert.equal(fresh.state.members.length, 0);
+  assert.equal(fresh.state.invites[0].status, "pending");
+  assert.deepEqual(fresh.logged, ["[accept-invite] send code: email_failed"]);
+  assert.ok(!fresh.logged.join("\n").includes(fresh.minted[0]), "the code is not in any log");
+  assert.equal(fresh.codes.size, 0, "nobody received a code");
+
+  const existing = world({
+    invites: [invite()],
+    members: [removedRae],
+    users: [raeUser],
+    emailFails: true,
+  });
+  assert.equal((await existing.send("tok-1")).success, false);
+  assert.ok(!existing.events.includes("auth:delete"), "an existing account is never deleted");
+  assert.equal(existing.state.users.length, 1);
+  assert.equal(existing.state.users[0].password, PASSWORD);
+  assert.equal(existing.state.members[0].status, "removed");
+});
+
+test("51-16b. the code cannot be made: the fixed message, the new account undone, nothing emailed", async () => {
+  const w = world({
+    invites: [newInvite()],
+    linkError: { code: "unexpected_failure", status: 500 },
+  });
+  assert.deepEqual(await w.send("tok-1"), {
+    success: false,
+    error: "We couldn't send a code just now. Please try again in a moment.",
+  });
+  assert.equal(w.emails.length, 0);
+  assert.equal(w.state.users.length, 0);
+  assert.deepEqual(w.logged, ["[accept-invite] make code: unexpected_failure"]);
+});
+
+test("51-19. a marker in USER_METADATA (which any signed-in user can write) gives no password-free path", async () => {
+  // The account's owner set the marker on their own account through updateUser.
+  const forged = { ...raeUser, meta: { remotiv_invite_signup: true } };
+  const w = world({ invites: [invite()], members: [removedRae], users: [forged] });
+  assert.deepEqual(await w.send("tok-1", "a brand new password", false), { success: true });
+  const r = await w.accept("tok-1", "a brand new password");
+  assert.deepEqual(r, { success: false, error: WRONG_PASSWORD, needsExistingPassword: true });
+  assert.ok(!w.events.includes("auth:set-password"), "no password is set from the code");
+  assert.equal(w.state.users[0].password, PASSWORD, "the real password is unchanged");
+  assert.equal(w.rpcCalls.length, 0, "never reaches the grant");
+  assert.ok(!w.events.includes("auth:signin"));
+});
+
+test("51-20. the marker is written only by the service role, in the call that creates the account, once", async () => {
+  const w = world({ invites: [newInvite()] });
+  await w.send("tok-1");
+  await w.send("tok-1");
+  assert.equal(w.events.filter((e) => e === "auth:create").length, 1, "created once");
+  assert.ok(!w.events.includes("auth:link-create"), "generateLink never makes an unmarked account");
+  assert.equal(w.state.users[0].app.remotiv_invite_signup, true);
+});
+
+test("51-23. NO Supabase email for any invitation: signInWithOtp is never called, new, existing, resend or join", async () => {
+  const fresh = world({ invites: [newInvite()] });
+  await fresh.send("tok-1");
+  assert.deepEqual(await fresh.run("tok-1"), { success: true });
+  const existing = world({ invites: [invite()], members: [removedRae], users: [raeUser] });
+  assert.deepEqual(await existing.run("tok-1"), { success: true });
+  const wrongHint = world({ invites: [invite()], members: [removedRae], users: [raeUser] });
+  await wrongHint.send("tok-1", "a brand new password", false);
+  for (const w of [fresh, existing, wrongHint]) {
+    assert.ok(!w.events.includes("auth:supabase-email"));
+  }
+  const src = (await import("node:fs")).readFileSync(
+    new URL("./actions.ts", import.meta.url),
+    "utf8",
+  );
+  assert.ok(!/signInWithOtp|\.resend\(|signUp\(/.test(src), "no Supabase email call in the action");
+});
+
+test("51-24. the code goes ONLY to the invited address, in our email, with the agreed words", async () => {
+  const w = world({ invites: [newInvite({ email: "New@Acme.test" })] });
+  await w.send("tok-1");
+  await w.send("tok-1");
+  assert.equal(w.emails.length, 2);
+  for (const [i, e] of w.emails.entries()) {
+    assert.equal(e.to, "new@acme.test", "the invited address, and only it");
+    assert.equal(e.replyTo, undefined);
+    assert.equal(e.subject, "Your code to join Acme & Sons on Remotiv");
+    const text = e.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    assert.ok(
+      text.includes(
+        "Enter this code to accept your invitation to join Acme &amp; Sons on Remotiv.",
+      ),
+      "the company name is escaped in the body",
+    );
+    assert.ok(text.includes(w.minted[i]), "the code is in the body");
+    assert.ok(
+      text.includes(
+        "This code expires in 1 hour. If you were not expecting this, you can ignore this email.",
+      ),
+    );
+    assert.ok(!/[\u2013\u2014]/.test(e.subject + e.html), "no dashes");
+  }
+  assert.deepEqual([...w.codes.keys()], ["new@acme.test"], "nobody else received a code");
+});
+
+test("51-25. the code is never logged, on any path", async () => {
+  // Each world installs the fakes globally, so each is made and run in turn.
+  const options = [
+    {},
+    { emailFails: true },
+    { memberWriteFails: { code: "XX000", message: "boom" } },
+    { verifiedEmail: "other@acme.test" },
+  ];
+  const worlds = [];
+  const real = { log: console.log, info: console.info, warn: console.warn };
+  const all = [];
+  console.log = console.info = console.warn = (...a) => all.push(a.map(String).join(" "));
+  try {
+    for (const o of options) {
+      const w = world({ invites: [newInvite()], ...o });
+      worlds.push(w);
+      await w.run("tok-1");
+    }
+  } finally {
+    Object.assign(console, real);
+  }
+  for (const w of worlds) {
+    assert.ok(w.minted.length > 0);
+    const lines = [...w.logged, ...all].join("\n");
+    for (const c of w.minted) assert.ok(!lines.includes(c), "a minted code appears in a log");
+  }
+});
+
+test("51-21. an account that cannot be created at the send: a fixed string, the code logged, no code emailed", async () => {
+  const w = world({
+    invites: [newInvite()],
+    createUserFails: {
+      message: "Database error saving new user: relation auth.users",
+      status: 500,
+    },
+  });
+  assert.deepEqual(await w.send("tok-1"), {
+    success: false,
+    error: "Couldn't create your account. Please try again.",
+  });
+  assert.deepEqual(w.logged, ["[accept-invite] create account: 500"]);
+  assert.deepEqual(w.events, []);
+});
+
+test("51-22. the page's code field and copy follow INVITE_CODE_LENGTH; the server still takes 6 to 10 digits", async () => {
+  const { INVITE_CODE_LENGTH } = await import("./code-length.ts");
+  assert.equal(INVITE_CODE_LENGTH, 6, "both projects are set to 6");
+  const ui = (await import("node:fs")).readFileSync(
+    new URL("./[token]/code-step.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.ok(
+    !/\b6 digit\b|maxLength=\{\d|pattern="/.test(ui),
+    "no hard-coded length left in the page",
+  );
+  const w = world({ invites: [newInvite()] });
+  await w.send("tok-1");
+  for (const code of ["1234567", "1234567890"]) {
+    const before = w.events.length;
+    assert.deepEqual(await w.accept("tok-1", PASSWORD, code), {
+      success: false,
+      error: CODE_WRONG,
+    });
+    assert.equal(w.events[before], "auth:code-wrong", `${code.length} digits reached Supabase`);
+  }
+});
+
+test("51-17. a dead invitation sends no code and creates no account", async () => {
+  for (const over of [{ status: "revoked" }, { expires_at: YESTERDAY }, { invited_by: null }]) {
+    const w = world({ invites: [newInvite(over)] });
+    assert.equal((await w.send("tok-1")).success, false);
+    assert.deepEqual(w.events, []);
+    assert.equal(w.state.users.length, 0);
+  }
+});
+
+test("51-18. the new copy has no dashes", async () => {
+  const src = await import("node:fs").then((fs) =>
+    [
+      fs.readFileSync(new URL("./actions.ts", import.meta.url), "utf8"),
+      fs.readFileSync(new URL("./[token]/code-step.tsx", import.meta.url), "utf8"),
+    ].join("\n"),
+  );
+  for (const copy of [
+    "We sent a {INVITE_CODE_LENGTH} digit code to",
+    "Enter it to confirm this is your email.",
+    "That code is not right or has expired.",
+    "Send a new code",
+  ]) {
+    // JSX text wraps across lines; the page renders it as one run of words.
+    assert.ok(src.replace(/\s+/g, " ").includes(copy), copy);
+  }
+  const strings = src.match(/"[^"\n]*"|`[^`\n]*`|>[^<>{}\n]+</g) ?? [];
+  assert.deepEqual(
+    strings.filter((x) => /[–—]/.test(x)),
+    [],
+  );
 });
 
 test("no test in this file tried the network", () => {

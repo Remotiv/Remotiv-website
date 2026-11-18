@@ -34,6 +34,7 @@ const STUBS = {
   "@/lib/supabase/server": [
     "export function createServiceClient() { return globalThis.__teamService(); }",
     "export async function createClient() { return globalThis.__teamAuthClient(); }",
+    "export function createStatelessClient() { return globalThis.__teamStateless(); }",
   ].join("\\n"),
   "@/app/api/_lib/rate-limit": "export function rateLimitByKey() { return { ok: true }; }",
   "@/lib/notifications/company": "export async function notifyCompany(input) { globalThis.__teamNotified.push(input); }",
@@ -54,10 +55,14 @@ export async function resolve(specifier, context, next) {
 
 const { fakeService } = await import("../../../../test-support/fake-postgrest.mjs");
 const { removeMember, updateMemberRole } = await import("./actions.ts");
-const { acceptInvite } = await import("../../accept/actions.ts");
+const { acceptInvite, sendInviteCode } = await import("../../accept/actions.ts");
+// The real limiter, on a fresh memory store per world: the email code (#51)
+// has a per-address send budget that would otherwise carry across tests.
+const limit = await import("../../../../lib/invite-password-limit.ts");
 
 const CO = "c0000000-0000-0000-0000-000000000001";
 const CO2 = "c0000000-0000-0000-0000-000000000002";
+const CODE = "424242";
 const TOMORROW = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 const PASSWORD = "correct horse battery";
 /**
@@ -121,6 +126,7 @@ function world({
   const events = [];
   const logged = [];
   let nextId = 1;
+  limit.setInvitePasswordStoresForTests(limit.memoryAttemptStore());
 
   const service = fakeService(async (table, calls) => {
     const eqs = eqMap(calls);
@@ -316,18 +322,20 @@ function world({
       if (hooks.afterBurn) hooks.afterBurn();
       return { data: null, error: null };
     }
+    // The company's name, for the invitation code email (#51).
+    if (table === "companies" && op === "select") return { data: { name: "Acme" }, error: null };
     throw new Error(`unexpected ${op} on ${table}`);
   });
   service.auth = {
     admin: {
-      async createUser({ email, password }) {
+      async createUser({ email, password, app_metadata }) {
         if (state.users.some((u) => u.email === email)) {
           return {
             data: { user: null },
             error: { message: "A user with this email address has already been registered" },
           };
         }
-        const user = { id: `u-${nextId++}`, email, password };
+        const user = { id: `u-${nextId++}`, email, password: password ?? null, app: app_metadata };
         state.users.push(user);
         return { data: { user: { id: user.id } }, error: null };
       },
@@ -347,12 +355,48 @@ function world({
       },
     },
   };
+  // The email code (#51) is not what these tests are about: every address's
+  // code is CODE and always right. accept/actions.test.ts tests the code.
+  service.auth.admin.generateLink = async ({ email }) => {
+    if (!state.users.some((u) => u.email === email)) throw new Error("unmarked account");
+    return { data: { properties: { email_otp: CODE } }, error: null };
+  };
+  service.auth.admin.updateUserById = async (id, attrs) => {
+    const user = state.users.find((u) => u.id === id);
+    user.password = attrs.password;
+    user.app = { ...user.app, ...attrs.app_metadata };
+    return { data: { user: { id } }, error: null };
+  };
+  const stateless = () => ({
+    auth: {
+      signInWithPassword: authClient.auth.signInWithPassword,
+      async signInWithOtp() {
+        throw new Error("no Supabase email for an invitation (#51)");
+      },
+      async verifyOtp({ email, token }) {
+        const user = state.users.find((u) => u.email === email);
+        return user && token === CODE
+          ? { data: { user: { id: user.id, email, app_metadata: { ...user.app } } }, error: null }
+          : { data: { user: null }, error: { code: "otp_expired" } };
+      },
+      async signOut() {
+        return { error: null };
+      },
+    },
+  });
 
   globalThis.__teamService = () => service;
   globalThis.__teamAuthClient = () => authClient;
+  globalThis.__teamStateless = stateless;
   globalThis.__teamNotified = [];
   globalThis.__teamCtx = OWNER_CTX;
 
+  const sendCode = (token) => {
+    const hash = createHash("sha256").update(token).digest("hex");
+    const email = state.invites.find((i) => i.token_hash === hash)?.email;
+    const existingAccount = state.users.some((u) => u.email === email && u.password);
+    return sendInviteCode({ token, password: PASSWORD, existingAccount });
+  };
   const realError = console.error;
   const capture = async (fn) => {
     console.error = (...args) => logged.push(args.map(String).join(" "));
@@ -367,7 +411,16 @@ function world({
     events,
     logged,
     remove: (memberId) => capture(() => removeMember(memberId)),
-    accept: (token) => capture(() => acceptInvite({ token, password: PASSWORD })),
+    // Both steps of accepting (#51), as the page runs them.
+    accept: (token) =>
+      capture(async () => {
+        const sent = await sendCode(token);
+        if (!sent.success) return sent;
+        return acceptInvite({ token, password: PASSWORD, code: CODE });
+      }),
+    // The steps apart, for a race against the FINAL step only.
+    send: (token) => capture(() => sendCode(token)),
+    finish: (token) => capture(() => acceptInvite({ token, password: PASSWORD, code: CODE })),
   };
 }
 
@@ -541,8 +594,10 @@ test("7a. race, revoke lands before the burn: the acceptance is refused and the 
       beforeRemove: burned.wait,
     },
   });
-  // A removal of the (already removed) row and an acceptance, in flight together.
-  const [removal, acceptance] = await Promise.all([w.remove("m-rae"), w.accept("tok-1")]);
+  // The code was sent before (#51); then a removal of the (already removed)
+  // row and the final step of the acceptance, in flight together.
+  assert.deepEqual(await w.send("tok-1"), { success: true });
+  const [removal, acceptance] = await Promise.all([w.remove("m-rae"), w.finish("tok-1")]);
   assert.deepEqual(removal, { success: true, data: undefined });
   assert.deepEqual(acceptance, { success: false, error: "This invitation has already been used." });
   assert.deepEqual(w.events, [

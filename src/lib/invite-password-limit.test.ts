@@ -440,6 +440,63 @@ test("source: the module builds no client at load, and logs the store once, outs
   );
 });
 
+/* ── #51: the email code's send and check budgets, on the same store ──────── */
+
+test("#51 the code keys: per address, one for sending and one for checking, apart from the password key", () => {
+  const { inviteCodeKey } = limitModule;
+  const send = inviteCodeKey("send", " RAE@acme.TEST");
+  const check = inviteCodeKey("verify", "rae@acme.test");
+  assert.match(send, /^invite-code-send:[0-9a-f]{64}$/);
+  assert.match(check, /^invite-code-verify:[0-9a-f]{64}$/);
+  assert.equal(send.split(":")[1], check.split(":")[1], "one address, one hash");
+  assert.equal(send.split(":")[1], invitePasswordKey(EMAIL).split(":")[1]);
+  assert.ok(!send.includes("rae") && !check.includes("rae"), "never the address itself");
+});
+
+test("#51 5 sends and 10 checks per address in the window; the three budgets never share a count", async () => {
+  const { reserveInviteCodeSend, reserveInviteCodeVerify, clearInviteCodeVerify } = limitModule;
+  const c = clock();
+  setInvitePasswordStoresForTests(memoryAttemptStore(c.now));
+  const sends = [];
+  for (let i = 0; i < 6; i++) sends.push((await reserveInviteCodeSend(EMAIL)).ok);
+  assert.deepEqual(sends, [true, true, true, true, true, false]);
+  const checks = [];
+  for (let i = 0; i < 11; i++) checks.push((await reserveInviteCodeVerify(" Rae@Acme.test")).ok);
+  assert.deepEqual(checks, [...Array(10).fill(true), false]);
+  assert.equal((await reserveInvitePasswordAttempt(EMAIL)).ok, true, "passwords untouched");
+  await clearInviteCodeVerify(EMAIL);
+  assert.equal((await reserveInviteCodeVerify(EMAIL)).ok, true, "a right code clears the checks");
+  assert.equal((await reserveInviteCodeSend(EMAIL)).ok, false, "but never the sends");
+  c.advance(INVITE_PASSWORD_LOCK_MS + 1);
+  assert.equal((await reserveInviteCodeSend(EMAIL)).ok, true, "15 quiet minutes later");
+});
+
+test("#51 Redis failing: sends and checks FAIL CLOSED, logged by reason code with no address", async () => {
+  const { reserveInviteCodeSend, reserveInviteCodeVerify } = limitModule;
+  const c = clock();
+  const logged = [];
+  const real = console.error;
+  console.error = (...a) => logged.push(a.join(" "));
+  try {
+    setInvitePasswordStoresForTests(redisAttemptStore(fakeRedis(c, { failEval: true })));
+    assert.deepEqual(await reserveInviteCodeSend(EMAIL), { ok: false, reason: "unavailable" });
+    assert.deepEqual(await reserveInviteCodeVerify(EMAIL), { ok: false, reason: "unavailable" });
+  } finally {
+    console.error = real;
+  }
+  assert.equal(logged.length, 2);
+  assert.match(logged[0], /^\[invite-password-limit\] code send refused reason=[A-Z_]+$/);
+  assert.match(logged[1], /^\[invite-password-limit\] code check refused reason=[A-Z_]+$/);
+});
+
+test("#51 concurrent: 30 checks in one tick through Redis, exactly 10 get a slot", async () => {
+  const { reserveInviteCodeVerify } = limitModule;
+  const c = clock();
+  setInvitePasswordStoresForTests(redisAttemptStore(fakeRedis(c)));
+  const r = await Promise.all(Array.from({ length: 30 }, () => reserveInviteCodeVerify(EMAIL)));
+  assert.equal(r.filter((x) => x.ok).length, 10);
+});
+
 test("no test in this file tried the network", () => {
   guard.assertNoNetwork();
 });

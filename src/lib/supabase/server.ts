@@ -37,3 +37,18 @@ export function createServiceClient() {
     },
   );
 }
+
+/**
+ * The anon key with NO cookies: an auth call on it (a password check, an email
+ * code) never sets or reads the browser's session. Its session, if any, lives
+ * in this object only and is gone when the request ends.
+ */
+export function createStatelessClient() {
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
+    {
+      cookies: { getAll: () => [], setAll: () => {} },
+    },
+  );
+}
