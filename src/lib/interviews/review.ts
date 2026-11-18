@@ -32,6 +32,7 @@ import type {
   SessionCriterion,
   TranscriptState,
 } from "./review-types";
+import { ANSWERS_SHOWN } from "./review-types";
 import { readScorecardFacts, scorecardRecoveryEligibility } from "./scorecard";
 import type { TranscriptSegment } from "./transcribe";
 
@@ -510,14 +511,26 @@ export async function loadInterviewSession(
     : { data: null };
 
   // video_path is selected so `hasVideo` can be derived, and is NOT returned.
-  const { data: answerRows } = await service
+  // The exact count comes with the same rows (#46): the page says when it is
+  // not showing them all. A failed read throws, so the review is reported
+  // unavailable (the error boundary) instead of showing an interview with no
+  // answers.
+  const {
+    data: answerRows,
+    error: answersError,
+    count: answersCount,
+  } = await service
     .from("interview_answers")
     .select(
       "id, position, question_text, video_path, duration_seconds, transcript, transcript_segments, transcript_status, transcript_error, recorded_at",
+      { count: "exact" },
     )
     .eq("session_id", row.id)
     .order("position", { ascending: true })
-    .limit(50);
+    .limit(ANSWERS_SHOWN);
+  if (answersError) {
+    throw new Error(`[review] answers read failed: ${answersError.code ?? "error"}`);
+  }
 
   const answers: InterviewAnswerView[] = (
     (answerRows ?? []) as {
@@ -573,6 +586,7 @@ export async function loadInterviewSession(
     service,
     ctx.companyId,
     row.id,
+    answers.map((a) => a.id),
     segmentsById,
     evidenceDeleted,
   );
@@ -673,6 +687,7 @@ export async function loadInterviewSession(
     kind,
     status,
     answers,
+    answersTotal: typeof answersCount === "number" ? answersCount : null,
     totalQuestions,
     submittedAt: row.submitted_at,
     startedAt: row.started_at,
@@ -719,16 +734,22 @@ function toAdjustment(
 
 /**
  * Per-answer scores for one session, quotes already resolved to timestamps.
+ *
+ * Read for exactly the answers shown (#46), so a score always belongs to an
+ * answer on the page; an unordered cap could return scores for answers not
+ * shown and miss the ones that are.
  */
 async function fetchAnswerScores(
   service: ReturnType<typeof createServiceClient>,
   companyId: string,
   sessionId: string,
+  answerIds: string[],
   segments: Map<string, TranscriptSegment[]>,
   /** Past delete_after: the explanations and quotes are not sent. */
   wordsDeleted: boolean,
 ): Promise<Map<string, AnswerScoreView>> {
   const out = new Map<string, AnswerScoreView>();
+  if (answerIds.length === 0) return out;
   const { data } = await service
     .from("interview_answer_scores")
     .select(
@@ -739,7 +760,7 @@ async function fetchAnswerScores(
     )
     .eq("company_id", companyId)
     .eq("session_id", sessionId)
-    .limit(50);
+    .in("answer_id", answerIds);
 
   for (const r of (data ?? []) as {
     answer_id: string;

@@ -285,6 +285,11 @@ export type InterviewSessionDetail = {
   kind: InterviewKind;
   status: InterviewStatus;
   answers: InterviewAnswerView[];
+  /**
+   * How many answers the session has in all: an exact count, or null when the
+   * read returned none. `answers` holds at most ANSWERS_SHOWN of them (#46).
+   */
+  answersTotal: number | null;
   totalQuestions: number;
   submittedAt: string | null;
   startedAt: string | null;
@@ -313,6 +318,21 @@ export type InterviewSessionDetail = {
   /** The viewer, so a note can offer edit/delete on their own rows only. */
   viewerMemberId: string;
 };
+
+/** The review page lists at most this many answers, in question order (#46). */
+export const ANSWERS_SHOWN = 50;
+
+/**
+ * The line under the answer list when it is not the whole session, or null.
+ *
+ * "Showing 50 of N answers" only with an EXACT total above what is shown.
+ * Without a total, a full list cannot be told from a cut one, so it says only
+ * "Showing the first 50 answers".
+ */
+export function answersShownNote(shown: number, total: number | null): string | null {
+  if (total !== null) return total > shown ? `Showing ${shown} of ${total} answers` : null;
+  return shown >= ANSWERS_SHOWN ? `Showing the first ${shown} answers` : null;
+}
 
 export const INTERVIEW_STATUS_LABELS: Record<InterviewStatus, string> = {
   invited: "Not started",

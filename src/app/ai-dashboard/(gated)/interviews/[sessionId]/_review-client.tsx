@@ -39,6 +39,7 @@ import type {
   ScoredEvidence,
   SessionCriterion,
 } from "@/lib/interviews/review-types";
+import { answersShownNote } from "@/lib/interviews/review-types";
 import { scorecardIsPartial } from "@/lib/interviews/scorecard-partial";
 import { INTERVIEW_KIND_LABELS } from "@/lib/interviews/types";
 import { isSafeFailureSentence } from "@/lib/queue/failure-class";
@@ -184,6 +185,7 @@ export function ReviewClient({
   }
 
   const answeredCount = session.answers.length;
+  const shownNote = answersShownNote(answeredCount, session.answersTotal);
 
   return (
     <PageContainer>
@@ -411,6 +413,11 @@ export function ReviewClient({
                   {answeredCount} recorded
                 </span>
               </div>
+              {shownNote && (
+                <p className="m-0 border-b border-[var(--ai-line)] px-[15px] py-2 text-[11.5px] font-semibold text-[var(--ai-t3)]">
+                  {shownNote}
+                </p>
+              )}
               {session.answers.map((a, i) => (
                 <button
                   key={a.id}
