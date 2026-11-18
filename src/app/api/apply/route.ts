@@ -419,30 +419,46 @@ export async function POST(request: NextRequest) {
     if (source !== "manual_upload" && jobId !== null) {
       const normalizedPhone = normalizePhone(phone ?? "");
 
-      // Email match — case-insensitive lookup scoped to this job.
-      let emailMatch: { id: string; created_at: string | null } | null = null;
+      // Email match — EXACT, scoped to this job (#53). `email` is already
+      // normalizeEmail()'d (trimmed, lowercased), as every writer stores it.
+      // Never ilike: `%`, `_` and `*` in a typed address were wildcards, so
+      // anyone could ask "has anyone at this domain applied?". limit(1): a
+      // job that already holds the address twice must still be a duplicate,
+      // not a maybeSingle error. A failed read refuses the application
+      // rather than skipping the check.
+      let emailMatch: { id: string } | null = null;
       if (email) {
-        const { data } = await supabase
+        const { data, error: dupError } = await supabase
           .from(APPLICATIONS_TABLE)
-          .select("id, created_at")
-          .ilike("email", email.trim())
+          .select("id")
+          .eq("email", email)
           .eq("job_id", jobId)
+          .limit(1)
           .maybeSingle();
-        emailMatch = (data as { id: string; created_at: string | null } | null) ?? null;
+        if (dupError) {
+          console.error(`[/api/apply][${errorId}] duplicate check failed:`, dupError.code);
+          return NextResponse.json({ error: GENERIC_ERROR_MESSAGE, errorId }, { status: 500 });
+        }
+        emailMatch = (data as { id: string } | null) ?? null;
       }
 
       // Phone match — fetch a slice of recent rows for this job and
       // normalise in JS, since we can't apply normalizePhone in SQL without
       // a generated column.
-      let phoneMatch: { id: string; created_at: string | null } | null = null;
+      let phoneMatch: { id: string } | null = null;
       if (normalizedPhone.length >= 7) {
-        const { data: phoneRecords } = await supabase
+        const { data: phoneRecords, error: phoneError } = await supabase
           .from(APPLICATIONS_TABLE)
           .select("id, phone, created_at")
           .eq("job_id", jobId)
           .not("phone", "is", null)
           .order("created_at", { ascending: false })
           .limit(100);
+        // As the email read: a failed check refuses, never skips (#53).
+        if (phoneError) {
+          console.error(`[/api/apply][${errorId}] duplicate check failed:`, phoneError.code);
+          return NextResponse.json({ error: GENERIC_ERROR_MESSAGE, errorId }, { status: 500 });
+        }
 
         const records = (phoneRecords ?? []) as Array<{
           id: string;
@@ -450,17 +466,14 @@ export async function POST(request: NextRequest) {
           created_at: string | null;
         }>;
         const found = records.find((r) => normalizePhone(r.phone ?? "") === normalizedPhone);
-        phoneMatch = found ? { id: found.id, created_at: found.created_at } : null;
+        phoneMatch = found ? { id: found.id } : null;
       }
 
-      const dupMatch = emailMatch ?? phoneMatch;
-      if (dupMatch) {
+      // No date and no other detail: this answer goes to whoever typed the
+      // address, not necessarily its owner (#53).
+      if (emailMatch ?? phoneMatch) {
         return NextResponse.json(
-          {
-            error: "duplicate_application",
-            message: "You have already applied to this job.",
-            appliedAt: dupMatch.created_at,
-          },
+          { error: "duplicate_application", message: "You have already applied to this job." },
           { status: 409 },
         );
       }

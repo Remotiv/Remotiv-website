@@ -100,8 +100,8 @@ export default function ApplyModal({
   // auto-close skip — we don't want the modal to vanish before the
   // candidate can click the CTA.
   const [bridgeToken, setBridgeToken] = useState<string | null>(null);
-  // Same-job duplicate returns { error: "duplicate_application", appliedAt }.
-  const [duplicateMsg, setDuplicateMsg] = useState<{ appliedAt: string | null } | null>(null);
+  // Same-job duplicate: a 409 with no date or other detail (#53).
+  const [duplicate, setDuplicate] = useState(false);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
@@ -241,11 +241,7 @@ export default function ApplyModal({
       }
 
       if (res.status === 409) {
-        const dupJson = (await res.json().catch(() => ({}))) as {
-          error?: string;
-          appliedAt?: string | null;
-        };
-        setDuplicateMsg({ appliedAt: dupJson.appliedAt ?? null });
+        setDuplicate(true);
         return;
       }
 
@@ -298,7 +294,7 @@ export default function ApplyModal({
         aria-modal="true"
         aria-labelledby="apply-modal-title"
       >
-        {duplicateMsg ? (
+        {duplicate ? (
           <div className="ap-success">
             <div className="ap-success-ic purple">
               <IconCheck size={32} stroke={2} />
@@ -307,21 +303,7 @@ export default function ApplyModal({
               You&apos;ve already applied to this job
             </h2>
             <p className="ap-success-sub">
-              {duplicateMsg.appliedAt ? (
-                <>
-                  We received your application on{" "}
-                  <strong>
-                    {new Date(duplicateMsg.appliedAt).toLocaleDateString(undefined, {
-                      year: "numeric",
-                      month: "long",
-                      day: "numeric",
-                    })}
-                  </strong>
-                  . We&apos;re reviewing it and will be in touch soon.
-                </>
-              ) : (
-                <>We&apos;re reviewing your application and will be in touch soon.</>
-              )}
+              We&apos;re reviewing your application and will be in touch soon.
             </p>
             <Link href="/jobs" onClick={onClose} className="ap-cta font-heading">
               Browse other jobs →
