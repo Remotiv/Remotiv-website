@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
 import { isValidEmail } from "@/lib/validators";
 import { requireAdmin } from "@/app/admin/lib/role-guards";
+import { findContactDuplicate } from "@/lib/contact-duplicates";
 import { removeObjects } from "@/lib/storage-objects";
 
 /**
@@ -160,68 +161,37 @@ export async function POST(request: NextRequest) {
     //    Order matters: batch candidates first (most specific to this flow),
     //    then applications, then talent. We surface the first match and stop;
     //    the modal renders a friendly badge based on `source`.
-    const orParts: string[] = [];
-    if (email) orParts.push(`email.eq.${email}`);
-    if (phone) orParts.push(`phone.eq.${phone}`);
-    if (orParts.length > 0) {
-      const orFilter = orParts.join(",");
-
-      const { data: batchHit } = await supabase
-        .from("client_batch_candidates")
-        .select("id, first_name, last_name")
-        .or(orFilter)
-        .limit(1)
-        .maybeSingle();
-      if (batchHit) {
-        const hit = batchHit as { id: string; first_name: string; last_name: string };
-        return NextResponse.json(
-          {
-            error: "Duplicate",
-            details: `Already exists in another batch: ${hit.first_name} ${hit.last_name}`.trim(),
-            source: "batch",
-            existingId: hit.id,
-          },
-          { status: 409 },
-        );
-      }
-
-      const { data: appHit } = await supabase
-        .from("job_applications")
-        .select("id, first_name, last_name")
-        .or(orFilter)
-        .limit(1)
-        .maybeSingle();
-      if (appHit) {
-        const hit = appHit as { id: string; first_name: string; last_name: string };
-        return NextResponse.json(
-          {
-            error: "Duplicate",
-            details: `Already exists in Applications: ${hit.first_name} ${hit.last_name}`.trim(),
-            source: "application",
-            existingId: hit.id,
-          },
-          { status: 409 },
-        );
-      }
-
-      const { data: talentHit } = await supabase
-        .from("talent_profiles")
-        .select("id, first_name, last_name")
-        .or(orFilter)
-        .limit(1)
-        .maybeSingle();
-      if (talentHit) {
-        const hit = talentHit as { id: string; first_name: string; last_name: string };
-        return NextResponse.json(
-          {
-            error: "Duplicate",
-            details: `Already exists in Talent: ${hit.first_name} ${hit.last_name}`.trim(),
-            source: "talent",
-            existingId: hit.id,
-          },
-          { status: 409 },
-        );
-      }
+    //    No application scope here, as before: this read sees every company's
+    //    applications (findContactDuplicate, src/lib/contact-duplicates.ts).
+    //    A check that cannot be made stops the upload (503) rather than
+    //    reading as "no duplicate".
+    const lookup = await findContactDuplicate(supabase, { email: email ?? "", phone: phone ?? "" });
+    if (!lookup.ok) {
+      return NextResponse.json(
+        {
+          error: "Duplicate check failed",
+          details:
+            "We couldn't check this candidate for duplicates. Nothing was uploaded. Try again.",
+        },
+        { status: 503 },
+      );
+    }
+    if (lookup.match) {
+      const hit = lookup.match;
+      const where = {
+        batch: "in another batch",
+        application: "in Applications",
+        talent: "in Talent",
+      }[hit.source];
+      return NextResponse.json(
+        {
+          error: "Duplicate",
+          details: `Already exists ${where}: ${hit.first_name} ${hit.last_name}`.trim(),
+          source: hit.source,
+          existingId: hit.id,
+        },
+        { status: 409 },
+      );
     }
 
     // 2. Upload CV to storage. K1: filename is a UUID — no PII in the path.

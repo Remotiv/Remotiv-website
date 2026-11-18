@@ -84,6 +84,10 @@ export function BulkBatchUploadModal({
   // In-flight guard against double-clicks on Submit Selected.
   const submitRef = useRef(false);
 
+  // "failed" blocks every submit until a re-check succeeds: a candidate who
+  // could not be checked must not be uploaded as if they were new.
+  const [duplicateCheck, setDuplicateCheck] = useState<"ok" | "checking" | "failed">("ok");
+
   // Focus trap. While uploads are mid-flight, Escape is suppressed (matches
   // the existing close-button behaviour) and focus stays locked on the
   // progress UI. Replaces the previous standalone Escape-handler effect.
@@ -179,42 +183,52 @@ export function BulkBatchUploadModal({
       setProcessedCount(i + 1);
     }
 
-    // Cross-table duplicate check — one network call, server runs the
-    // 3 lookups per row in parallel. Auto-deselects any row with a hit so
-    // the admin only submits genuinely new candidates by default.
+    const checked = await checkDuplicates(built);
+    setDuplicateCheck(checked ? "ok" : "failed");
+    setRows(checked ?? built);
+    setStage("review");
+  }
+
+  /**
+   * Cross-table duplicate check, one network call for every row. Returns the
+   * rows with each duplicate marked and deselected, or null when the check
+   * could not be made: a failed request, a thrown fetch, or an answer that
+   * does not cover every row. Null is never read as "no duplicates".
+   */
+  async function checkDuplicates(target: Row[]): Promise<Row[] | null> {
     try {
       const checkRes = await fetch("/api/check-duplicate-bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          rows: built.map((r) => ({ email: r.email, phone: r.phone })),
+          rows: target.map((r) => ({ email: r.email, phone: r.phone })),
         }),
       });
-      if (checkRes.ok) {
-        const json = (await checkRes.json()) as {
-          results?: Array<{ source: DuplicateSource; name: string | null }>;
-        };
-        const results = json.results ?? [];
-        for (let i = 0; i < built.length; i++) {
-          const r = results[i];
-          if (r?.source) {
-            built[i].duplicateSource = r.source;
-            built[i].duplicateName = r.name;
-            // Auto-deselect duplicates so they're not part of "Submit
-            // Selected" by default. Admin can opt back in if they really
-            // want a duplicate landing in the batch (the API will still
-            // 409 — defense in depth).
-            built[i].selected = false;
-          }
-        }
-      }
+      if (!checkRes.ok) return null;
+      const json = (await checkRes.json()) as {
+        results?: Array<{ source: DuplicateSource; name: string | null }>;
+      };
+      const results = json.results;
+      if (!Array.isArray(results) || results.length !== target.length) return null;
+      return target.map((row, i) => {
+        const r = results[i];
+        // Auto-deselect duplicates so they're not part of "Submit Selected"
+        // by default. Admin can opt back in if they really want a duplicate
+        // landing in the batch (the API will still 409 — defense in depth).
+        return r?.source
+          ? { ...row, duplicateSource: r.source, duplicateName: r.name, selected: false }
+          : row;
+      });
     } catch {
-      // Duplicate check failure is non-fatal — rows just show as "New"
-      // and the per-row submit will surface the 409 if any are dupes.
+      return null;
     }
+  }
 
-    setRows(built);
-    setStage("review");
+  async function recheckDuplicates() {
+    setDuplicateCheck("checking");
+    const checked = await checkDuplicates(rows);
+    if (checked) setRows(checked);
+    setDuplicateCheck(checked ? "ok" : "failed");
   }
 
   function updateRow(id: string, patch: Partial<Row>) {
@@ -251,6 +265,7 @@ export function BulkBatchUploadModal({
 
   async function submitSelected() {
     if (submitRef.current) return;
+    if (duplicateCheck !== "ok") return;
     const selectedRows = rows.filter((r) => r.selected && r.status !== "done");
     if (selectedRows.length === 0) return;
 
@@ -870,12 +885,33 @@ export function BulkBatchUploadModal({
                 <button
                   type="button"
                   onClick={submitSelected}
-                  disabled={submitting || selectedRows === 0}
+                  disabled={submitting || selectedRows === 0 || duplicateCheck !== "ok"}
                   className="w-full rounded-xl bg-remotiv-purple px-6 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40 sm:w-auto sm:py-2.5"
                 >
                   {submitting ? "Uploading…" : `Submit Selected (${selectedRows})`}
                 </button>
               </div>
+
+              {duplicateCheck !== "ok" && (
+                <div
+                  role="alert"
+                  className="flex flex-col gap-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <p className="m-0">
+                    We couldn&apos;t check these candidates for duplicates, so nothing can be
+                    submitted yet.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={recheckDuplicates}
+                    disabled={duplicateCheck === "checking"}
+                    aria-busy={duplicateCheck === "checking"}
+                    className="shrink-0 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm font-semibold text-amber-900 transition-colors hover:bg-amber-100 disabled:opacity-50"
+                  >
+                    {duplicateCheck === "checking" ? "Checking…" : "Check again"}
+                  </button>
+                </div>
+              )}
 
               {error && !submitting && (
                 <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">{error}</p>

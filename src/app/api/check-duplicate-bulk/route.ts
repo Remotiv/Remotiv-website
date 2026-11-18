@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
 import { requireAdmin } from "@/app/admin/lib/role-guards";
 import { adminApplicationScope } from "@/lib/admin-scope";
+import { findContactDuplicate } from "@/lib/contact-duplicates";
 
 /**
  * POST /api/check-duplicate-bulk
@@ -21,12 +22,18 @@ import { adminApplicationScope } from "@/lib/admin-scope";
  *
  * Auth: requireAdmin — only admins should be able to query across tables.
  *
+ * A row that cannot be checked fails the whole request (503), never "new":
+ * the modal then stops before anything is submitted.
+ *
  * Body: { rows: Array<{ email?: string | null; phone?: string | null }> }
  * Response: { results: Array<DupResult> }
  *   where DupResult = { source: 'batch' | 'application' | 'talent' | null; name: string | null }
  */
 
 const MAX_ROWS = 100;
+
+/** Returned with 503 when any row could not be checked. */
+const COULD_NOT_CHECK = "We couldn't check these candidates for duplicates. Nothing was changed. Try again.";
 type DupSource = "batch" | "application" | "talent" | null;
 type DupResult = { source: DupSource; name: string | null };
 
@@ -60,53 +67,29 @@ export async function POST(request: NextRequest) {
     const rows = Array.isArray(body.rows) ? body.rows.slice(0, MAX_ROWS) : [];
 
     const supabase = createServiceClient();
-
-    // Per-row check, three tables in parallel. 50 rows × 3 = 150 in-flight
-    // queries — well within Supabase limits, and each row's three checks
-    // race so the user-facing latency is just the slowest single query.
-    const results: DupResult[] = await Promise.all(
-      rows.map(async (row): Promise<DupResult> => {
-        const email = row.email?.toString().trim().toLowerCase() ?? "";
-        const phone = row.phone?.toString().trim() ?? "";
-
-        const orParts: string[] = [];
-        if (email) orParts.push(`email.eq.${email}`);
-        if (phone) orParts.push(`phone.eq.${phone}`);
-        if (orParts.length === 0) return { source: null, name: null };
-
-        const orFilter = orParts.join(",");
-
-        const [batchRes, appRes, talentRes] = await Promise.all([
-          supabase
-            .from("client_batch_candidates")
-            .select("first_name, last_name")
-            .or(orFilter)
-            .limit(1)
-            .maybeSingle(),
-          supabase
-            .from("job_applications")
-            .select("first_name, last_name")
-            .or(orFilter)
-            // Remotiv-owned applications only — this endpoint is reachable
-            // from the public apply flow, and a match confirms that the
-            // person applied somewhere. A customer's applicants are their
-            // data, not a signal Remotiv surfaces publicly.
-            .or(await adminApplicationScope())
-            .limit(1)
-            .maybeSingle(),
-          supabase
-            .from("talent_profiles")
-            .select("first_name, last_name")
-            .or(orFilter)
-            .limit(1)
-            .maybeSingle(),
-        ]);
-
-        if (batchRes.data)  return { source: "batch",       name: safeName(batchRes.data as { first_name: string; last_name: string }) };
-        if (appRes.data)    return { source: "application", name: safeName(appRes.data as { first_name: string; last_name: string }) };
-        if (talentRes.data) return { source: "talent",      name: safeName(talentRes.data as { first_name: string; last_name: string }) };
-        return { source: null, name: null };
-      }),
+    // Remotiv-owned applications only. This route is admin-only (requireAdmin
+    // above), and a customer's applicants are their data: an admin bulk upload
+    // into a Remotiv batch is not the place a customer's applicant surfaces.
+    const applicationScope = await adminApplicationScope();
+    // Per row, three tables in parallel (findContactDuplicate): up to
+    // MAX_ROWS (100) rows × 3 = 300 queries in flight for a full upload.
+    const lookups = await Promise.all(
+      rows.map((row) =>
+        findContactDuplicate(
+          supabase,
+          {
+            email: row.email?.toString().trim().toLowerCase() ?? "",
+            phone: row.phone?.toString().trim() ?? "",
+          },
+          { applicationScope },
+        ),
+      ),
+    );
+    if (lookups.some((l) => !l.ok)) {
+      return NextResponse.json({ error: COULD_NOT_CHECK }, { status: 503 });
+    }
+    const results: DupResult[] = lookups.map((l) =>
+      l.ok && l.match ? { source: l.match.source, name: safeName(l.match) } : { source: null, name: null },
     );
 
     return NextResponse.json({ results });
