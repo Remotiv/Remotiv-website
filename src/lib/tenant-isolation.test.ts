@@ -223,50 +223,6 @@ const ALLOWLIST = [
   },
 
   {
-    file: `${DASH}/jobs/actions.ts`,
-    fn: "fetchCompanyJobs",
-    query: '.select("id", { count: "exact", head: true }).eq("job_id", r.id as string)',
-    // Existence-only: a company-filtered read of `jobs` must be present in
-    // this function, so deleting that filter fails the test. Ordering is NOT
-    // asserted — see unprovable.
-    scopedRead: { table: "jobs", column: "company_id", ordered: false },
-    unprovable: [
-      "Ordering. The jobs read sits in a `for` loop body and this count sits in a " +
-        "`rows.map(async r => …)` callback, so neither is a straight-line predecessor of the " +
-        "other and the strict domination check correctly refuses to claim one.",
-      "That r.id came from THAT read. The id travels through `rows.push(...batch)` and then an " +
-        "array callback parameter; this scanner does not trace dataflow through arrays.",
-      "The job_id-implies-company invariant: an application with a mismatched " +
-        "company_id_snapshot but a matching job_id would still be counted.",
-    ],
-    why:
-      "A per-job HEAD count with no company filter at all. r comes from rows accumulated at 480 " +
-      "from the paged jobs read built at 462-470, which carries " +
-      '.eq("company_id", ctx.companyId) at 465, .is("deleted_at", null) at 466 and ' +
-      'q.in("id", scope.jobIds) at 467 for job-scoped roles; ctx is from getCompanyContext() at ' +
-      "444. So r.id is always a job this company owns. head: true means the query returns a " +
-      "NUMBER and no row data, which bounds the consequence to a wrong count. The derivation " +
-      "rests on the cross-table invariant that an application whose job_id belongs to this " +
-      "company is this company's row: an application with a mismatched company_id_snapshot but a " +
-      "matching job_id would still be counted. Reported as a finding.",
-  },
-  {
-    file: `${DASH}/jobs/actions.ts`,
-    fn: "fetchDeletedCompanyJobs",
-    query: '.select("id", { count: "exact", head: true }).eq("job_id", r.id as string)',
-    scopedRead: { table: "jobs", column: "company_id", ordered: false },
-    unprovable: [
-      "Exactly the three things fetchCompanyJobs cannot prove — same shape, same loop, same " +
-        "array hop, same job_id-implies-company invariant.",
-    ],
-    why:
-      "Identical shape to fetchCompanyJobs, one filter line different. r comes from rows at 559, " +
-      'from the jobs read at 543-550 carrying .eq("company_id", ctx.companyId) at 546, ' +
-      '.not("deleted_at", "is", null) at 547 and q.in("id", scope.jobIds) at 548. Same ' +
-      "head: true count-only exposure and the same job_id-implies-company invariant. Reported as " +
-      "a finding alongside fetchCompanyJobs.",
-  },
-  {
     file: `${DASH}/messages/actions.ts`,
     fn: "fetchApplicationInbound",
     query: '.select("phone").eq("id", applicationId).maybeSingle()',
@@ -2594,7 +2550,10 @@ test("every declared guard and scoped-read dependency still holds", () => {
   const declares = (a) => DECLS.some((d) => a[d]);
   const declared = ALLOWLIST.filter(declares);
   // 15 since #64: fetchApplicationInbound's ownership read declares consumedBy.
-  assert.equal(declared.length, 15, "the number of entries declaring a dependency changed");
+  // 13 since #82: the per-job head counts in jobs/actions.ts fetchCompanyJobs
+  // and fetchDeletedCompanyJobs are gone (one company-filtered !inner count
+  // read replaced them), and with them their two scopedRead entries.
+  assert.equal(declared.length, 13, "the number of entries declaring a dependency changed");
   assert.ok(
     ALLOWLIST.some((a) => a.guard),
     "at least one entry must declare an authorization guard",

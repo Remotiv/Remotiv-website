@@ -1165,7 +1165,9 @@ test("#54 jobs page: a created_at tie across the page boundary is drained once e
   install(service, "owner");
   const result = await fetchCompanyJobs();
   assert.ok(result.ok, "the read answered");
-  assertDrainComplete(drained.jobs, jobs, service, "jobs page", "jobs");
+  // Only the jobs list drains; the per-job count read (#82) is separate.
+  const isList = (q) => !/!inner\(count\)/.test(call(q.calls, "select")?.[1] ?? "");
+  assertDrainComplete(drained.jobs, jobs, service, "jobs page", "jobs", isList);
   const listed = result.value.map((j) => j.id);
   assert.deepEqual(
     [...listed].sort(),

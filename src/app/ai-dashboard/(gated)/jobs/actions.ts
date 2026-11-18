@@ -15,6 +15,7 @@ import {
 import {
   getJobScope,
   isEmptyScope,
+  type JobScope,
   readJobScope,
   roleAllowsJobAction,
   scopeJobIds,
@@ -70,6 +71,7 @@ import { enqueue, JOB_TYPES } from "@/lib/jobs-queue";
 import { notifyCompany } from "@/lib/notifications/company";
 import { slugify, uniqueSlug } from "@/lib/slug";
 import { answered, type Read, unavailable } from "@/lib/supabase/read";
+import { pageAll } from "@/lib/supabase/paging";
 import { createServiceClient } from "@/lib/supabase/server";
 
 // NB: a "use server" module may only export async functions — every export is
@@ -440,6 +442,51 @@ function revalidateJobSurfaces(): void {
 
 // ── Reads ────────────────────────────────────────────────────
 
+/**
+ * Applications per job, counted by the database in one read (#82).
+ *
+ * `job_applications!inner(count)` returns each job that has at least one
+ * matching application, with the count; a job it leaves out has none, so it
+ * counts 0. The embedded `company_id_snapshot` filter is the tenant boundary:
+ * an application from another company pointing at our job is not counted, and
+ * !inner is what makes that filter restrict the rows. The jobs carry the same
+ * company, live-or-deleted and scope filters as the caller's own read.
+ *
+ * This replaced one head count per listed job, fired all at once, which had no
+ * company filter and turned a failed count into a confident 0. A failed read
+ * here throws (pageAll), and the caller reports the whole list unavailable.
+ * The same shape as Overview's role cards (#32), verified on staging against
+ * the per-job counts it replaces (identical at 10,003 applications).
+ */
+async function applicantCountsByJob(
+  service: ReturnType<typeof createServiceClient>,
+  companyId: string,
+  scope: JobScope,
+  deleted: boolean,
+): Promise<Map<string, number>> {
+  const rows = await pageAll<{ id: string; job_applications: { count: number }[] | null }>(
+    (from, to) => {
+      let q = service
+        .from("jobs")
+        .select("id, job_applications!inner(count)")
+        .eq("company_id", companyId)
+        .eq("job_applications.company_id_snapshot", companyId);
+      q = deleted ? q.not("deleted_at", "is", null) : q.is("deleted_at", null);
+      if (scope.scoped) q = q.in("id", scope.jobIds);
+      return q.order("id").range(from, to);
+    },
+    { scope: "jobs", label: deleted ? "deleted applicant counts" : "applicant counts" },
+  );
+  const counts = new Map<string, number>();
+  for (const r of rows) {
+    const n = r.job_applications?.[0]?.count;
+    if (typeof n !== "number")
+      throw new Error("[jobs] applicant counts: a job came back with no count");
+    counts.set(r.id, n);
+  }
+  return counts;
+}
+
 /** Every job owned by the viewer's company. Readable by any active member. */
 export async function fetchCompanyJobs(): Promise<Read<CompanyJobRow[]>> {
   const ctx = await getCompanyContext();
@@ -493,24 +540,20 @@ export async function fetchCompanyJobs(): Promise<Read<CompanyJobRow[]>> {
 
   if (rows.length === 0) return answered([]);
 
-  // Applicant counts, one HEAD count per job in parallel. Counting per job
-  // rather than fetching rows keeps the payload flat regardless of volume.
-  const counts = await Promise.all(
-    rows.map(async (r) => {
-      try {
-        const { count } = await service
-          .from("job_applications")
-          .select("id", { count: "exact", head: true })
-          .eq("job_id", r.id as string);
-        return count ?? 0;
-      } catch {
-        return 0;
-      }
-    }),
-  );
+  let counts: Map<string, number>;
+  try {
+    counts = await applicantCountsByJob(service, ctx.companyId, scope, false);
+  } catch (err) {
+    console.error(
+      "[jobs] fetchCompanyJobs counts failed:",
+      err instanceof Error ? err.message : err,
+    );
+    // Unavailable, never 0: a role card saying nobody applied, on no evidence.
+    return unavailable();
+  }
 
   return answered(
-    rows.map((r, i) => ({
+    rows.map((r) => ({
       id: r.id as string,
       title: (r.title as string) ?? "",
       location: (r.location as string) ?? "",
@@ -526,7 +569,7 @@ export async function fetchCompanyJobs(): Promise<Read<CompanyJobRow[]>> {
       positions: (r.positions as number) ?? 1,
       created_at: (r.created_at as string) ?? "",
       archived_at: (r.archived_at as string | null) ?? null,
-      applicant_count: counts[i],
+      applicant_count: counts.get(r.id as string) ?? 0,
     })),
   );
 }
@@ -573,28 +616,25 @@ export async function fetchDeletedCompanyJobs(): Promise<Read<DeletedCompanyJobR
   const rows = (data ?? []) as Record<string, unknown>[];
   if (rows.length === 0) return answered([]);
 
-  const counts = await Promise.all(
-    rows.map(async (r) => {
-      try {
-        const { count } = await service
-          .from("job_applications")
-          .select("id", { count: "exact", head: true })
-          .eq("job_id", r.id as string);
-        return count ?? 0;
-      } catch {
-        return 0;
-      }
-    }),
-  );
+  let counts: Map<string, number>;
+  try {
+    counts = await applicantCountsByJob(service, ctx.companyId, scope, true);
+  } catch (err) {
+    console.error(
+      "[jobs] fetchDeletedCompanyJobs counts failed:",
+      err instanceof Error ? err.message : err,
+    );
+    return unavailable();
+  }
 
   return answered(
-    rows.map((r, i) => ({
+    rows.map((r) => ({
       id: r.id as string,
       title: (r.title as string) ?? "",
       location: (r.location as string) ?? "",
       status: (r.status as string) ?? "",
       deleted_at: (r.deleted_at as string) ?? "",
-      applicant_count: counts[i],
+      applicant_count: counts.get(r.id as string) ?? 0,
     })),
   );
 }
