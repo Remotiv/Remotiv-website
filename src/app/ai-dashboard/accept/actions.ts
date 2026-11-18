@@ -4,6 +4,10 @@ import { createHash } from "node:crypto";
 import type { CompanyRole } from "@/app/ai-dashboard/lib/company-roles";
 import { rateLimitByKey } from "@/app/api/_lib/rate-limit";
 import { isAlreadyRegistered } from "@/lib/company-identity";
+import {
+  clearInvitePasswordAttempts,
+  reserveInvitePasswordAttempt,
+} from "@/lib/invite-password-limit";
 import { notifyCompany } from "@/lib/notifications/company";
 import { createClient as createAuthClient, createServiceClient } from "@/lib/supabase/server";
 
@@ -27,6 +31,10 @@ type InviteRow = {
 const JOIN_FAILED = "Couldn't finish joining the workspace. Please ask for a new invitation.";
 const ACCOUNT_FAILED = "Couldn't create your account. Please try again.";
 const ALREADY_USED = "This invitation has already been used.";
+const PASSWORD_LOCKED =
+  "Too many incorrect passwords for this account. Please try again in 15 minutes.";
+const PASSWORD_CHECK_UNAVAILABLE =
+  "We couldn't check your password just now. Please try again in a moment.";
 
 /** The error code only, never the message or the object (#100). */
 function logCode(where: string, err: { code?: string | null; status?: number | null } | null) {
@@ -127,6 +135,18 @@ export async function acceptInvite(input: {
     // The invitee already has a Remotiv login. They keep it — proving
     // ownership with their existing password both authenticates them and
     // yields the user id, without ever enumerating auth.users.
+    //
+    // A slot is taken BEFORE the password is checked, against the ACCOUNT
+    // (the invited address), not the token: a Resend or another company's
+    // invitation must not reset the count (#48, lib/invite-password-limit.ts).
+    const slot = await reserveInvitePasswordAttempt(email);
+    if (!slot.ok) {
+      return {
+        success: false,
+        error: slot.reason === "locked" ? PASSWORD_LOCKED : PASSWORD_CHECK_UNAVAILABLE,
+        needsExistingPassword: true,
+      };
+    }
     const auth = await createAuthClient();
     const { data: signIn, error: signInError } = await auth.auth.signInWithPassword({
       email,
@@ -141,6 +161,7 @@ export async function acceptInvite(input: {
         needsExistingPassword: true,
       };
     }
+    await clearInvitePasswordAttempts(email);
     userId = signIn.user.id;
   } else {
     logCode("create account", createError);

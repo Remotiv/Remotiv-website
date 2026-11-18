@@ -408,7 +408,7 @@ export async function inviteMember(input: {
   email: string;
   name: string;
   role: string;
-}): Promise<MutationResult<{ acceptUrl: string }>> {
+}): Promise<MutationResult<undefined>> {
   const ctx = await requireCompanyRole("owner", "admin");
 
   // Server actions carry no Request, so rate-limit by company rather than IP.
@@ -518,12 +518,12 @@ export async function inviteMember(input: {
   }
 
   revalidatePath("/ai-dashboard/team");
-  return { success: true, data: { acceptUrl } };
+  // The link goes in the email only, never back to the inviter (#48): the raw
+  // token in a response let an admin redeem the invitation themselves.
+  return { success: true, data: undefined };
 }
 
-export async function resendInvite(
-  inviteId: string,
-): Promise<MutationResult<{ acceptUrl: string }>> {
+export async function resendInvite(inviteId: string): Promise<MutationResult<undefined>> {
   const ctx = await requireCompanyRole("owner", "admin");
 
   const rl = rateLimitByKey(`company-invite-resend:${ctx.companyId}`, {
@@ -620,7 +620,9 @@ export async function resendInvite(
   }
 
   revalidatePath("/ai-dashboard/team");
-  return { success: true, data: { acceptUrl } };
+  // The link goes in the email only, never back to the inviter (#48): the raw
+  // token in a response let an admin redeem the invitation themselves.
+  return { success: true, data: undefined };
 }
 
 export async function revokeInvite(
