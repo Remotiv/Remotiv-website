@@ -350,6 +350,25 @@ export async function cancelBookingAsRecruiter(
   if (!canManageBookings(ctx.role)) return { success: false, error: NOT_A_BOOKING_ROLE };
   const service = createServiceClient();
 
+  /*
+   * Scope FIRST (#59b, QA #98). The applicant must be this company's and on a
+   * job this member may act on before anything is said about a booking: the
+   * old order answered "no booked interview" for another job's applicant, so a
+   * recruiter could tell whether they had one. Out of scope, missing, or a
+   * failed read: one reply, NOT_YOURS, and the booking is never read.
+   */
+  const { data: scopeRow, error: scopeError } = await service
+    .from("job_applications")
+    .select("job_id")
+    .eq("id", applicationId)
+    .eq("company_id_snapshot", ctx.companyId)
+    .maybeSingle();
+  // An applicant with no job passes owner and admin and no job-scoped role.
+  const appJobId = (scopeRow as { job_id: string | null } | null)?.job_id ?? "";
+  if (scopeError || !scopeRow || !(await roleAllowsJobAction(ctx, appJobId))) {
+    return { success: false, error: NOT_YOURS };
+  }
+
   const { data } = await service
     .from("interview_bookings")
     .select(
@@ -365,6 +384,7 @@ export async function cancelBookingAsRecruiter(
 
   const row = data as BookingRow | null;
   if (!row) return { success: false, error: "There's no booked interview to cancel." };
+  // Kept as a second check: the booking's own job, which should be the same.
   if (!(await roleAllowsJobAction(ctx, row.job_id))) return { success: false, error: NOT_YOURS };
   if (!canCancel(row)) {
     return { success: false, error: "This interview has already started or passed." };

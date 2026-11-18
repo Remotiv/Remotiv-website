@@ -66,11 +66,11 @@ const screeningBooking = (over) => ({
   ...over,
 });
 
-async function run(role, act, db) {
+async function run(role, act, db, { canAccessJob } = {}) {
   const service = finalInterviewWorld(db);
   globalThis.__fiServiceForTests = () => service;
   globalThis.__fiCtxForTests = ctxFor(role);
-  globalThis.__fiCanAccessJob = undefined;
+  globalThis.__fiCanAccessJob = canAccessJob;
   globalThis.__fiDeliverResult = undefined;
   globalThis.__fiEmails = [];
   globalThis.__fiHostEmails = [];
@@ -82,6 +82,7 @@ async function run(role, act, db) {
     return {
       result,
       db,
+      tables: service.queries.map((q) => q.table),
       emails: globalThis.__fiEmails,
       hostEmails: globalThis.__fiHostEmails,
       bell: globalThis.__fiBell,
@@ -91,12 +92,12 @@ async function run(role, act, db) {
   }
 }
 
-test("cancelling reads the candidate through the company filter: a drifted application leaks nothing", async () => {
+test("an application drifted to another company is refused before the booking is read: nothing cancelled, nothing leaked (#59b)", async () => {
   const db = makeDb();
   db.interview_bookings.push(screeningBooking({}));
-  // The state the filter defends against: the booking is this company's, but
-  // its application is not. For purpose = "interview" rows nothing in the
-  // database forbids this, which is exactly why the read must filter.
+  // The state a company filter defends against: the booking is this company's,
+  // but its application is not. Before #59b this cancelled anyway and only the
+  // notice read was filtered; now the application is the first thing checked.
   db.job_applications[0].company_id_snapshot = "other-co";
 
   const {
@@ -105,19 +106,65 @@ test("cancelling reads the candidate through the company filter: a drifted appli
     emails,
     hostEmails,
     bell,
+    tables,
   } = await run("admin", () => cancelBookingAsRecruiter(APP, "Role filled"), db);
 
-  // The cancellation still completes. The filter protects the read, not the
-  // write, and the booking is already cancelled by the time it is consulted.
-  assert.equal(result.success, true);
-  assert.equal(after.interview_bookings[0].status, "cancelled");
-  assert.equal(after.interview_bookings[0].cancelled_by, "recruiter");
-  assert.equal(after.interview_bookings[0].cancel_reason, "Role filled");
-
+  assert.deepEqual(result, { success: false, error: NOT_YOURS });
+  assert.equal(after.interview_bookings[0].status, "booked");
+  assert.ok(!tables.includes("interview_bookings"), "the booking is never read");
   const sent = JSON.stringify({ emails, hostEmails, bell });
-  assert.ok(!sent.includes("sam@example.test"), "another company's email address reached a notice");
-  assert.ok(!sent.includes("Sam"), "another company's candidate name reached a notice");
-  assert.ok(!sent.includes("Engineer"), "another company's job title reached a notice");
+  assert.equal(sent, JSON.stringify({ emails: [], hostEmails: [], bell: [] }));
+});
+
+/* ── #59b: scope is checked before anything is said about a booking ─────── */
+
+const NOT_YOURS = "Applicant not found in your workspace.";
+const outOfScope = { canAccessJob: () => false };
+
+test("59b-1. a recruiter outside the job gets the SAME reply with and without a booking, and the booking is never read", async () => {
+  const withBooking = makeDb();
+  withBooking.interview_bookings.push(screeningBooking({}));
+  const a = await run("recruiter", () => cancelBookingAsRecruiter(APP), withBooking, outOfScope);
+  const b = await run("recruiter", () => cancelBookingAsRecruiter(APP), makeDb(), outOfScope);
+  assert.deepEqual(a.result, { success: false, error: NOT_YOURS });
+  assert.deepEqual(b.result, a.result, "identical with and without a booking");
+  assert.deepEqual(a.tables, b.tables, "and the same reads, so timing tells nothing either");
+  assert.ok(!a.tables.includes("interview_bookings"));
+  assert.equal(a.db.interview_bookings[0].status, "booked");
+  assert.equal(a.emails.length + a.hostEmails.length + a.bell.length, 0);
+});
+
+test("59b-2. another company's applicant, or none at all: the same reply, with and without a booking", async () => {
+  const replies = [];
+  for (const booked of [true, false]) {
+    for (const app of ["other-company", "missing"]) {
+      const db = makeDb();
+      if (booked) db.interview_bookings.push(screeningBooking({}));
+      if (app === "other-company") db.job_applications[0].company_id_snapshot = "other-co";
+      else db.job_applications.length = 0;
+      const r = await run("admin", () => cancelBookingAsRecruiter(APP), db);
+      replies.push(r.result);
+      assert.ok(!r.tables.includes("interview_bookings"));
+    }
+  }
+  for (const r of replies) assert.deepEqual(r, { success: false, error: NOT_YOURS });
+});
+
+test("59b-3. in scope and nothing booked: still told there is no booked interview", async () => {
+  const r = await run("recruiter", () => cancelBookingAsRecruiter(APP), makeDb(), {
+    canAccessJob: (_ctx, jobId) => jobId === JOB,
+  });
+  assert.deepEqual(r.result, { success: false, error: "There's no booked interview to cancel." });
+});
+
+test("59b-4. in scope with a booking: cancels as before", async () => {
+  const db = makeDb();
+  db.interview_bookings.push(screeningBooking({}));
+  const r = await run("recruiter", () => cancelBookingAsRecruiter(APP), db, {
+    canAccessJob: (_ctx, jobId) => jobId === JOB,
+  });
+  assert.equal(r.result.success, true);
+  assert.equal(r.db.interview_bookings[0].status, "cancelled");
 });
 
 test("cancelling a booking in this company still names the candidate", async () => {
