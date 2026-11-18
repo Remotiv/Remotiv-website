@@ -1,6 +1,9 @@
 "use server";
 
+import { headers } from "next/headers";
 import { resolveCompanyAccess } from "@/app/ai-dashboard/lib/company-guards";
+import { trustedClientIp } from "@/lib/client-ip";
+import { clearSignInAttempts, reserveSignInAttempt } from "@/lib/invite-password-limit";
 import { createClient as createAuthClient, createServiceClient } from "@/lib/supabase/server";
 
 // NB: a "use server" module may only export async functions — every export is
@@ -9,7 +12,15 @@ export type LoginResult =
   | { ok: true }
   | {
       ok: false;
-      reason: "credentials" | "rate_limited" | "not_company" | "inactive" | "unavailable" | "error";
+      reason:
+        | "credentials"
+        | "rate_limited"
+        | "locked"
+        | "check_unavailable"
+        | "not_company"
+        | "inactive"
+        | "unavailable"
+        | "error";
       /** The company status, when `inactive` — picks the message to show. */
       status?: string;
     };
@@ -49,6 +60,18 @@ export async function signInToCompany(form: FormData): Promise<LoginResult> {
   if (!email || !password) return { ok: false, reason: "credentials" };
 
   try {
+    // #58: Supabase sees Vercel's address, not the person's, so its own limit
+    // is one bucket for everyone. A slot is taken here, per account (shared
+    // with the invitation page and settings) and per IP, BEFORE the password
+    // is checked. Locked or unknown: refused, and the password is not tried.
+    const slot = await reserveSignInAttempt({
+      email,
+      ip: trustedClientIp(await headers(), process.env),
+    });
+    if (!slot.ok) {
+      return { ok: false, reason: slot.reason === "locked" ? "locked" : "check_unavailable" };
+    }
+
     const auth = await createAuthClient();
     const { data, error } = await auth.auth.signInWithPassword({ email, password });
 
@@ -62,6 +85,9 @@ export async function signInToCompany(form: FormData): Promise<LoginResult> {
           : "credentials",
       };
     }
+
+    // The password was right: this account's count starts again.
+    await clearSignInAttempts(email);
 
     const access = await resolveCompanyAccess(createServiceClient(), data.user.id);
     if (access.ok) return { ok: true };

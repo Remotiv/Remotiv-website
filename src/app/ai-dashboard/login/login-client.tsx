@@ -22,6 +22,8 @@ const REASON_MESSAGES: Record<string, string> = {
 const FAILURE_MESSAGES = {
   credentials: "Invalid email or password.",
   rate_limited: "Too many attempts. Please try again in a minute.",
+  locked: "Too many sign in attempts. Please try again in 15 minutes.",
+  check_unavailable: "We couldn't check your sign in just now. Please try again in a moment.",
   not_company: REASON_MESSAGES.unauthorized,
   unavailable: "We couldn't verify your account just now. Try again in a moment.",
   error:

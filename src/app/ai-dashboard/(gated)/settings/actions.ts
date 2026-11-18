@@ -1,6 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
+import { trustedClientIp } from "@/lib/client-ip";
+import { clearSignInAttempts, reserveSignInAttempt } from "@/lib/invite-password-limit";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { isValidEmail } from "@/lib/validators";
 import {
@@ -241,6 +244,22 @@ export async function updateOwnAccount(input: {
     // cookie-scoped client. That is the only way to check a password through
     // Supabase — there is no verify endpoint — and it must NOT run on the
     // service client, which would bypass auth entirely and always succeed.
+    //
+    // #58: the account's ONE password budget (shared with sign-in and the
+    // invitation page) and the IP's, taken before the check.
+    const slot = await reserveSignInAttempt({
+      email: ctx.user.email,
+      ip: trustedClientIp(await headers(), process.env),
+    });
+    if (!slot.ok) {
+      return {
+        success: false,
+        error:
+          slot.reason === "locked"
+            ? "Too many incorrect passwords. Please try again in 15 minutes."
+            : "We couldn't check your password just now. Please try again in a moment.",
+      };
+    }
     const auth = await createClient();
     const { error: reauthErr } = await auth.auth.signInWithPassword({
       email: ctx.user.email,
@@ -249,6 +268,7 @@ export async function updateOwnAccount(input: {
     if (reauthErr) {
       return { success: false, error: "That current password isn't right." };
     }
+    await clearSignInAttempts(ctx.user.email);
   }
 
   const emailChanged = email !== ctx.user.email.trim().toLowerCase();

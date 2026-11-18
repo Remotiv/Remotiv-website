@@ -237,6 +237,50 @@ export async function clearInviteCodeVerify(email: string): Promise<void> {
   });
 }
 
+/**
+ * ONE password budget per account (#58): the invitation page (#48), the
+ * company dashboard sign-in and the settings re-check all take their slot
+ * from invitePasswordKey, so guessing through one of them uses up the others.
+ * The dashboard paths also take a slot per IP: 50 attempts in the same
+ * sliding 15 minutes, never cleared by a success, so an office behind one
+ * address still signs in but one machine cannot spray many accounts.
+ */
+export const SIGN_IN_IP_MAX_ATTEMPTS = 50;
+
+export function signInIpKey(ip: string): string {
+  return `signin-ip:${createHash("sha256").update(ip.trim()).digest("hex")}`;
+}
+
+export type SignInReserve =
+  | { ok: true }
+  | { ok: false; reason: "locked" }
+  | { ok: false; reason: "unavailable" };
+
+/**
+ * A slot for one password check: the IP's first (a refused IP spends nothing
+ * of the account's), then the account's. No trusted IP is a refusal, logged
+ * as reason=NO_TRUSTED_IP; a store that cannot answer is a refusal too.
+ */
+export async function reserveSignInAttempt(input: {
+  email: string;
+  ip: string | null;
+}): Promise<SignInReserve> {
+  if (!input.ip) {
+    console.error(`${LOG} sign-in refused reason=NO_TRUSTED_IP`);
+    return { ok: false, reason: "unavailable" };
+  }
+  const byIp = await reserve(signInIpKey(input.ip), SIGN_IN_IP_MAX_ATTEMPTS, "sign-in ip");
+  if (!byIp.ok) return { ok: false, reason: byIp.reason };
+  const byAccount = await reserveInvitePasswordAttempt(input.email);
+  if (!byAccount.ok) return { ok: false, reason: byAccount.reason };
+  return { ok: true };
+}
+
+/** A correct password on the dashboard: the ACCOUNT's count starts again, never the IP's. */
+export async function clearSignInAttempts(email: string): Promise<void> {
+  await clearInvitePasswordAttempts(email);
+}
+
 /** A correct password: the account's count starts again. */
 export async function clearInvitePasswordAttempts(email: string): Promise<void> {
   // Best effort: a failed clear leaves the count to expire on its own.
