@@ -197,6 +197,14 @@ export async function addComment(
   return { success: true, data: data as ApplicationComment };
 }
 
+/**
+ * A failure AFTER the interviews and files were removed (#93): the applicant
+ * row is still there, so "nothing happened" would be false. Delete again
+ * finishes it: the removed files count as already gone.
+ */
+const PARTLY_DELETED =
+  "Deletion was not completed. Some data may already have been removed. Refresh and try Delete again.";
+
 export async function deleteApplication(
   id: string,
 ): Promise<MutationResult<undefined>> {
@@ -292,10 +300,7 @@ export async function deleteApplication(
       .eq("application_id", target.id);
     if (bellErr) {
       console.error(`[admin] delete applicant: bell clean failed: ${bellErr.code ?? "error"}`);
-      return {
-        success: false,
-        error: "Couldn't finish deleting this applicant. Refresh and try again.",
-      };
+      return { success: false, error: PARTLY_DELETED };
     }
   }
 
@@ -307,10 +312,7 @@ export async function deleteApplication(
     // The files above are already gone when this fails, so a retry finds them
     // gone and deletes the row; the string says so.
     console.error(`[admin] delete applicant: row delete failed: ${error.code ?? "error"}`);
-    return {
-      success: false,
-      error: "Couldn't finish deleting this applicant. Refresh and try again.",
-    };
+    return { success: false, error: PARTLY_DELETED };
   }
 
   // Late clean: the applicant link and the interview pages, scoped to this

@@ -33,7 +33,7 @@ const STUBS = {
     "export async function requireAdmin() { return globalThis.__adminDeleteCtx; }",
   ].join("\\n"),
   "@/lib/admin-scope": "export async function adminApplicationScope() { return 'company_id_snapshot.not.is.null'; }",
-  "@/lib/application-files": "export async function removeApplicationFiles(...args) { globalThis.__adminDeleteCalls.push(['files', args]); return globalThis.__adminDeleteFiles; }",
+  "@/lib/application-files": "export async function removeApplicationFiles(...args) { globalThis.__adminDeleteCalls.push(['files', args]); const f = globalThis.__adminDeleteFiles; return typeof f === 'function' ? f(...args) : f; }",
   "@/lib/interviews/application-deletion": "export async function deleteApplicationInterviews(...args) { globalThis.__adminDeleteCalls.push(['interviews', args]); return globalThis.__adminDeleteInterviews; }",
   "@/lib/avatars": "export function getAvatarUrl() { return null; }",
 };
@@ -101,6 +101,7 @@ function bellFilter(calls) {
 
 function world({
   rowDeleteFails = null,
+  rowDeleteFailuresLeft = Number.POSITIVE_INFINITY,
   interviews = { ok: true, sessions: 0 },
   files = { ok: true },
   snapshot = CO,
@@ -123,6 +124,7 @@ function world({
     bell("o3", CO, null, hrefOf("app-2")),
   ];
   let lateLeft = lateFailures;
+  let rowGone = false;
   const service = fakeService((table, calls) => {
     const op = calls[0]?.[0];
     if (table === "interview_sessions" && op === "select") {
@@ -131,12 +133,17 @@ function world({
       return { data: sessions.map((id) => ({ id })), error: null };
     }
     if (table === "job_applications" && op === "select") {
-      return { data: { ...APP, company_id_snapshot: snapshot }, error: null };
+      return { data: rowGone ? null : { ...APP, company_id_snapshot: snapshot }, error: null };
     }
     if (table === "job_applications" && op === "delete") {
       events.push("row:delete");
       bellEvents.push("row:delete");
-      if (rowDeleteFails) return { data: null, error: rowDeleteFails };
+      if (rowDeleteFails && rowDeleteFailuresLeft > 0) {
+        rowDeleteFailuresLeft -= 1;
+        return { data: null, error: rowDeleteFails };
+      }
+      // Only a delete aimed at this applicant removes it (#93's retry test reads rowGone).
+      if (calls.some((c) => c[0] === "eq" && c[1] === "id" && c[2] === APP.id)) rowGone = true;
       if (race === "applicant") bells.push(bell("race", CO, APP.id));
       if (race === "expiry") bells.push(bell("race", CO, APP.id, pageOf(SESSION)));
       for (const b of bells) if (b.application_id === APP.id) b.application_id = null;
@@ -183,16 +190,16 @@ function world({
       console.error = realError;
     }
   };
-  return { events, bellEvents, bells, logged, service, run };
+  return { events, bellEvents, bells, logged, service, run, rowGone: () => rowGone };
 }
+
+const PARTLY_DELETED =
+  "Deletion was not completed. Some data may already have been removed. Refresh and try Delete again.";
 
 test("1. the row delete fails: a fixed sentence, the code logged, and nothing of the database's message anywhere", async () => {
   const w = world({ rowDeleteFails: RAW });
   const result = await w.run();
-  assert.deepEqual(result, {
-    success: false,
-    error: "Couldn't finish deleting this applicant. Refresh and try again.",
-  });
+  assert.deepEqual(result, { success: false, error: PARTLY_DELETED });
   assert.deepEqual(
     w.logged,
     ["[admin] delete applicant: row delete failed: 23503"],
@@ -276,13 +283,10 @@ test("88a2: the session ids are read first, scoped to the company and the applic
   assert.equal(eq("application_id"), APP.id);
 });
 
-test("88b: a failed pre-clean keeps the row and returns the generic failure, code only in the log", async () => {
+test("88b: a failed pre-clean keeps the row and says deletion was partly done, code only in the log", async () => {
   const w = world({ preFails: true });
   const res = await w.run();
-  assert.deepEqual(res, {
-    success: false,
-    error: "Couldn't finish deleting this applicant. Refresh and try again.",
-  });
+  assert.deepEqual(res, { success: false, error: PARTLY_DELETED });
   assert.ok(!w.events.includes("row:delete"), "the row was deleted");
   assert.deepEqual(w.logged, ["[admin] delete applicant: bell clean failed: 57014"]);
 });
@@ -355,4 +359,49 @@ test("88f: a Remotiv-owned row (no company snapshot) reads no sessions, sends no
     "a bell or session query ran",
   );
   assert.ok(w.events.includes("row:delete"));
+});
+
+/*
+ * #93: the row delete fails AFTER the interviews and files went. The admin is
+ * told it was partly done, and Delete again finishes it: the second pass finds
+ * the files already gone (the stub answers as removeApplicationFiles does for
+ * a missing object, application-files.ts) and deletes the row.
+ * Negative control: return the old "Couldn't finish deleting" sentence from
+ * the row step and the first assertion fails.
+ */
+test("93: a failed row delete says partly deleted; Delete again finishes with the files counted as already gone", async () => {
+  const stored = new Set([APP.cv_path]);
+  const filesPasses = [];
+  const w = world({
+    rowDeleteFails: RAW,
+    rowDeleteFailuresLeft: 1,
+    files: (_service, _company, _app, cvPath) => {
+      filesPasses.push(stored.has(cvPath) ? "removed" : "already gone");
+      stored.delete(cvPath);
+      return { ok: true };
+    },
+  });
+
+  const first = await w.run();
+  assert.deepEqual(first, { success: false, error: PARTLY_DELETED });
+  assert.equal(w.rowGone(), false, "the applicant is still there after the failure");
+  assert.equal(stored.size, 0, "but the CV was already removed");
+
+  const retry = await w.run();
+  assert.deepEqual(retry, { success: true, data: undefined });
+  assert.equal(w.rowGone(), true, "Delete again removed the applicant");
+  assert.deepEqual(filesPasses, ["removed", "already gone"]);
+  assert.deepEqual(
+    w.events.filter((e) => e === "row:delete"),
+    ["row:delete", "row:delete"],
+    "one failed and one successful row delete",
+  );
+  assert.ok(!w.bells.some((b) => b.id === "b1"), "this applicant's bell is gone");
+});
+
+test("93: a failure BEFORE anything is removed keeps today's message", async () => {
+  const w = world({ sessionFails: true });
+  const res = await w.run();
+  assert.equal(res.error, "Couldn't finish deleting this applicant. Refresh and try again.");
+  assert.notEqual(res.error, PARTLY_DELETED);
 });
