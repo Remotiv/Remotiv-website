@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getJobBySlug, type Job } from "@/lib/jobs";
-import { createServiceClient } from "@/lib/supabase/server";
 import { getJobCompany } from "./_company-data";
+import { fetchPublicJobCounts } from "./_counts";
 import { CompanyJobDetail } from "./_company-detail";
 import { RemotivJobDetail } from "./_remotiv-detail";
 import { RoleUnavailable } from "./_unavailable";
@@ -40,28 +40,6 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     twitter: { card: "summary_large_image", title, description },
     robots: { index: true, follow: true },
   };
-}
-
-async function fetchCounts(jobId: string): Promise<{ total: number; thisWeek: number }> {
-  try {
-    const supabase = createServiceClient();
-    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const [totalRes, weekRes] = await Promise.all([
-      supabase
-        .from("job_applications")
-        .select("*", { count: "exact", head: true })
-        .eq("job_id", jobId),
-      supabase
-        .from("job_applications")
-        .select("*", { count: "exact", head: true })
-        .eq("job_id", jobId)
-        .gte("created_at", weekAgo),
-    ]);
-    return { total: totalRes.count ?? 0, thisWeek: weekRes.count ?? 0 };
-  } catch {
-    // Counts are decorative — never crash the page on a transient error.
-    return { total: 0, thisWeek: 0 };
-  }
 }
 
 /**
@@ -104,7 +82,7 @@ export default async function JobDetailPage({ params }: PageProps) {
   const job: Job | null = read.value;
   if (!job) notFound();
 
-  const { total, thisWeek } = await fetchCounts(job.id);
+  const { total, thisWeek } = await fetchPublicJobCounts(job.id);
 
   const company = job.company_id ? await getJobCompany(job.company_id, job.id) : null;
 

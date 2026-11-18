@@ -133,8 +133,9 @@ export function RemotivJobDetail({
   thisWeek,
 }: {
   job: Job;
-  total: number;
-  thisWeek: number;
+  /** Null when the count could not be read: the figure is hidden, never shown as 0. */
+  total: number | null;
+  thisWeek: number | null;
 }) {
   const responsibilities = splitLines(job.responsibilities);
   const requirements = splitLines(job.requirements);
@@ -178,7 +179,7 @@ export function RemotivJobDetail({
     { Icon: IconBriefcase, label: "Type", value: job.contract_type },
     { Icon: IconWorld, label: "Work mode", value: job.work_type },
     { Icon: IconChartLine, label: "Experience", value: job.experience_level },
-    { Icon: IconUsers, label: "Applicants", value: `${total} so far` },
+    ...(total === null ? [] : [{ Icon: IconUsers, label: "Applicants", value: `${total} so far` }]),
   ];
 
   const jobPostingLd = {
@@ -278,7 +279,7 @@ export function RemotivJobDetail({
               <div>
                 <span className="font-heading text-[1.45rem] font-bold text-white">{salary}</span>
                 <span className="text-[13px] text-[#d6c8ff]"> / month</span>
-                {thisWeek > 0 && (
+                {thisWeek !== null && thisWeek > 0 && (
                   <div className="mt-0.5 text-xs text-[#cdb9ff]">
                     <span className="font-bold text-white">{thisWeek}</span>{" "}
                     {thisWeek === 1 ? "person" : "people"} applied this week

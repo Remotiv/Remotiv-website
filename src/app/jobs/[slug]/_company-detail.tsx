@@ -74,7 +74,8 @@ export function CompanyJobDetail({
 }: {
   job: Job;
   company: JobCompany;
-  total: number;
+  /** Null when the count could not be read: the figure is hidden, never shown as 0. */
+  total: number | null;
 }) {
   const responsibilities = splitLines(job.responsibilities);
   const requirements = splitLines(job.requirements);
@@ -177,7 +178,7 @@ export function CompanyJobDetail({
               </ApplyButton>
               <span className="meta">
                 Posted {timeAgo(job.created_at)}
-                {total > 0 && ` · ${total} applicant${total === 1 ? "" : "s"}`}
+                {total !== null && total > 0 && ` · ${total} applicant${total === 1 ? "" : "s"}`}
               </span>
             </div>
 
