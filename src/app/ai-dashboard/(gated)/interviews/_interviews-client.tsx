@@ -95,6 +95,7 @@ const PILL: Record<InterviewStatus, string> = {
   invited: "bg-[var(--ai-slate-tint)] text-[var(--ai-slate-ink)]",
   expired: "bg-[var(--ai-danger-tint)] text-[var(--ai-danger)]",
   cancelled: "bg-[var(--ai-slate-tint)] text-[var(--ai-slate-ink)]",
+  unknown: "bg-[var(--ai-amber-tint)] text-[var(--ai-amber-ink)]",
 };
 const DOT: Record<InterviewStatus, string> = {
   submitted: "bg-remotiv-green",
@@ -102,6 +103,7 @@ const DOT: Record<InterviewStatus, string> = {
   invited: "bg-[var(--ai-t4)]",
   expired: "bg-[var(--ai-danger)]",
   cancelled: "bg-[var(--ai-t4)]",
+  unknown: "bg-[var(--ai-amber-dot)]",
 };
 
 const TABS: { key: InterviewTab; label: string }[] = [
@@ -111,15 +113,18 @@ const TABS: { key: InterviewTab; label: string }[] = [
   { key: "invited", label: "Not started" },
   { key: "expired", label: "Expired" },
   { key: "cancelled", label: "Cancelled" },
+  { key: "unknown", label: "Needs check" },
   { key: "archived", label: "Archived" },
 ];
 
 /**
  * Chips that disappear at zero.
  *
- * Both sit off the normal path: archiving is something a reviewer opts into,
- * and a cancellation is a superseded invite. An always-visible empty chip
- * invites people to look for a feature they are not using.
+ * All three sit off the normal path: archiving is something a reviewer opts
+ * into, a cancellation is a superseded invite, and "Needs check" holds a status
+ * this page does not recognise (#47), which should never happen. An
+ * always-visible empty chip invites people to look for a feature they are not
+ * using.
  *
  * Hiding them costs the reconciliation nothing. `All` counts every live row and
  * the five status chips are exhaustive over it, so at zero the visible chips
@@ -127,7 +132,7 @@ const TABS: { key: InterviewTab; label: string }[] = [
  * all. It is only when the count is non-zero that its absence left `All`
  * reading 26 above chips totalling 25.
  */
-const HIDDEN_AT_ZERO: readonly InterviewTab[] = ["cancelled", "archived"];
+const HIDDEN_AT_ZERO: readonly InterviewTab[] = ["cancelled", "unknown", "archived"];
 
 function chipVisible(tab: InterviewTab, counts: InterviewListResult["counts"]): boolean {
   return !HIDDEN_AT_ZERO.includes(tab) || counts[tab] > 0;
@@ -697,7 +702,9 @@ function Row({ row, onArchived }: { row: InterviewRow; onArchived: () => void })
             ? `Started ${relative(row.startedAt)}`
             : row.status === "expired"
               ? `Expired ${fmtDate(row.expiresAt)}`
-              : `Due ${fmtDate(row.expiresAt)}`}
+              : row.status === "unknown"
+                ? "Needs check"
+                : `Due ${fmtDate(row.expiresAt)}`}
         <small className="mt-px block text-[11.5px] text-[var(--ai-t4)]">
           {row.status === "submitted"
             ? fmtDate(row.submittedAt)
@@ -850,6 +857,10 @@ const EMPTY_COPY: Partial<Record<InterviewTab, EmptyCopy>> = {
   cancelled: {
     title: "Nothing cancelled",
     body: "An interview is cancelled when a newer invite replaces it, or when the invite could not be delivered. Neither has happened here.",
+  },
+  unknown: {
+    title: "Nothing needs checking",
+    body: "An interview needs checking when its status is one this page does not recognise. None does right now.",
   },
   archived: {
     title: "Nothing archived",

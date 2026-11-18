@@ -62,17 +62,20 @@ import type { TranscriptSegment } from "./transcribe";
 const PAGE_SIZE = 20;
 
 /** The statuses the UI groups by, derived rather than trusted from the row. */
-function deriveStatus(stored: string, expiresAt: string | null): InterviewStatus {
+export function deriveStatus(stored: string | null, expiresAt: string | null): InterviewStatus {
   // A restarted first attempt (F10). The list shows its restart instead and
   // never this row; anywhere one is shown alone, it is not a pending invite.
   if (stored === "abandoned") return "cancelled";
   if (stored === "cancelled") return "cancelled";
   if (stored === "submitted") return "submitted";
   if (stored === "expired") return "expired";
+  // A status nothing here recognises, NULL included, is unknown (#47), and it
+  // is decided BEFORE the deadline: a passed deadline must not relabel it as
+  // expired, and running out of statuses must never read as invited.
+  if (stored !== "invited" && stored !== "started") return "unknown";
   // A session nothing has swept is still expired once its deadline passes.
   if (expiresAt && new Date(expiresAt).getTime() < Date.now()) return "expired";
-  if (stored === "started") return "started";
-  return "invited";
+  return stored === "started" ? "started" : "invited";
 }
 
 function snapshotLength(snapshot: unknown): number | null {
@@ -156,6 +159,7 @@ export async function listInterviewSessions(
       invited: 0,
       expired: 0,
       cancelled: 0,
+      unknown: 0,
       archived: 0,
     },
     jobs: [],
@@ -312,6 +316,7 @@ export async function listInterviewSessions(
     invited: live.filter((r) => r.status === "invited").length,
     expired: live.filter((r) => r.status === "expired").length,
     cancelled: live.filter((r) => r.status === "cancelled").length,
+    unknown: live.filter((r) => r.status === "unknown").length,
     archived: rows.length - live.length,
   };
 

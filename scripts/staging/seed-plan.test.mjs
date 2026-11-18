@@ -175,7 +175,7 @@ test("pin: applyTab splits Written from Automatic on event === manual", () => {
   assert.equal(MESSAGE_EVENT_MANUAL, "manual");
 });
 
-test("pin: the interview chips hidden at zero are cancelled and archived", () => {
+test("pin: the interview chips hidden at zero are cancelled, unknown and archived", () => {
   const src = read("src/app/ai-dashboard/(gated)/interviews/_interviews-client.tsx");
   const m = pin(
     src,
@@ -183,12 +183,16 @@ test("pin: the interview chips hidden at zero are cancelled and archived", () =>
     "HIDDEN_AT_ZERO",
   );
   const hidden = [...m[1].matchAll(/"([a-z]+)"/g)].map((x) => x[1]);
-  assert.deepEqual(hidden, ["cancelled", "archived"]);
+  assert.deepEqual(hidden, ["cancelled", "unknown", "archived"]);
   // The reason the seed must write both: a zero count removes the element.
   assert.ok(
     CHIP_STATUSES.includes("cancelled"),
     "cancelled must be a seeded chip status or its chip never renders",
   );
+  // "unknown" (#47, "Needs check") is the opposite case: it holds a status the
+  // page does not recognise, and the database allows none, so the seed cannot
+  // and must not write one. Its chip staying hidden on staging is correct.
+  assert.ok(!SESSION_STATUSES.includes("unknown"), "unknown is never a stored status");
 });
 
 test("pin: migration 020 widened session status to six, and abandoned has no chip", () => {

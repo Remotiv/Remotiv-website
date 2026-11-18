@@ -167,6 +167,7 @@ test("b: counts, every tab and 'sent this week' count the chain once, from its f
     invited: 2,
     expired: 0,
     cancelled: 0,
+    unknown: 0,
     archived: 0,
   });
   assert.equal(v.sentThisWeek, 1, "the restart is not a new send: its chain was sent 10 days ago");

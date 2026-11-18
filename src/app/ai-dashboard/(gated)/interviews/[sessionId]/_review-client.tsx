@@ -1288,6 +1288,8 @@ function headerWhen(s: InterviewSessionDetail): string {
   if (s.status === "started") return "Started · not submitted";
   if (s.status === "expired") return `Expired ${fmtDate(s.expiresAt)}`;
   if (s.status === "cancelled") return "Invitation cancelled";
+  // #47: a status this page does not recognise is never shown as an invite.
+  if (s.status === "unknown") return "Needs check";
   return `Invited ${fmtDate(s.sentAt)} · due ${fmtDate(s.expiresAt)}`;
 }
 

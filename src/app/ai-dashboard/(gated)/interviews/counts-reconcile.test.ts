@@ -163,12 +163,13 @@ describe("Interviews counts reconcile", () => {
     assert.deepEqual(extras, ["all", "archived"], `unexpected non-status chips: ${extras}`);
   });
 
-  test("cancelled and archived hide at zero", () => {
+  test("cancelled, needs-check and archived hide at zero", () => {
     assert.deepEqual(
       [...HIDDEN_AT_ZERO].sort(),
-      ["archived", "cancelled"],
-      "both sit off the normal path, and at zero the visible chips already total 'All' — a " +
-        "permanently empty chip invites people to look for a feature they are not using",
+      ["archived", "cancelled", "unknown"],
+      "all three sit off the normal path (unknown, #47, should never happen), and at zero the " +
+        "visible chips already total 'All' — a permanently empty chip invites people to look " +
+        "for a feature they are not using",
     );
   });
 

@@ -12,7 +12,17 @@
 
 import type { InterviewKind } from "./types";
 
-export type InterviewStatus = "invited" | "started" | "submitted" | "expired" | "cancelled";
+/**
+ * `unknown`: a stored status this page does not recognise (#47). Shown as
+ * "Needs check", never as invited: no deadline or invite wording applies.
+ */
+export type InterviewStatus =
+  | "invited"
+  | "started"
+  | "submitted"
+  | "expired"
+  | "cancelled"
+  | "unknown";
 
 export type TranscriptState =
   | "pending"
@@ -130,6 +140,8 @@ export type InterviewListResult = {
      * page accounted for the 1.
      */
     cancelled: number;
+    /** A stored status this page does not recognise (#47). Its own chip, hidden at 0. */
+    unknown: number;
     /** Archived rows, excluded from every other count above. */
     archived: number;
   };
@@ -174,6 +186,7 @@ export type InterviewTab =
   | "invited"
   | "expired"
   | "cancelled"
+  | "unknown"
   | "archived";
 
 export type ScoreStatus =
@@ -340,4 +353,5 @@ export const INTERVIEW_STATUS_LABELS: Record<InterviewStatus, string> = {
   submitted: "Submitted",
   expired: "Expired",
   cancelled: "Cancelled",
+  unknown: "Needs check",
 };
