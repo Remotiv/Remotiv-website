@@ -40,16 +40,31 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       must_change_password?: boolean;
     } | null;
 
+    // #54: never a bare signOut() here. Its default scope is GLOBAL, so a
+    // company user who merely opened /login (which sends every signed-in
+    // user to /admin) or an admin URL was signed out on every device. A
+    // company member is sent to their own dashboard with the session
+    // intact; anyone else is signed out on THIS browser only, which is
+    // enough to stop /login and /admin bouncing them back and forth.
     if (!row || !row.role) {
       // No admin_users row → either deleted by a super admin, or the auth
-      // account was never granted admin access. Either way, force-logout.
-      await supabase.auth.signOut();
+      // account was never granted admin access.
+      const { data: member } = await service
+        .from("company_members")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("status", "active")
+        .limit(1)
+        .maybeSingle();
+      if (member) redirect("/ai-dashboard");
+      await supabase.auth.signOut({ scope: "local" });
       redirect("/login?reason=removed");
     }
 
     if (row.status && row.status !== "active") {
-      // Paused or archived. Force-logout and surface the reason on /login.
-      await supabase.auth.signOut();
+      // Paused or archived. Sign out this browser and surface the reason on
+      // /login; the check above runs on every admin request regardless.
+      await supabase.auth.signOut({ scope: "local" });
       redirect(`/login?reason=${row.status}`);
     }
 
