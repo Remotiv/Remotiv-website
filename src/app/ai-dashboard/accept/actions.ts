@@ -55,6 +55,7 @@ const PASSWORD_CHECK_UNAVAILABLE =
 const WRONG_PASSWORD =
   "That password doesn't match your existing Remotiv account. Enter your current password to join.";
 const CODE_WRONG = "That code is not right or has expired.";
+const PASSWORD_RESET_FAILED = "Couldn't set your new password. Please try again.";
 const CODE_SEND_FAILED = "We couldn't send a code just now. Please try again in a moment.";
 const CODE_SEND_LOCKED = "Too many codes were sent to this email. Please try again in 15 minutes.";
 const CODE_CHECK_LOCKED =
@@ -196,6 +197,9 @@ function refusal(slot: Exclude<ReserveResult, { ok: true }>, locked: string, dow
  * The code is never logged. If our email fails, an account this call created
  * is deleted again: the person sees one fixed message and can try again.
  *
+ * "Forgot your password?" (#63) sends with existingAccount false: no password
+ * is checked here, and the final step sets the new one on the code alone.
+ *
  * `existingAccount` only picks which of the two to try; it proves nothing.
  * The final step decides again from the account itself (NEW_ACCOUNT_MARKER).
  * Every send costs a slot of the address's send budget, taken before the
@@ -289,7 +293,12 @@ export async function sendInviteCode(input: {
  *   3. the account the code proved must BE the invited address. If the code
  *      step created it (NEW_ACCOUNT_MARKER), the password typed here becomes
  *      its password; otherwise it existed already and must ALSO prove its
- *      existing password (#48), and be the same account
+ *      existing password (#48), and be the same account, UNLESS the person
+ *      chose "Forgot your password?" (`resetPassword`, #63): then the code
+ *      alone proves the mailbox, as a password reset email does, and the
+ *      password typed here REPLACES the old one (also for an account that
+ *      never had one). The reset is not undone if the grant is then refused:
+ *      the old password is unknown, and the person did prove the mailbox
  *   4. burn the invite and grant the membership in ONE transaction,
  *      accept_company_invite (migration 062), which re-checks the inviter
  *      under a row lock: the check that counts
@@ -305,6 +314,7 @@ export async function acceptInvite(input: {
   token: string;
   password: string;
   code: string;
+  resetPassword?: boolean;
 }): Promise<AcceptResult> {
   const password = input.password ?? "";
   const code = (input.code ?? "").trim();
@@ -354,6 +364,15 @@ export async function acceptInvite(input: {
       logCode("set password", setError);
       return { success: false, error: ACCOUNT_FAILED };
     }
+  } else if (input.resetPassword === true) {
+    const { error: resetError } = await service.auth.admin.updateUserById(user.id, { password });
+    if (resetError) {
+      await endCodeSession();
+      logCode("reset password", resetError);
+      return { success: false, error: PASSWORD_RESET_FAILED };
+    }
+    // A new password: the #48 count for the account starts again.
+    await clearInvitePasswordAttempts(email);
   } else {
     const proof = await provePassword(email, password);
     if (!proof.ok || proof.userId !== user.id) {

@@ -31,6 +31,9 @@ export function AcceptClient({
   const [loading, setLoading] = useState(false);
   // #51: every acceptance proves the address with an emailed code.
   const [codeSent, setCodeSent] = useState(false);
+  // #63: an existing account that forgot its password (or never had one)
+  // chooses a new one here; the emailed code alone proves the mailbox.
+  const [resetMode, setResetMode] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -57,7 +60,24 @@ export function AcceptClient({
     setCodeSent(true);
   }
 
+  function startReset() {
+    setResetMode(true);
+    setSignInMode(false);
+    setPassword("");
+    setConfirmPassword("");
+    setError(null);
+  }
+
+  function stopReset() {
+    setResetMode(false);
+    setSignInMode(true);
+    setPassword("");
+    setConfirmPassword("");
+    setError(null);
+  }
+
   function backToPassword(message: string) {
+    setResetMode(false);
     setSignInMode(true);
     setPassword("");
     setCodeSent(false);
@@ -113,6 +133,7 @@ export function AcceptClient({
               token={token}
               password={password}
               existingAccount={signInMode}
+              resetPassword={resetMode}
               email={email}
               submitLabel={signInMode ? "Sign in & join" : `Join ${companyName}`}
               onNeedsPassword={backToPassword}
@@ -165,6 +186,29 @@ export function AcceptClient({
                 </button>
               </div>
             </div>
+
+            {signInMode && (
+              <button
+                type="button"
+                onClick={startReset}
+                className="-mt-2 self-start text-xs font-semibold text-remotiv-purple hover:underline"
+              >
+                Forgot your password?
+              </button>
+            )}
+
+            {resetMode && (
+              <p className="-mt-2 text-xs text-[var(--ai-t2)]">
+                Choose a new password. We will email you a code to confirm this is your email.{" "}
+                <button
+                  type="button"
+                  onClick={stopReset}
+                  className="font-semibold text-remotiv-purple hover:underline"
+                >
+                  Use my current password
+                </button>
+              </p>
+            )}
 
             {!signInMode && (
               <div>

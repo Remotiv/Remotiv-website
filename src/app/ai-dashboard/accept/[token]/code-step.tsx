@@ -16,6 +16,7 @@ export function CodeStep({
   token,
   password,
   existingAccount,
+  resetPassword,
   email,
   submitLabel,
   onNeedsPassword,
@@ -23,6 +24,8 @@ export function CodeStep({
   token: string;
   password: string;
   existingAccount: boolean;
+  /** #63: the password typed in the first step REPLACES the account's, on the code alone. */
+  resetPassword: boolean;
   email: string;
   submitLabel: string;
   onNeedsPassword: (error: string) => void;
@@ -37,7 +40,7 @@ export function CodeStep({
     setError(null);
     setNotice(null);
     setBusy("join");
-    const result = await acceptInvite({ token, password, code });
+    const result = await acceptInvite({ token, password, code, resetPassword });
     if (!result.success) {
       setBusy(null);
       if (result.needsExistingPassword) {

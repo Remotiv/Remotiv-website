@@ -468,8 +468,18 @@ function world({
   const hint = (token) => state.users.some((u) => u.email === emailOf(token) && u.password != null);
   const send = (token, password = PASSWORD, existingAccount = hint(token)) =>
     quiet(() => sendInviteCode({ token, password, existingAccount }));
-  const accept = (token, password = PASSWORD, code = codes.get(emailOf(token)) ?? "") =>
-    quiet(() => acceptInvite({ token, password, code }));
+  const accept = (
+    token,
+    password = PASSWORD,
+    code = codes.get(emailOf(token)) ?? "",
+    resetPassword = undefined,
+  ) => quiet(() => acceptInvite({ token, password, code, resetPassword }));
+  /** "Forgot your password?" (#63): a code with no password check, then a new password. */
+  const forgot = async (token, newPassword, code) => {
+    const sent = await send(token, newPassword, false);
+    if (!sent.success) return sent;
+    return accept(token, newPassword, code ?? codes.get(emailOf(token)) ?? "", true);
+  };
   /** Both steps, with the code the address received, as a person would. */
   const run = async (token, password = PASSWORD, { existingAccount, code } = {}) => {
     const sent = await send(token, password, existingAccount ?? hint(token));
@@ -489,6 +499,7 @@ function world({
     emails,
     send,
     accept,
+    forgot,
     run,
   };
 }
@@ -1459,6 +1470,170 @@ test("51-18. the new copy has no dashes", async () => {
     strings.filter((x) => /[–—]/.test(x)),
     [],
   );
+});
+
+/* ── #63: "Forgot your password?" on the existing-account step ──────────────
+ * The emailed code alone proves the mailbox, as a password reset email does;
+ * the new password replaces the old one; the limits are #51's.
+ */
+const NEW_PASSWORD = "a fresh new password";
+/** A password check on a cookie-less client, as the action makes it. */
+const passwordWorks = async (email, password) =>
+  (await globalThis.__acceptStateless().auth.signInWithPassword({ email, password })).error ===
+  null;
+
+test("63-1. forgot path: code + new password joins, signed in, with no check of the old password", async () => {
+  const w = world({ invites: [invite()], members: [removedRae], users: [raeUser] });
+  assert.deepEqual(await w.forgot("tok-1", NEW_PASSWORD), { success: true });
+  assert.equal(w.state.members[0].status, "active");
+  assert.equal(w.state.invites[0].status, "accepted");
+  assert.equal(w.state.users.length, 1, "the same account, no second one");
+  assert.equal(w.state.users[0].password, NEW_PASSWORD);
+  assert.deepEqual(w.events, [
+    "email:code",
+    "auth:code-ok",
+    "auth:set-password",
+    "burn:won",
+    "member:update",
+    "auth:signin",
+  ]);
+  assert.ok(!w.events.some((e) => e.startsWith("auth:check")), "the old password is never asked");
+  assert.equal(w.rpcCalls[0].p_user_id, "u-rae");
+});
+
+test("63-2. forgot path, wrong code: nothing written, the old password still works", async () => {
+  const w = world({ invites: [invite()], members: [removedRae], users: [raeUser] });
+  const r = await w.forgot("tok-1", NEW_PASSWORD, "000000");
+  assert.deepEqual(r, { success: false, error: CODE_WRONG });
+  assert.ok(!w.events.includes("auth:set-password"));
+  assert.equal(w.state.users[0].password, PASSWORD);
+  assert.equal(w.rpcCalls.length, 0);
+  assert.equal(w.state.members[0].status, "removed");
+  assert.equal(w.state.invites[0].status, "pending");
+  assert.ok(!w.events.includes("auth:signin"));
+});
+
+test("63-3. afterwards the OLD password no longer works and the new one does", async () => {
+  const w = world({
+    invites: [invite(), invite({ id: "inv-2", company_id: CO2, token_hash: hash("tok-2") })],
+    members: [removedRae],
+    users: [raeUser],
+  });
+  assert.deepEqual(await w.forgot("tok-1", NEW_PASSWORD), { success: true });
+  assert.equal(await passwordWorks("rae@acme.test", PASSWORD), false);
+  assert.equal(await passwordWorks("rae@acme.test", NEW_PASSWORD), true);
+  const old = await w.run("tok-2", PASSWORD);
+  assert.deepEqual(old, { success: false, error: WRONG_PASSWORD, needsExistingPassword: true });
+  assert.deepEqual(await w.run("tok-2", NEW_PASSWORD), { success: true });
+});
+
+test("63-4. an account with NO password (code sign-in only) joins through the forgot path", async () => {
+  const w = world({
+    invites: [invite()],
+    users: [{ id: "u-rae", email: "rae@acme.test", password: null }],
+  });
+  assert.deepEqual(await w.forgot("tok-1", NEW_PASSWORD), { success: true });
+  assert.equal(w.state.users[0].password, NEW_PASSWORD);
+  assert.equal(w.state.members[0].user_id, "u-rae");
+});
+
+test("63-5. the limits apply: 5 sends per address shared with the normal path, then 10 checks", async () => {
+  const w = world({ invites: [invite()], members: [removedRae], users: [raeUser] });
+  for (let i = 0; i < 3; i++) assert.equal((await w.send("tok-1")).success, true, "normal path");
+  for (let i = 0; i < 2; i++) {
+    assert.equal((await w.send("tok-1", NEW_PASSWORD, false)).success, true, "forgot path");
+  }
+  assert.deepEqual(await w.send("tok-1", NEW_PASSWORD, false), {
+    success: false,
+    error: "Too many codes were sent to this email. Please try again in 15 minutes.",
+  });
+  for (let i = 0; i < 10; i++) {
+    assert.equal((await w.accept("tok-1", NEW_PASSWORD, `90000${i}`, true)).error, CODE_WRONG);
+  }
+  assert.deepEqual(await w.accept("tok-1", NEW_PASSWORD, undefined, true), {
+    success: false,
+    error: "Too many incorrect codes for this email. Please try again in 15 minutes.",
+  });
+  assert.equal(w.state.users[0].password, PASSWORD, "never reset");
+  assert.equal(w.rpcCalls.length, 0);
+});
+
+test("63-6. the normal path is unchanged: without the forgot choice the code alone never sets a password", async () => {
+  const w = world({ invites: [invite()], members: [removedRae], users: [raeUser] });
+  for (const reset of [undefined, false, "true", 1]) {
+    // A code works once, so each try gets its own.
+    await w.send("tok-1");
+    const r = await w.accept("tok-1", NEW_PASSWORD, undefined, reset);
+    assert.deepEqual(r, { success: false, error: WRONG_PASSWORD, needsExistingPassword: true });
+  }
+  assert.ok(!w.events.includes("auth:set-password"));
+  assert.equal(w.state.users[0].password, PASSWORD);
+});
+
+test("63-7. a new password shorter than 8 is refused before anything is sent or set", async () => {
+  const w = world({ invites: [invite()], members: [removedRae], users: [raeUser] });
+  assert.deepEqual(await w.forgot("tok-1", "short"), {
+    success: false,
+    error: "Password must be at least 8 characters.",
+  });
+  assert.deepEqual(w.events, []);
+});
+
+test("63-8. the grant refused after a reset: the password stays reset, no membership, the account is never deleted", async () => {
+  const w = world({
+    invites: [invite()],
+    members: [removedRae],
+    users: [raeUser],
+    memberWriteFails: { code: "XX000", message: "boom" },
+  });
+  const r = await w.forgot("tok-1", NEW_PASSWORD);
+  assert.equal(r.success, false);
+  assert.equal(w.state.users.length, 1);
+  assert.ok(!w.events.includes("auth:delete"));
+  assert.equal(w.state.users[0].password, NEW_PASSWORD, "a proven reset is not undone");
+  assert.equal(w.state.members[0].status, "removed");
+  assert.equal(w.state.invites[0].status, "pending");
+});
+
+test("63-9. a reset that cannot be saved: a fixed string, the code logged, nothing granted", async () => {
+  const w = world({
+    invites: [invite()],
+    members: [removedRae],
+    users: [raeUser],
+    setPasswordFails: { message: "Database error updating user", status: 500 },
+  });
+  assert.deepEqual(await w.forgot("tok-1", NEW_PASSWORD), {
+    success: false,
+    error: "Couldn't set your new password. Please try again.",
+  });
+  assert.deepEqual(w.logged, ["[accept-invite] reset password: 500"]);
+  assert.equal(w.rpcCalls.length, 0);
+  assert.ok(!w.events.includes("auth:signin"));
+});
+
+test("63-10. the forgot path clears the #48 lock: an account locked by wrong guesses can reset and join", async () => {
+  const w = world({ invites: [invite()], members: [removedRae], users: [raeUser] });
+  for (let i = 0; i < 11; i++) await w.send("tok-1", `wrong password ${i}`, true);
+  assert.equal((await w.send("tok-1", PASSWORD, true)).error, LOCKED);
+  assert.deepEqual(await w.forgot("tok-1", NEW_PASSWORD), { success: true });
+  assert.equal((await limit.reserveInvitePasswordAttempt("rae@acme.test")).ok, true);
+});
+
+test("63-11. the page offers the forgot link only on the existing-account step, with no dashes", async () => {
+  const fs = await import("node:fs");
+  const ui = fs.readFileSync(new URL("./[token]/accept-client.tsx", import.meta.url), "utf8");
+  const flat = ui.replace(/\s+/g, " ");
+  assert.match(flat, /\{signInMode && \( <button type="button" onClick=\{startReset\}/);
+  for (const copy of [
+    "Forgot your password?",
+    "Choose a new password. We will email you a code to confirm this is your email.",
+    "Use my current password",
+  ]) {
+    assert.ok(flat.includes(copy), copy);
+    assert.ok(!/[\u2013\u2014]/.test(copy));
+  }
+  const code = fs.readFileSync(new URL("./[token]/code-step.tsx", import.meta.url), "utf8");
+  assert.match(code, /acceptInvite\(\{ token, password, code, resetPassword \}\)/);
 });
 
 test("no test in this file tried the network", () => {
