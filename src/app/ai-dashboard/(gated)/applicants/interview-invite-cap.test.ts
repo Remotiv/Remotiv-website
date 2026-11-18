@@ -273,7 +273,12 @@ test("after the provider accepts, nothing releases, even when everything after i
   const r = await send({ enqueue: "throw" });
   assert.equal(r.result.success, true, "a queue outage after delivery is not a failed invite");
   assert.ok(at(r, "email") >= 0);
-  assert.ok(r.timeline.includes("enqueue:send_message"), "the WhatsApp enqueue ran and threw");
+  // Since #52 the WhatsApp copy goes through the outbox, not the queue; the
+  // queue outage now hits the reminder, which still runs after delivery.
+  assert.ok(
+    r.timeline.includes("enqueue:interview_reminder"),
+    "the reminder enqueue ran and threw",
+  );
   assert.equal(releases(r).length, 0);
 });
 

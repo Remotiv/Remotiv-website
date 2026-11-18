@@ -17,6 +17,8 @@
  *                                            plus its deprecated alias canAccessJob
  *   @/lib/email/candidate/deliver         -> deliverEmail calling
  *                                            globalThis.__inviteDeliverForTests
+ *   @/lib/whatsapp/dispatch               -> queueManualWhatsApp calling
+ *                                            globalThis.__inviteWhatsAppForTests (#52)
  *   @/lib/jobs-queue                      -> enqueue calling
  *                                            globalThis.__inviteEnqueueForTests
  *   @/lib/interviews/live-settings        -> gateLiveInterviewInvite returning
@@ -79,6 +81,16 @@ const STUBS = {
     "}",
   ].join("\n"),
   "@/lib/interviews/reminder": "export const REMINDER_LEAD_MS = 24 * 60 * 60 * 1000;",
+  // #52: the invite's WhatsApp goes through the outbox (queue_manual_whatsapp),
+  // not the queue. A test that cares sets the fake; one that does not gets a
+  // "not queued" answer, which the send treats as non-fatal, as it would.
+  "@/lib/whatsapp/dispatch": [
+    "export async function queueManualWhatsApp(service, input) {",
+    "  const fake = globalThis.__inviteWhatsAppForTests;",
+    '  if (!fake) return { kind: "not_queued", reason: "no fake in this test" };',
+    "  return fake(input);",
+    "}",
+  ].join("\n"),
 };
 
 export async function resolve(specifier, context, next) {

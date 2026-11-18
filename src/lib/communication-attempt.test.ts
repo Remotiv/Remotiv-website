@@ -505,7 +505,10 @@ const DATE_API = /\bnew Date\b|\bDate\.(now|parse|UTC)\b|\.getTime\(|\.toISOStri
 const DATE_APIS = new RegExp(DATE_API.source, "g");
 
 // Negative control: reintroduce the old age check (Date.now() - new Date(...)) and this fails.
-test("the module has no Date at all, and the WhatsApp dispatcher only its two sent_at writes", () => {
+// #52 added the third: a recruiter's queued send (sendQueuedManual) records
+// when Meta accepted it. A send time, never an attempt stamp: the claim's stamp
+// is the database's (claim_manual_communication_log, migration 064).
+test("the module has no Date at all, and the WhatsApp dispatcher only its three sent_at writes", () => {
   const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
   const mod = strip(readFileSync(new URL("./communication-attempt.ts", import.meta.url), "utf8"));
   assert.deepEqual(mod.match(DATE_APIS) ?? [], []);
@@ -514,6 +517,7 @@ test("the module has no Date at all, and the WhatsApp dispatcher only its two se
   assert.deepEqual(
     lines.map((l) => l.trim()),
     [
+      "sent_at: new Date().toISOString(),",
       "sent_at: new Date().toISOString(),",
       '...(row.status === "sent" ? { sent_at: new Date().toISOString() } : {}),',
     ],

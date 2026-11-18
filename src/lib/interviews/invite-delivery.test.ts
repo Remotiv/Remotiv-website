@@ -134,6 +134,10 @@ function world({
     steps.push({ step: "email", input });
     return deliver(input);
   };
+  globalThis.__inviteWhatsAppForTests = async (input) => {
+    steps.push({ step: "whatsapp", input });
+    return { kind: "queued", logId: "log-1" };
+  };
   globalThis.__inviteEnqueueForTests = (job) => {
     steps.push({
       step: "job",
@@ -214,18 +218,16 @@ const writes = (steps) =>
     .filter((s) => s.table === "interview_sessions")
     .map((s) => [s.op, s.value]);
 
+/** The invite's WhatsApp, queued through the outbox with its row (#52, migration 064). */
+const ASYNC_WHATSAPP = {
+  applicationId: APP,
+  companyId: CO,
+  event: "interview",
+  sentByName: "Test Member",
+  deadline: DEADLINE,
+};
+
 const ASYNC_JOBS = (sessionId) => [
-  {
-    type: "send_message",
-    payload: {
-      applicationId: APP,
-      event: "interview",
-      channel: "whatsapp",
-      deadline: DEADLINE,
-      sentByName: "Test Member",
-    },
-    companyId: CO,
-  },
   {
     type: "interview_reminder",
     payload: { sessionId, deadline: DEADLINE, expiresAt: EXPIRES },
@@ -286,13 +288,18 @@ test("a: the async send and re-send: same email, same jobs, same writes, same re
     ];
     assert.deepEqual(writes(steps), expectedWrites, name);
     assert.equal(writes(steps).at(-1)[1].kind, "async");
+    assert.deepEqual(
+      only(steps, "whatsapp").map((s) => s.input),
+      [ASYNC_WHATSAPP],
+      name,
+    );
     // Order: the session row, then the email, then WhatsApp, the reminder and the expiry.
     assert.deepEqual(
       steps
-        .filter((s) => ["write", "email", "job"].includes(s.step))
+        .filter((s) => ["write", "email", "whatsapp", "job"].includes(s.step))
         .map((s) => s.step)
         .slice(-4),
-      ["email", "job", "job", "job"],
+      ["email", "whatsapp", "job", "job"],
     );
     assert.deepEqual(
       only(steps, "rpc").map((s) => s.name),
@@ -432,9 +439,9 @@ test("c: sendInviteEmail on a failure returns ok:false with deliverEmail's code,
 test("d: scheduleInterviewJobs for any session id queues the same jobs the send actions queue", async () => {
   const sent = world();
   const { steps } = await run("async send for d", sent, sendInterviewInvite);
-  const byAction = only(steps, "job")
-    .map((s) => s.job)
-    .slice(1);
+  // Every job the send queues is the reminder and the expiry: its WhatsApp goes
+  // through the outbox, not the queue (#52).
+  const byAction = only(steps, "job").map((s) => s.job);
   const live = world();
   const liveSteps = (await run("live send for d", live, sendLiveInterviewInvite)).steps;
   const liveByAction = only(liveSteps, "job").map((s) => s.job);
@@ -490,4 +497,41 @@ test("d: scheduleInterviewJobs for any session id queues the same jobs the send 
       },
     ],
   );
+});
+
+// ── e: a second send inside a minute is refused (#52) ───────
+
+test("e: an open session sent 10 s ago: the second send is refused as 'just sent'; no cancel, no email, no WhatsApp, no jobs", async () => {
+  for (const [kind, action] of [
+    ["async", sendInterviewInvite],
+    ["live", sendLiveInterviewInvite],
+  ]) {
+    const w = world({
+      sessions: [{ ...oldSession(kind), created_at: new Date(NOW - 10_000).toISOString() }],
+    });
+    const { result, steps } = await run(`${kind} within a minute`, w, action);
+    // The live send carries the supersede's `code` key (undefined here), so compare the two fields.
+    assert.deepEqual(
+      { success: result.success, error: result.error },
+      {
+        success: false,
+        error: "An invite was just sent to this person. Wait a minute before sending it again.",
+      },
+      kind,
+    );
+    assert.deepEqual(writes(steps), [], `${kind}: nothing cancelled, nothing inserted`);
+    assert.equal(only(steps, "email").length, 0, `${kind}: no email`);
+    assert.equal(only(steps, "whatsapp").length, 0, `${kind}: no WhatsApp`);
+    assert.equal(only(steps, "job").length, 0, `${kind}: no jobs`);
+  }
+});
+
+test("e: the same open session sent 61 s ago is superseded and re-sent as before", async () => {
+  const w = world({
+    sessions: [{ ...oldSession("async"), created_at: new Date(NOW - 61_000).toISOString() }],
+  });
+  const { result, steps } = await run("async after a minute", w, sendInterviewInvite);
+  assert.equal(result.success, true);
+  assert.deepEqual(writes(steps)[0], ["update", { status: "cancelled" }]);
+  assert.equal(only(steps, "whatsapp").length, 1);
 });

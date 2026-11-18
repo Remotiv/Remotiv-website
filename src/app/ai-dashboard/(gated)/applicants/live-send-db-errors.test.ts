@@ -360,6 +360,45 @@ test("async: a failed session insert is 'Couldn't send', the credit goes back, n
   assert.ok(!sent.timeline.includes("rpc:release_allowance"));
 });
 
+// ── #52: migration 063's index, a send that landed at the same instant ──
+
+const JUST_SENT = {
+  success: false,
+  error: "An invite was just sent to this person. Wait a minute before sending it again.",
+};
+const ONE_OPEN = () => ({
+  code: "23505",
+  message: 'duplicate key value violates unique constraint "interview_sessions_one_open_per_kind"',
+  details: `Key (application_id, kind)=(${APP}, async) already exists.`,
+  hint: null,
+});
+
+test("#52: 063's unique violation, matched in full, is 'just sent' for both sends; the credit goes back, no email, no text passed on", async () => {
+  const out = await sendAsync(ONE_OPEN());
+  assert.deepEqual(out.result, JUST_SENT);
+  assertClean(out, ONE_OPEN(), "async");
+  assert.ok(!out.timeline.includes("email"));
+  assert.ok(out.timeline.includes("rpc:release_allowance"), "the credit given back");
+
+  const w = world();
+  failSessionInsert(w, ONE_OPEN());
+  const live = await send();
+  assert.deepEqual(live.result, JUST_SENT);
+  assertClean(live, ONE_OPEN(), "live");
+  assert.deepEqual(w.emails, []);
+});
+
+test("#52: the same SQLSTATE with ANY other message is a plain failure, never 'just sent'", async () => {
+  for (const message of [
+    'duplicate key value violates unique constraint "interview_sessions_token_hash_key"',
+    'duplicate key value violates unique constraint "interview_sessions_one_open_per_kind" (x)',
+    "interview_sessions_one_open_per_kind",
+  ]) {
+    const out = await sendAsync({ code: "23505", message, details: null, hint: null });
+    assert.deepEqual(out.result, SEND_FAILED, message);
+  }
+});
+
 // ── d: the source cannot pass database text through ─────────
 
 /** Every node of a source file, with TypeScript's own parser. */

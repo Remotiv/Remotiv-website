@@ -14,7 +14,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import { canAccessJob } from "@/app/ai-dashboard/lib/job-scope";
 import { escapeHtml } from "@/lib/email/candidate/render";
-import { enqueue, JOB_TYPES } from "@/lib/jobs-queue";
+import { queueManualWhatsApp } from "@/lib/whatsapp/dispatch";
 import {
   deliverInvite,
   type InviteApplication,
@@ -186,6 +186,10 @@ export async function sendInterviewInvite(
 
     if (sessionErr || !created) {
       // Never the database's text. The finally below gives the credit back.
+      if (isOneOpenSessionViolation(sessionErr)) {
+        // Migration 063: another send for this applicant landed at the same instant.
+        return { success: false, error: JUST_SENT };
+      }
       console.error(`[interview] async send: session insert failed (${dbCode(sessionErr)})`);
       return { success: false, error: SEND_FAILED };
     }
@@ -221,8 +225,9 @@ export async function sendInterviewInvite(
    * ENQUEUED, never sent inline. This action already did the slow work
    * (session insert, question snapshot, email) and a recruiter is waiting on
    * the response; a second network call to Meta would add latency to a click
-   * for a channel that is supplementary. The queue also gives it retries and a
-   * dead letter for free.
+   * for a channel that is supplementary. It is sent at most once (#52): a
+   * recruiter's message is never retried, because a retry after an uncertain
+   * answer from Meta could deliver it twice.
    *
    * Deliberately non-fatal, on the same contract as the CV-scoring enqueue in
    * /api/apply: the interview HAS been created and the email HAS gone out, so
@@ -234,31 +239,23 @@ export async function sendInterviewInvite(
    * your own time, which is not what an AI Video Interview is.
    */
   try {
-    const queued = await enqueue({
-      type: JOB_TYPES.SEND_MESSAGE,
-      payload: {
-        applicationId,
-        event: "interview",
-        channel: "whatsapp",
-        // The deadline the email already quoted, rendered identically so the
-        // two channels cannot disagree about the date.
-        deadline,
-        /*
-         * Who asked for this, carried so the dispatcher can tell an explicit
-         * re-send from an automatic one — and so the log row lands OUTSIDE the
-         * partial unique index that keeps automatic sends unique. Same value
-         * the email above records. The reminder enqueue deliberately omits it:
-         * nobody asked for that one.
-         */
-        sentByName: ctx.memberName,
-      },
+    // The row and its job in ONE transaction (queue_manual_whatsapp, 064, #52):
+    // the row exists, and can be Stopped from Messages, before any worker sees
+    // the job, and neither exists without the other. The deadline is the one
+    // the email already quoted, so the two channels cannot disagree. Who asked
+    // is carried so the row lands OUTSIDE the automatic sends' unique index.
+    const queued = await queueManualWhatsApp(service, {
+      applicationId,
       companyId: ctx.companyId,
+      event: "interview",
+      sentByName: ctx.memberName,
+      deadline,
     });
-    if (!queued.ok) {
-      console.error("[interview] whatsapp enqueue failed (non-fatal):", queued.error);
+    if (queued.kind === "not_queued") {
+      console.error(`[interview] whatsapp not queued (non-fatal): ${queued.reason}`);
     }
   } catch (err) {
-    console.error("[interview] whatsapp enqueue threw (non-fatal):", err);
+    console.error("[interview] whatsapp queueing threw (non-fatal):", err);
   }
 
   /*
@@ -268,7 +265,7 @@ export async function sendInterviewInvite(
    * nothing polls interview_sessions looking for work that has come due, and
    * the queue's existing `run_after <= now()` claim is the entire scheduler.
    *
-   * Non-fatal, like the WhatsApp enqueue above and for the same reason: the
+   * Non-fatal, like the WhatsApp queueing above and for the same reason: the
    * interview exists and the invitation has been delivered. A queue outage
    * costs a nudge and a status label, never the invitation. Expiry is derived
    * on read in both places that matter (resolveSessionByToken for the
@@ -405,6 +402,9 @@ export async function sendLiveInterviewInvite(
       console.warn(`[interview] live send: refused by the restart guard (${dbCode(sessionErr)})`);
       // The guard covers a restart and a decision alike; its message cannot tell which.
       return { ...LIVE_RESTARTED, error: DECIDED_TEXT };
+    }
+    if (isOneOpenSessionViolation(sessionErr)) {
+      return { success: false, error: JUST_SENT };
     }
     console.error(`[interview] live send: session insert failed (${dbCode(sessionErr)})`);
     return { success: false, error: SEND_FAILED };
@@ -601,7 +601,9 @@ async function supersedeOpenSession(
 ): Promise<{ ok: true } | { ok: false; error: string; code?: "live_call_started" }> {
   const { data: existingData } = await service
     .from("interview_sessions")
-    .select("id, status, submitted_at, kind, started_at, provider_session_id, live_ended_at")
+    .select(
+      "id, status, submitted_at, created_at, kind, started_at, provider_session_id, live_ended_at",
+    )
     .eq("application_id", input.applicationId)
     .eq("company_id", input.companyId)
     .eq("kind", input.kind)
@@ -614,9 +616,24 @@ async function supersedeOpenSession(
     status: string;
     submitted_at: string | null;
   } & LiveCallFields)[])[0];
+  const createdAt = (existing as { created_at?: string | null } | undefined)?.created_at;
 
   if (existing?.status === "submitted") {
     return { ok: false, error: input.submittedError };
+  }
+
+  // The open session was sent less than a minute ago: a double click, or two
+  // people at once, not a decision to resend (#52). Read here, from the row
+  // this function already loads; migration 063's index refuses the
+  // simultaneous case the read cannot see. A live call that has begun keeps
+  // its own, more exact refusal below.
+  if (
+    existing &&
+    (existing.status === "invited" || existing.status === "started") &&
+    sentWithinWindow(createdAt) &&
+    !(input.kind === "live" && liveCallBegan(existing))
+  ) {
+    return { ok: false, error: JUST_SENT };
   }
 
   if (existing && input.kind === "live") {
@@ -659,6 +676,30 @@ const LIVE_CALL_REFUSED = {
 } as const;
 
 const SEND_FAILED = "Couldn't send - please try again.";
+
+/** #52: a double click, or two people at once, must not send twice. */
+const JUST_SENT = "An invite was just sent to this person. Wait a minute before sending it again.";
+const RESEND_WINDOW_MS = 60_000;
+/**
+ * Migration 063's unique index refused a second open session for this
+ * applicant and kind: another send landed at the same instant. Matched like
+ * the restart guard above, the SQLSTATE AND Postgres's exact message for THIS
+ * index, in full, never by the SQLSTATE alone: any other unique violation is a
+ * plain failure. The text is only compared, never passed on or logged.
+ */
+const ONE_OPEN_SESSION_MESSAGE =
+  /^duplicate key value violates unique constraint "interview_sessions_one_open_per_kind"$/;
+
+function isOneOpenSessionViolation(err: { code?: string; message?: string } | null): boolean {
+  return err?.code === "23505" && ONE_OPEN_SESSION_MESSAGE.test(err.message ?? "");
+}
+
+/** An open session created within the last minute: a double click, not a decision (#52). */
+function sentWithinWindow(createdAt: string | null | undefined): boolean {
+  if (!createdAt) return false;
+  const t = Date.parse(createdAt);
+  return Number.isFinite(t) && Date.now() - t < RESEND_WINDOW_MS;
+}
 
 const RESTARTED_TEXT = "This interview was restarted - manage it from the interview page.";
 const DECIDED_TEXT =

@@ -74,8 +74,10 @@ export function attemptDb({
   beforeWrite = null,
   optedOut = false,
   appRead = null,
+  claimManual = null,
+  queueManual = null,
 } = {}) {
-  const db = { logs: logs.map((r) => ({ ...r })), app, nextStamp: 50, nextId: 1 };
+  const db = { logs: logs.map((r) => ({ ...r })), app, nextStamp: 50, nextId: 1, jobs: [] };
   const key = (r) => `${r.application_id}|${r.event}|${r.channel}`;
   const automaticClash = (row) =>
     row.sent_by_name == null &&
@@ -127,6 +129,77 @@ export function attemptDb({
         row.status = "failed";
         row.error = args.p_error;
         return one({ out_id: row.id, out_outcome: "failed" });
+      }
+      case "rpc:claim_manual_communication_log": {
+        // Migration 064's claim, the database's clock (a fresh stamp(n)).
+        if (claimManual) return claimManual(args, db);
+        const row = db.logs.find(
+          (r) =>
+            r.id === args.p_id &&
+            r.company_id === args.p_company_id &&
+            r.channel === "whatsapp" &&
+            r.sent_by_name != null,
+        );
+        const answer = (o) => one({ out_outcome: o });
+        if (!row) return answer("missing");
+        if (row.status === "queued" && row.attempt_started_at == null) {
+          row.attempt_started_at = stamp(db.nextStamp++);
+          return answer("claimed");
+        }
+        if (row.status === "queued") {
+          row.status = "failed";
+          row.error = args.p_uncertain_error;
+          return answer("uncertain");
+        }
+        return answer(row.status === "cancelled" ? "stopped" : "finished");
+      }
+      case "rpc:queue_manual_whatsapp": {
+        // Migration 064's outbox: the row and the job, both or neither.
+        if (queueManual) return queueManual(args, db);
+        const blank = (v) => typeof v !== "string" || v.trim() === "";
+        if (
+          blank(args.p_to_address) ||
+          blank(args.p_body) ||
+          blank(args.p_sent_by_name) ||
+          args.p_event !== "interview"
+        ) {
+          return one({ out_outcome: "bad_input", out_log_id: null, out_job_id: null });
+        }
+        if (
+          !db.app ||
+          db.app.id !== args.p_application_id ||
+          db.app.company_id_snapshot !== args.p_company_id
+        ) {
+          return one({ out_outcome: "application_not_found", out_log_id: null, out_job_id: null });
+        }
+        const row = {
+          id: `log-${db.nextId++}`,
+          company_id: args.p_company_id,
+          application_id: args.p_application_id,
+          event: args.p_event,
+          channel: "whatsapp",
+          to_address: args.p_to_address,
+          body: args.p_body,
+          status: "queued",
+          error: null,
+          sent_by_name: args.p_sent_by_name.trim(),
+          attempt_started_at: null,
+        };
+        db.logs.push(row);
+        const job = {
+          id: `job-${db.jobs.length + 1}`,
+          type: "send_message",
+          payload: {
+            ...args.p_payload,
+            logId: row.id,
+            applicationId: args.p_application_id,
+            event: args.p_event,
+            channel: "whatsapp",
+            sentByName: row.sent_by_name,
+          },
+        };
+        db.jobs.push(job);
+        return one({ out_outcome: "queued", out_log_id: row.id, out_job_id: job.id });
       }
       case "rpc:insert_first_attempt_communication_log": {
         if (insert) return insert(args, db);
