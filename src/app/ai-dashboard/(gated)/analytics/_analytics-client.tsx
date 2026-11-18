@@ -237,7 +237,7 @@ function StatGrid({ data }: { data: AnalyticsResult }) {
             {s.key}
           </p>
           {s.value === null ? (
-            /* An em-dash, never a fabricated 0 — see emptyLabel below it. */
+            /* A hyphen, never a fabricated 0. See emptyLabel below it. */
             <p className="m-0 font-heading text-[22px] font-extrabold leading-none text-[var(--ai-t4)]">
               -
             </p>

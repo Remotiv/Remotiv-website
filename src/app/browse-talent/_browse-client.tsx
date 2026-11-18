@@ -110,7 +110,7 @@ export type Card = {
   type: RoleType;
   skills: string[];
   location: string;
-  exp: string;                    // "7 years" or "—"
+  exp: string;                    // "7 years" or " - "
   yearsExperience?: number | null; // numeric form for "X years experience in …"
   available: boolean;
   // Raw availability string from the row — null/empty when unknown, undefined

@@ -260,7 +260,7 @@ if(!e.classList.contains("avi10-in")&&e.getBoundingClientRect().top<innerHeight)
 // Section 10. Every figure is the live product's own value, read from the
 // analytics dashboard after f6eef5f: 24% completion over 21 invitations, 22
 // days from the one completed hire, and a metric the workspace has no evidence
-// for yet. The em-dash is the finished state the dashboard actually renders,
+// for yet. The hyphen is the finished state the dashboard actually renders,
 // not a placeholder for a number to be filled in later. Tile names are the
 // dashboard's own stat keys. A fourth "Hiring bottleneck" tile was dropped:
 // the dashboard has no such tile (the bottleneck is a note on its funnel), and

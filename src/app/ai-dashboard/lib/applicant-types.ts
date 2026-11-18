@@ -587,7 +587,7 @@ export type CompanyApplicantPage = {
  * at two different moments, which can print 101%.
  *
  * Every field is nullable, and null means UNREADABLE, never zero. A genuine
- * zero is 0. The page renders null as an em dash: a count that fails must not
+ * zero is 0. The page renders null as a hyphen (countLabel): a count that fails must not
  * be indistinguishable from an answer of none.
  */
 export type ApplicantCounts = {

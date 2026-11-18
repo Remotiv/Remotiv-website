@@ -28,7 +28,7 @@ export type FunnelStage = {
   count: number;
   /** Average days waited AT this stage, or null when nobody has waited there. */
   avgDays: number | null;
-  /** False renders the dashed stub and an em-dash — never a zero. */
+  /** False renders the dashed stub and a hyphen, never a zero. */
   reached: boolean;
 };
 
@@ -71,7 +71,7 @@ export type Insight = {
 
 export type StatCard = {
   key: string;
-  /** Null renders the em-dash and emptyLabel — never a fabricated 0. */
+  /** Null renders a hyphen and emptyLabel, never a fabricated 0. */
   value: string | null;
   unit: string;
   emptyLabel: string | null;
