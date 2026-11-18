@@ -23,7 +23,7 @@ const read = (rel) => readFileSync(`${SRC}${rel}`, "utf8");
 /** The same two sites the harness reads at run time (harness.spec.mjs, QUERY_ORDER_SITES). */
 export const SITES = {
   scoped: { file: "app/ai-dashboard/lib/job-scope.ts", from: '.in("job_id", chunk)' },
-  messages: { file: "app/ai-dashboard/(gated)/messages/actions.ts", from: "build(false)" },
+  messages: { file: "app/ai-dashboard/(gated)/messages/actions.ts", from: "build(false, filter)" },
 };
 
 test("#25: scopedApplicationIds pages under a total order (job-scope.ts)", () => {

@@ -166,7 +166,7 @@ const established = [];
 const SRC = fileURLToPath(new URL("../../src/", import.meta.url));
 const QUERY_ORDER_SITES = {
   scoped: { file: "app/ai-dashboard/lib/job-scope.ts", from: '.in("job_id", chunk)' },
-  messages: { file: "app/ai-dashboard/(gated)/messages/actions.ts", from: "build(false)" },
+  messages: { file: "app/ai-dashboard/(gated)/messages/actions.ts", from: "build(false, filter)" },
 };
 /** Throws unless the shipped query carries a unique final sort key. */
 function provenTotalOrder(key) {
