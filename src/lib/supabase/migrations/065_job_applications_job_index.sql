@@ -1,13 +1,13 @@
 -- ============================================================================
 -- Migration 065 - an index on job_applications.job_id (#82)
 -- ----------------------------------------------------------------------------
--- NOT RUN YET. Run by hand in the Supabase SQL editor, STAGING FIRST, then
+-- APPLIED (see below). Run by hand in the Supabase SQL editor, STAGING FIRST, then
 -- production only after staging's step 2 reads as expected. Run the CREATE
 -- (step 1) ALONE: its own execution, nothing else in the editor. Nothing in the
 -- repository executes this file.
 --
--- APPLIED TO STAGING:    (date, by whom)
--- APPLIED TO PRODUCTION: (date, by whom)
+-- APPLIED TO STAGING:    18 Nov 2026, Waleed (before false/false; after definition_ok true, valid true)
+-- APPLIED TO PRODUCTION: 18 Nov 2026, Waleed (same results)
 --
 -- ── NOT ONE TRANSACTION ──────────────────────────────────────
 --
