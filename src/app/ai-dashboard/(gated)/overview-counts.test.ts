@@ -290,7 +290,8 @@ function filters(calls) {
   const inOn = (col) => calls.find((c) => c[0] === "in" && c[1] === col)?.[2];
   const neqOn = (col) => calls.find((c) => c[0] === "neq" && c[1] === col)?.[2];
   const gtOn = (col) => calls.find((c) => c[0] === "gt" && c[1] === col)?.[2];
-  return { eqOn, inOn, neqOn, gtOn };
+  const gteOn = (col) => calls.find((c) => c[0] === "gte" && c[1] === col)?.[2];
+  return { eqOn, inOn, neqOn, gtOn, gteOn };
 }
 
 /**
@@ -319,9 +320,13 @@ function keep(rows, value, pick) {
 
 // The role reaches the code under test through install()'s ctx, not through the
 // database: all the responder needs is which jobs the member is on the team of.
-function world({ teamJobs = [], inviteError = false } = {}) {
+function world({ teamJobs = [], inviteError = false, apps = APPS, history = HISTORY } = {}) {
   return fakeService((table, calls) => {
-    const { eqOn, inOn, neqOn } = filters(calls);
+    const { eqOn, inOn, neqOn, gteOn } = filters(calls);
+    const limitTo = (rows) => {
+      const n = call(calls, "limit")?.[1];
+      return n === undefined ? rows : rows.slice(0, n);
+    };
 
     if (table === "job_hiring_team") {
       const okCompany = eqOn("company_id") === CO;
@@ -337,13 +342,36 @@ function world({ teamJobs = [], inviteError = false } = {}) {
       const ids = inOn("id");
       if (ids) rows = rows.filter((j) => ids.includes(j.id));
       rows = [...rows].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+      /*
+       * #32: the role cards' counts, `job_applications!inner(count)`. An INNER
+       * join: a job with no matching application is not returned. The embedded
+       * filters apply only if the code sent them, so a missing company filter
+       * counts another company's applications on that job.
+       */
+      if (/job_applications!inner\(count\)/.test(call(calls, "select")?.[1] ?? "")) {
+        const counted = rows.map((job) => {
+          let r = apps.filter((a) => a.job_id === job.id);
+          r = keep(r, eqOn("job_applications.company_id_snapshot"), (a) => a.company_id_snapshot);
+          const since = gteOn("job_applications.created_at");
+          if (since !== undefined)
+            r = r.filter((a) => Date.parse(a.created_at) >= Date.parse(since));
+          return { id: job.id, job_applications: [{ count: r.length }] };
+        });
+        return { data: counted.filter((c) => c.job_applications[0].count > 0), error: null };
+      }
       return { data: rows, error: null };
     }
 
     if (table === "job_applications") {
-      let rows = keep(APPS, eqOn("company_id_snapshot"), (a) => a.company_id_snapshot);
+      let rows = keep(apps, eqOn("company_id_snapshot"), (a) => a.company_id_snapshot);
       const jobIds = inOn("job_id");
       if (jobIds) rows = rows.filter((a) => jobIds.includes(a.job_id));
+      const ids = inOn("id");
+      if (ids) rows = rows.filter((a) => ids.includes(a.id));
+      rows = keep(rows, eqOn("pipeline_stage"), (a) => a.pipeline_stage);
+      const since = gteOn("created_at");
+      if (since !== undefined)
+        rows = rows.filter((a) => Date.parse(a.created_at) >= Date.parse(since));
 
       if (isCountQuery(calls)) {
         // The emulation of `screening_answers <> '[]'::jsonb`. Applied only if
@@ -355,13 +383,30 @@ function world({ teamJobs = [], inviteError = false } = {}) {
         return { count: rows.length, error: null };
       }
 
-      rows = [...rows].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
-      return { data: rows, error: null };
+      rows = [...rows].sort(
+        (a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id.localeCompare(a.id),
+      );
+      return { data: limitTo(rows), error: null };
     }
 
     if (table === "application_stage_history") {
-      const rows = keep(HISTORY, eqOn("company_id"), (h) => h.company_id);
-      return { data: rows, error: null };
+      let rows = keep(history, eqOn("company_id"), (h) => h.company_id);
+      // #32: the !inner embed. A move counts only if its application exists and
+      // passes the embedded filters the code sent, which restrict the move.
+      if (/job_applications!inner/.test(call(calls, "select")?.[1] ?? "")) {
+        const co = eqOn("job_applications.company_id_snapshot");
+        const jobIn = inOn("job_applications.job_id");
+        rows = rows.filter((h) => {
+          const app = apps.find((a) => a.id === h.application_id);
+          return (
+            app &&
+            (co === undefined || app.company_id_snapshot === co) &&
+            (jobIn === undefined || jobIn.includes(app.job_id))
+          );
+        });
+      }
+      rows = [...rows].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+      return { data: limitTo(rows), error: null };
     }
 
     if (table === "company_invites") {
@@ -611,26 +656,146 @@ test("a company with nothing in it reports zero, and still carries the invite co
   );
 });
 
+// ── #32: the feed narrowed in the database, scope and isolation ──
+
+/*
+ * Twelve recent moves on JOB_B applications, newer than one move on a JOB_A
+ * application. The company's latest 12 are all JOB_B's, so the old read (12,
+ * then filtered in memory) left a JOB_A recruiter no moves at all.
+ */
+const minutesAgo = (n) => ago(n * 60_000);
+const JOB_B_APPS = ["app-4", "app-5", "app-6"];
+const BUSY_HISTORY = [
+  ...Array.from({ length: 12 }, (_, i) => ({
+    id: `hb${i}`,
+    company_id: CO,
+    application_id: JOB_B_APPS[i % 3],
+    from_stage: "applied",
+    to_stage: "screening",
+    changed_by_name: "Someone",
+    created_at: minutesAgo(i + 1),
+  })),
+  {
+    id: "ha-old",
+    company_id: CO,
+    application_id: "app-2",
+    from_stage: "applied",
+    to_stage: "screening",
+    changed_by_name: "Bilal",
+    created_at: minutesAgo(30),
+  },
+];
+
+// Negative control: put back the 12-then-filter-in-memory read and the move disappears.
+test("#32 a recruiter whose moves are older than the company's latest 12 still sees them", async () => {
+  const svc = world({ teamJobs: [JOB_A], history: BUSY_HISTORY });
+  install(svc, "recruiter");
+  const data = await fetchOverview();
+  assert.equal(data.activity.ok, true);
+  const move = data.activity.value.find((i) => i.id === "stage-ha-old");
+  assert.ok(move, "the JOB_A move is on the recruiter's feed");
+  assert.equal(move.subject, "Bo Two");
+  assert.equal(move.predicate, "was moved to screening");
+});
+
+// Negative control: drop the embedded job filter from the scoped history read and JOB_B's moves show.
+test("#32 a recruiter never sees another job's roles, applicants or moves", async () => {
+  const svc = world({ teamJobs: [JOB_A], history: BUSY_HISTORY });
+  install(svc, "recruiter");
+  const data = await fetchOverview();
+  const jobAApps = APPS.filter((a) => a.job_id === JOB_A).map((a) => a.id);
+  assert.deepEqual(
+    data.liveRoles.map((r) => r.id),
+    [JOB_A],
+  );
+  assert.ok(
+    data.recentApplicants.every((r) => jobAApps.includes(r.id)),
+    "recent applicants",
+  );
+  const stageIds = data.activity.value.filter((i) => i.kind === "stage").map((i) => i.id);
+  assert.deepEqual(stageIds, ["stage-ha-old"], "no JOB_B move");
+  const shown = JSON.stringify(data);
+  for (const leak of ["Di Four", "Ed Five", "Fay Six", "Designer", "hb0"]) {
+    assert.ok(!shown.includes(leak), `${leak} reached a recruiter on JOB_A`);
+  }
+  const read = svc.queries.find((q) => q.table === "application_stage_history");
+  assert.match(call(read.calls, "select")[1], /job_applications!inner\(/);
+  assert.equal(filters(read.calls).eqOn("job_applications.company_id_snapshot"), CO);
+  assert.deepEqual(filters(read.calls).inOn("job_applications.job_id"), [JOB_A]);
+});
+
+/*
+ * Company isolation, unchanged. A recent application in ANOTHER company that
+ * points at our JOB_A (snapshot drift), with a move of its own on our books.
+ * Every figure must still be our company's alone. Negative control: drop the
+ * embedded company filter from the role-card count and JOB_A gains one.
+ */
+const DRIFT = {
+  id: "app-drift",
+  company_id_snapshot: OTHER_CO,
+  job_id: JOB_A,
+  first_name: "Drift",
+  last_name: "Elsewhere",
+  email: "drift@other.test",
+  job_title_snapshot: "Engineer",
+  pipeline_stage: "applied",
+  screening_answers: ANSWERS,
+  created_at: RECENT,
+};
+for (const [role, teamJobs, scopedJobIds] of [
+  ["owner", [], null],
+  ["recruiter", [JOB_A], [JOB_A]],
+]) {
+  test(`#32 ${role}: another company's application on our job moves no figure and names no one`, async () => {
+    const history = [
+      ...HISTORY,
+      {
+        id: "h-drift",
+        company_id: CO,
+        application_id: "app-drift",
+        from_stage: null,
+        to_stage: "applied",
+        changed_by_name: null,
+        created_at: ago(1800_000),
+      },
+    ];
+    const svc = world({ teamJobs, apps: [...APPS, DRIFT], history });
+    install(svc, role);
+    const data = await fetchOverview();
+    const expected = oldOverview({ scopedJobIds });
+    assert.deepEqual(data.liveRoles, expected.liveRoles, "role cards");
+    assert.equal(data.totalApplicants, expected.totalApplicants);
+    assert.equal(data.newThisWeek, expected.newThisWeek);
+    assert.equal(data.screenedCount, expected.screenedCount);
+    assert.deepEqual(data.funnel, expected.funnel);
+    assert.ok(
+      !JSON.stringify(data).includes("Drift"),
+      "the other company's applicant is never named",
+    );
+  });
+}
+
 // ── Scale ────────────────────────────────────────────────────
 
 const SOURCE = readFileSync(new URL("./overview-actions.ts", import.meta.url), "utf8");
 
-test("the bulk applications read does not transfer screening_answers", async () => {
+test("#32: no applicant read is a bulk read, and none transfers screening_answers", async () => {
   const svc = world();
   install(svc, "owner");
   await fetchOverview();
 
   const reads = svc.queries.filter((q) => q.table === "job_applications" && !isCountQuery(q.calls));
-  assert.equal(reads.length, 1, "one paged row read");
-
-  const cols = call(reads[0].calls, "select")[1];
-  assert.doesNotMatch(
-    cols,
-    /screening_answers/,
-    "the heavy jsonb column is back in the bulk select — it averages ~1.7 KB per row and Overview only needs a yes/no",
-  );
-  // The columns that are still load-bearing, so this test cannot be satisfied
-  // by narrowing the select into uselessness.
+  assert.ok(reads.length >= 1, "the newest-applications read is there");
+  for (const { calls } of reads) {
+    assert.ok(!call(calls, "range"), "no applicant read pages: the bulk drain is gone");
+    const bounded =
+      call(calls, "limit")?.[1] <= 6 || (filters(calls).inOn("id")?.length ?? 99) <= 12;
+    assert.ok(bounded, "every applicant row read is the 6 newest or the feed's (at most 12) names");
+    assert.doesNotMatch(call(calls, "select")[1], /screening_answers/);
+  }
+  // The newest read still carries the columns the cards render, so this cannot
+  // be satisfied by narrowing the select into uselessness.
+  const newest = reads.find((q) => call(q.calls, "limit"));
   for (const col of [
     "id",
     "first_name",
@@ -640,28 +805,31 @@ test("the bulk applications read does not transfer screening_answers", async () 
     "pipeline_stage",
     "created_at",
   ]) {
-    assert.match(cols, new RegExp(`\\b${col}\\b`), col);
+    assert.match(call(newest.calls, "select")[1], new RegExp(`\\b${col}\\b`), col);
   }
 });
 
-test("the screening count transfers zero rows and carries both scopes", async () => {
+test("every applicant count transfers zero rows and carries both scopes; the screening one keeps its predicate", async () => {
   const svc = world({ teamJobs: [JOB_A] });
   install(svc, "recruiter");
   await fetchOverview();
 
   const counts = svc.queries.filter((q) => q.table === "job_applications" && isCountQuery(q.calls));
-  assert.equal(counts.length, 1, "one count query");
-
-  const { calls } = counts[0];
-  assert.deepEqual(
-    call(calls, "select")[2],
-    { count: "exact", head: true },
-    "head: true, so no rows come back",
-  );
-  const { eqOn, inOn, neqOn } = filters(calls);
-  assert.equal(eqOn("company_id_snapshot"), CO, "the count must be company-scoped");
-  assert.deepEqual(inOn("job_id"), [JOB_A], "and job-scoped for a scoped role");
-  assert.equal(neqOn("screening_answers"), "[]", "the existence test belongs in the database");
+  // total, this week, screened, and the six stages other than Applied.
+  assert.equal(counts.length, 9, "nine head counts");
+  for (const { calls } of counts) {
+    assert.deepEqual(
+      call(calls, "select")[2],
+      { count: "exact", head: true },
+      "head: true, no rows",
+    );
+    const { eqOn, inOn } = filters(calls);
+    assert.equal(eqOn("company_id_snapshot"), CO, "every count is company-scoped");
+    assert.deepEqual(inOn("job_id"), [JOB_A], "and job-scoped for a scoped role");
+  }
+  const screened = counts.filter((q) => filters(q.calls).neqOn("screening_answers") !== undefined);
+  assert.equal(screened.length, 1, "one screening count");
+  assert.equal(filters(screened[0].calls).neqOn("screening_answers"), "[]");
 });
 
 test("no .select() in the source names screening_answers", () => {
@@ -817,8 +985,17 @@ function tieWorld(apps) {
 }
 
 /** Every seeded id exactly once across the drain, which crossed a page boundary. */
-function assertDrainComplete(drained, seed, service, site, table = "job_applications") {
-  const pages = service.queries.filter((q) => q.table === table && call(q.calls, "range")).length;
+function assertDrainComplete(
+  drained,
+  seed,
+  service,
+  site,
+  table = "job_applications",
+  isDrain = () => true,
+) {
+  const pages = service.queries.filter(
+    (q) => q.table === table && call(q.calls, "range") && isDrain(q),
+  ).length;
   assert.equal(
     pages,
     Math.ceil(seed.length / DRAIN_PAGE),
@@ -846,12 +1023,15 @@ test("#54 analytics: a created_at tie across the page boundary is drained once e
   assert.equal(applied?.count, DRAIN_ROWS, "the funnel's Applied count is every seeded row");
 });
 
-test("#54 overview: a created_at tie across the page boundary is drained once each, and totalApplicants is the whole seed", async () => {
+test("#54 / #32 overview: no applicant drain is left to cross a page boundary; totalApplicants is the head count of the whole seed", async () => {
   const seed = tieSeed(NOW - 3600_000);
-  const { service, drained } = tieWorld(seed);
+  const { service } = tieWorld(seed);
   install(service, "owner");
   const result = await fetchOverview();
-  assertDrainComplete(drained, seed, service, "overview");
+  const paged = service.queries.filter(
+    (q) => q.table === "job_applications" && call(q.calls, "range"),
+  );
+  assert.equal(paged.length, 0, "Overview no longer pages applications");
   assert.equal(result.totalApplicants, DRAIN_ROWS, "totalApplicants is every seeded row");
 });
 
@@ -941,6 +1121,12 @@ function tableWorld(tables) {
   const service = fakeService((table, calls) => {
     const evaluate = evaluators[table];
     if (!evaluate) return { data: [], count: 0, error: null };
+    // #32: Overview's per-job counts are jobs reads with an !inner(count)
+    // embed. This world holds no applications, so an inner join returns no
+    // job: answered here, and kept out of the drain the test inspects.
+    if (/job_applications!inner\(count\)/.test(call(calls, "select")?.[1] ?? "")) {
+      return { data: [], error: null };
+    }
     const answer = evaluate("job_applications", calls);
     if (call(calls, "range") && Array.isArray(answer.data)) {
       drained[table].push(...answer.data.map((r) => r.id));
@@ -967,7 +1153,9 @@ test("#54 overview jobs: a created_at tie across the page boundary is drained on
   const { service, drained } = tableWorld({ jobs });
   install(service, "owner");
   const result = await fetchOverview();
-  assertDrainComplete(drained.jobs, jobs, service, "overview jobs", "jobs");
+  // Only the jobs list drains; the two per-job count reads (#32) are separate.
+  const isList = (q) => !/!inner\(count\)/.test(call(q.calls, "select")?.[1] ?? "");
+  assertDrainComplete(drained.jobs, jobs, service, "overview jobs", "jobs", isList);
   assert.equal(result.publishedJobs, DRAIN_ROWS, "publishedJobs is every seeded open role");
 });
 
