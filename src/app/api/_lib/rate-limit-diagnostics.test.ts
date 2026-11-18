@@ -15,6 +15,11 @@ import assert from "node:assert/strict";
 import { register } from "node:module";
 import { test } from "node:test";
 
+import { blockNetwork } from "../../../test-support/no-network.mjs";
+
+// No test in this file may reach a real network (#48): blocked and recorded, checked last.
+const guard = blockNetwork();
+
 const FAKE_URL = "https://fake-host-456.upstash.io";
 const FAKE_TOKEN = "AXyzFAKEtoken9876543210fedcba";
 process.env.UPSTASH_REDIS_REST_URL = FAKE_URL;
@@ -93,4 +98,8 @@ test("teardown", () => {
   console.info = realInfo;
   console.error = realError;
   clearInterval(globalThis.__rateLimitCleanup);
+});
+
+test("no test in this file tried the network", () => {
+  guard.assertNoNetwork();
 });

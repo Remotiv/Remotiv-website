@@ -10,7 +10,16 @@
  */
 // @ts-nocheck - same reason as stage-tabs.test.ts: Node's `.ts` specifier vs this tsconfig.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { register } from "node:module";
 import { test } from "node:test";
+
+import { blockNetwork } from "../test-support/no-network.mjs";
+
+// No test in this file may reach a real network (#48): blocked and recorded, checked last.
+const guard = blockNetwork();
+
+register(new URL("../test-support/node-resolve.mjs", import.meta.url));
 
 const limitModule = await import("./invite-password-limit.ts");
 const {
@@ -205,4 +214,232 @@ test("store choice: Redis when configured; production without Redis fails closed
     UPSTASH_REDIS_REST_TOKEN: "test-token-not-real",
   });
   assert.equal(typeof redis.increment, "function", "a Redis-backed store is built (no call made)");
+});
+
+/* ── Hardening (re-ship of #48): lazy client, fallback names, reason-code logs ── */
+
+const SECRET_URL = "https://fake-host-789.upstash.io";
+const SECRET_TOKEN = "AXyzFAKEinviteToken0123456789";
+const LINE =
+  /^\[invite-password-limit\] (store=redis source=(upstash|kv)|store=memory|store=production-without-redis missing=[A-Z_|,]+|attempt refused reason=[A-Z_]+|clear failed reason=[A-Z_]+)$/;
+
+/** Run fn with console.error and console.warn captured. */
+async function captured(fn) {
+  const lines = [];
+  const [e, w] = [console.error, console.warn];
+  console.error = (...a) => lines.push(a.join(" "));
+  console.warn = (...a) => lines.push(a.join(" "));
+  try {
+    return { result: await fn(), lines };
+  } finally {
+    console.error = e;
+    console.warn = w;
+  }
+}
+const noValues = (line) => {
+  for (const s of [SECRET_URL, SECRET_TOKEN, "fake-host-789", "not-a-url", "rae@"]) {
+    assert.ok(!line.includes(s), `leaked ${s}: ${line}`);
+  }
+};
+
+test("a bad URL is a refusal, not a crash: the store builds lazily, the attempt is refused and logged as BADURL", async () => {
+  const env = { UPSTASH_REDIS_REST_URL: "not-a-url", UPSTASH_REDIS_REST_TOKEN: SECRET_TOKEN };
+  const store = limitModule.defaultAttemptStore(env); // must not throw
+  setInvitePasswordStoresForTests(store);
+  const { result, lines } = await captured(async () => [
+    await reserveInvitePasswordAttempt(EMAIL),
+    await reserveInvitePasswordAttempt(EMAIL),
+  ]);
+  assert.deepEqual(result, [
+    { ok: false, reason: "unavailable" },
+    { ok: false, reason: "unavailable" },
+  ]);
+  const ours = lines.filter((l) => l.startsWith("[invite-password-limit]"));
+  assert.deepEqual(ours, [
+    "[invite-password-limit] attempt refused reason=BADURL",
+    "[invite-password-limit] attempt refused reason=BADURL",
+  ]);
+  for (const l of lines) noValues(l);
+  for (const l of ours) assert.match(l, LINE);
+});
+
+/*
+ * Credential pairs: UPSTASH pair, else KV pair, else none. Never mixed. The
+ * selector is the one the store uses (redisCredentialPair) and the line is
+ * built from the same selector, so the log cannot disagree with the decision.
+ */
+const U_URL = "https://fake-upstash-111.upstash.io";
+const U_TOKEN = "AXyzFAKEupstashToken1111";
+const K_URL = "https://fake-kv-222.upstash.io";
+const K_TOKEN = "AXyzFAKEkvToken2222";
+const VALUES = [U_URL, U_TOKEN, K_URL, K_TOKEN, "fake-upstash-111", "fake-kv-222"];
+const PAIR_CASES = [
+  // [label, env, expected pair (null = none), production line]
+  [
+    "UPSTASH pair",
+    { UPSTASH_REDIS_REST_URL: U_URL, UPSTASH_REDIS_REST_TOKEN: U_TOKEN },
+    ["UPSTASH_REDIS_REST", U_URL, U_TOKEN],
+    "store=redis source=upstash",
+  ],
+  [
+    "KV pair",
+    { KV_REST_API_URL: K_URL, KV_REST_API_TOKEN: K_TOKEN },
+    ["KV_REST_API", K_URL, K_TOKEN],
+    "store=redis source=kv",
+  ],
+  [
+    "both pairs: UPSTASH wins, whole",
+    {
+      UPSTASH_REDIS_REST_URL: U_URL,
+      UPSTASH_REDIS_REST_TOKEN: U_TOKEN,
+      KV_REST_API_URL: K_URL,
+      KV_REST_API_TOKEN: K_TOKEN,
+    },
+    ["UPSTASH_REDIS_REST", U_URL, U_TOKEN],
+    "store=redis source=upstash",
+  ],
+  [
+    "UPSTASH half + full KV pair: the KV pair, whole",
+    { UPSTASH_REDIS_REST_URL: U_URL, KV_REST_API_URL: K_URL, KV_REST_API_TOKEN: K_TOKEN },
+    ["KV_REST_API", K_URL, K_TOKEN],
+    "store=redis source=kv",
+  ],
+  [
+    "mixed: UPSTASH url + KV token",
+    { UPSTASH_REDIS_REST_URL: U_URL, KV_REST_API_TOKEN: K_TOKEN },
+    null,
+    "store=production-without-redis missing=UPSTASH_REDIS_REST_TOKEN,KV_REST_API_URL",
+  ],
+  [
+    "mixed: KV url + UPSTASH token",
+    { KV_REST_API_URL: K_URL, UPSTASH_REDIS_REST_TOKEN: U_TOKEN },
+    null,
+    "store=production-without-redis missing=UPSTASH_REDIS_REST_URL,KV_REST_API_TOKEN",
+  ],
+  [
+    "partial: UPSTASH url only",
+    { UPSTASH_REDIS_REST_URL: U_URL },
+    null,
+    "store=production-without-redis missing=UPSTASH_REDIS_REST_TOKEN,KV_REST_API_URL,KV_REST_API_TOKEN",
+  ],
+  [
+    "partial: UPSTASH token only",
+    { UPSTASH_REDIS_REST_TOKEN: U_TOKEN },
+    null,
+    "store=production-without-redis missing=UPSTASH_REDIS_REST_URL,KV_REST_API_URL,KV_REST_API_TOKEN",
+  ],
+  [
+    "partial: KV url only",
+    { KV_REST_API_URL: K_URL },
+    null,
+    "store=production-without-redis missing=UPSTASH_REDIS_REST_URL,UPSTASH_REDIS_REST_TOKEN,KV_REST_API_TOKEN",
+  ],
+  [
+    "nothing",
+    {},
+    null,
+    "store=production-without-redis missing=UPSTASH_REDIS_REST_URL,UPSTASH_REDIS_REST_TOKEN,KV_REST_API_URL,KV_REST_API_TOKEN",
+  ],
+];
+const { redisCredentialPair } = await import("../app/api/_lib/redis-diagnostics.ts");
+
+test("credential pairs: a complete pair only, UPSTASH before KV, never a URL from one and a token from the other", () => {
+  for (const [label, env, want] of PAIR_CASES) {
+    const got = redisCredentialPair(env, { kvFallback: true });
+    if (want === null) {
+      assert.equal(got, null, label);
+    } else {
+      assert.deepEqual(got, { pair: want[0], url: want[1], token: want[2] }, label);
+    }
+  }
+});
+
+test("the store line, dev and production, for every pair case: names only, never a value", () => {
+  for (const [label, env, want, prodLine] of PAIR_CASES) {
+    const dev = limitModule.inviteStoreLine(env);
+    const source = want && want[0] === "KV_REST_API" ? "kv" : "upstash";
+    assert.equal(
+      dev,
+      want
+        ? `[invite-password-limit] store=redis source=${source}`
+        : "[invite-password-limit] store=memory",
+      label,
+    );
+    const prod = limitModule.inviteStoreLine({ ...env, VERCEL_ENV: "production" });
+    assert.equal(prod, `[invite-password-limit] ${prodLine}`, label);
+    for (const l of [dev, prod]) {
+      assert.match(l, LINE);
+      for (const v of VALUES) assert.ok(!l.includes(v), `${label}: leaked ${v}`);
+    }
+  }
+});
+
+test("mixed or partial in production: the store refuses (NO_STORE), it never tries a half pair", async () => {
+  for (const [label, env, want] of PAIR_CASES) {
+    if (want) continue;
+    setInvitePasswordStoresForTests(
+      limitModule.defaultAttemptStore({ ...env, VERCEL_ENV: "production" }),
+    );
+    const { result, lines } = await captured(() => reserveInvitePasswordAttempt(EMAIL));
+    assert.deepEqual(result, { ok: false, reason: "unavailable" }, label);
+    assert.deepEqual(lines, ["[invite-password-limit] attempt refused reason=NO_STORE"], label);
+  }
+});
+
+test("mixed or partial in dev: the memory store, which counts and allows", async () => {
+  for (const [label, env, want] of PAIR_CASES) {
+    if (want) continue;
+    setInvitePasswordStoresForTests(limitModule.defaultAttemptStore(env));
+    assert.deepEqual(await reserveInvitePasswordAttempt(EMAIL), { ok: true }, label);
+  }
+});
+
+test("a complete pair builds the lazy Redis store (no call until an attempt), for either pair", () => {
+  const memory = limitModule.defaultAttemptStore({}).increment.toString();
+  for (const env of [PAIR_CASES[0][1], PAIR_CASES[1][1]]) {
+    assert.notEqual(limitModule.defaultAttemptStore(env).increment.toString(), memory);
+  }
+});
+
+test("production without Redis: still fails closed, now logged as NO_STORE", async () => {
+  setInvitePasswordStoresForTests(limitModule.defaultAttemptStore({ VERCEL_ENV: "production" }));
+  const { result, lines } = await captured(() => reserveInvitePasswordAttempt(EMAIL));
+  assert.deepEqual(result, { ok: false, reason: "unavailable" });
+  assert.deepEqual(lines, ["[invite-password-limit] attempt refused reason=NO_STORE"]);
+});
+
+test("a failed clear is logged as a reason code and never throws", async () => {
+  setInvitePasswordStoresForTests({
+    async increment() {
+      return 1;
+    },
+    async clear() {
+      throw Object.assign(new Error(`WRONGPASS token ${SECRET_TOKEN} at ${SECRET_URL}`), {
+        name: "UpstashError",
+      });
+    },
+  });
+  const { lines } = await captured(() => clearInvitePasswordAttempts(EMAIL));
+  assert.deepEqual(lines, ["[invite-password-limit] clear failed reason=WRONGPASS"]);
+  noValues(lines[0]);
+});
+
+test("source: the module builds no client at load, and logs the store once, outside a build", () => {
+  const src = readFileSync(new URL("./invite-password-limit.ts", import.meta.url), "utf8");
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  assert.doesNotMatch(code, /Redis\.fromEnv\(/);
+  assert.equal((code.match(/new Redis\(/g) ?? []).length, 1, "one constructor call");
+  assert.match(
+    code,
+    /inner \?\?= redisAttemptStore\(new Redis\(\{ url, token \}\)\);/,
+    "inside the lazy getter",
+  );
+  assert.match(
+    code,
+    /if \(process\.env\.NEXT_PHASE !== "phase-production-build"\) \{\s*console\.info\(inviteStoreLine\(process\.env\)\);\s*\}/,
+  );
+});
+
+test("no test in this file tried the network", () => {
+  guard.assertNoNetwork();
 });

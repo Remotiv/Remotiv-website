@@ -32,6 +32,11 @@ import { createHash } from "node:crypto";
 import { register } from "node:module";
 import { test } from "node:test";
 
+import { blockNetwork } from "../../../test-support/no-network.mjs";
+
+// No test in this file may reach a real network (#48): blocked and recorded, checked last.
+const guard = blockNetwork();
+
 register(new URL("../../../test-support/node-resolve.mjs", import.meta.url));
 register(
   `data:text/javascript,${encodeURIComponent(`
@@ -679,4 +684,8 @@ test("48-7. the attempt store unavailable: FAILS CLOSED - refused before the pas
   assert.equal(w.state.invites[0].status, "pending");
   assert.equal(w.state.members.length, 0);
   freshLimit();
+});
+
+test("no test in this file tried the network", () => {
+  guard.assertNoNetwork();
 });

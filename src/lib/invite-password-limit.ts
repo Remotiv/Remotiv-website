@@ -1,5 +1,11 @@
 import { createHash } from "node:crypto";
 import { Redis } from "@upstash/redis";
+import {
+  redisCredentialPair,
+  redisReasonCode,
+  storeChoice,
+  storeChoiceLine,
+} from "@/app/api/_lib/redis-diagnostics";
 
 /**
  * Password attempts on the team-invitation accept page (task #48, QA-SAFETY-40
@@ -31,6 +37,12 @@ import { Redis } from "@upstash/redis";
  * read the same count. Without Redis (local dev, staging) a per-process counter
  * whose increment is synchronous, so it is atomic within the one process that
  * serves those environments.
+ *
+ * LOGS (names and reason codes only, never a value): the store chosen, once
+ * at module load, `[invite-password-limit] store=redis source=upstash|kv`,
+ * `store=memory` or `store=production-without-redis missing=...`; each refused attempt,
+ * `[invite-password-limit] attempt refused reason=<CODE>`, with the codes of
+ * api/_lib/redis-diagnostics.ts.
  *
  * FAILS CLOSED. If the shared store cannot answer (Redis configured but
  * unreachable, or a Vercel production deployment with no Redis configured),
@@ -89,23 +101,67 @@ export function memoryAttemptStore(now: () => number = Date.now): AttemptStore {
   };
 }
 
-/** The store this deployment uses; exported so the choice itself is tested. */
+/** The prefix of every line this module writes. Lines carry names and reason codes, never values. */
+const LOG = "[invite-password-limit]";
+
+/** Thrown by the production store that has no Redis: logged as reason=NO_STORE. */
+class NoSharedStoreError extends Error {
+  name = "NoSharedStoreError";
+}
+
+/**
+ * A Redis store whose client is built on FIRST USE, inside the caller's try:
+ * a bad URL (the client constructor throws UrlError on one) becomes a logged,
+ * fail-closed refusal of that attempt instead of a crash when the module
+ * loads, which would take the whole accept action down, or during a build.
+ * A constructor that threw is retried on the next attempt.
+ */
+function lazyRedisAttemptStore(url: string, token: string): AttemptStore {
+  let inner: AttemptStore | null = null;
+  const get = () => {
+    inner ??= redisAttemptStore(new Redis({ url, token }));
+    return inner;
+  };
+  return {
+    async increment(key, ttlMs) {
+      return get().increment(key, ttlMs);
+    },
+    async clear(key) {
+      return get().clear(key);
+    },
+  };
+}
+
+/**
+ * The store this deployment uses; exported so the choice itself is tested.
+ * Credentials come as a COMPLETE pair (redisCredentialPair): the
+ * UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN pair, else the
+ * KV_REST_API_URL + KV_REST_API_TOKEN pair, never one name from each. A
+ * mixed or partial setup is "no Redis": memory in dev, a refusal in
+ * production, and the store line names what is missing.
+ */
 export function defaultAttemptStore(env: Record<string, string | undefined>): AttemptStore {
-  if (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN) {
-    return redisAttemptStore(
-      new Redis({ url: env.UPSTASH_REDIS_REST_URL, token: env.UPSTASH_REDIS_REST_TOKEN }),
-    );
-  }
+  const creds = redisCredentialPair(env, { kvFallback: true });
+  if (creds) return lazyRedisAttemptStore(creds.url, creds.token);
   if (env.VERCEL_ENV === "production") {
     // Production without a shared store: refuse rather than count per instance.
     return {
       async increment() {
-        throw new Error("no shared store");
+        throw new NoSharedStoreError("no shared store");
       },
       async clear() {},
     };
   }
   return memoryAttemptStore();
+}
+
+/** The line written once at module load: which store, by names only. */
+export function inviteStoreLine(env: Record<string, string | undefined>): string {
+  return storeChoiceLine(storeChoice(env, { kvFallback: true }), LOG, { withSource: true });
+}
+
+if (process.env.NEXT_PHASE !== "phase-production-build") {
+  console.info(inviteStoreLine(process.env));
 }
 
 let store: AttemptStore = defaultAttemptStore(process.env);
@@ -129,8 +185,8 @@ export async function reserveInvitePasswordAttempt(email: string): Promise<Reser
   let count: number;
   try {
     count = await store.increment(invitePasswordKey(email), INVITE_PASSWORD_LOCK_MS);
-  } catch {
-    console.error("[invite-password-limit] attempt store unavailable; attempt refused");
+  } catch (err) {
+    console.error(`${LOG} attempt refused reason=${redisReasonCode(err)}`);
     return { ok: false, reason: "unavailable" };
   }
   if (count > INVITE_PASSWORD_MAX_ATTEMPTS) {
@@ -146,7 +202,7 @@ export async function reserveInvitePasswordAttempt(email: string): Promise<Reser
 /** A correct password: the account's count starts again. */
 export async function clearInvitePasswordAttempts(email: string): Promise<void> {
   // Best effort: a failed clear leaves the count to expire on its own.
-  await store.clear(invitePasswordKey(email)).catch(() => {
-    console.error("[invite-password-limit] could not clear an account's count");
+  await store.clear(invitePasswordKey(email)).catch((err) => {
+    console.error(`${LOG} clear failed reason=${redisReasonCode(err)}`);
   });
 }

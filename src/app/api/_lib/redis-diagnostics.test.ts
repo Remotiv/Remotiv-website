@@ -12,6 +12,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { blockNetwork } from "../../../test-support/no-network.mjs";
+
+// No test in this file may reach a real network (#48): blocked and recorded, checked last.
+const guard = blockNetwork();
+
 const {
   LOG_PREFIX,
   redisCheckLine,
@@ -170,4 +175,8 @@ test("sync failures: at most one line a minute per instance, with the held-back 
 
 test("the prefix is fixed", () => {
   assert.equal(LOG_PREFIX, "[rate-limit]");
+});
+
+test("no test in this file tried the network", () => {
+  guard.assertNoNetwork();
 });

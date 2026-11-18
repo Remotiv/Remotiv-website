@@ -23,6 +23,8 @@ export const LOG_PREFIX = "[rate-limit]";
 
 const URL_VAR = "UPSTASH_REDIS_REST_URL";
 const TOKEN_VAR = "UPSTASH_REDIS_REST_TOKEN";
+const KV_URL_VAR = "KV_REST_API_URL";
+const KV_TOKEN_VAR = "KV_REST_API_TOKEN";
 
 /** Leading words of a Redis error reply that are safe and useful to log. */
 const REDIS_WORDS = new Set([
@@ -62,6 +64,7 @@ export function redisReasonCode(err: unknown): string {
   const e = err as { name?: unknown; message?: unknown; cause?: unknown };
   const name = typeof e.name === "string" ? e.name : "";
   if (name === "UrlError") return "BADURL";
+  if (name === "NoSharedStoreError") return "NO_STORE";
   if (name === "AbortError" || name === "TimeoutError") return "ETIMEDOUT";
   const net = codeOf(e.cause) ?? codeOf(e);
   if (net && net in NETWORK_CODES) return NETWORK_CODES[net];
@@ -72,26 +75,76 @@ export function redisReasonCode(err: unknown): string {
 }
 
 export type StoreChoice =
-  | { store: "redis" }
+  | { store: "redis"; source: "upstash" | "kv" }
   | { store: "memory" }
   | { store: "production-without-redis"; missing: string[] };
 
+/** A complete credential pair, in preference order. Never one name from each. */
+const PAIRS = [
+  { name: "UPSTASH_REDIS_REST", url: URL_VAR, token: TOKEN_VAR },
+  { name: "KV_REST_API", url: KV_URL_VAR, token: KV_TOKEN_VAR },
+] as const;
+
+export type RedisPair = { pair: "UPSTASH_REDIS_REST" | "KV_REST_API"; url: string; token: string };
+
 /**
- * The same test rate-limit.ts uses to build its client (both variables
- * truthy), named. "production-without-redis" is a label only: the limiter
- * still runs in memory, exactly as it does for "memory".
+ * The Redis credentials to use: UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN
+ * when BOTH are set; otherwise (only with `kvFallback`) KV_REST_API_URL +
+ * KV_REST_API_TOKEN when BOTH are set; otherwise none. A URL from one pair is
+ * never combined with the token of the other: a half-configured pair is a
+ * misconfiguration to report, not something to repair by guessing.
  */
-export function storeChoice(env: Record<string, string | undefined>): StoreChoice {
-  const missing = [URL_VAR, TOKEN_VAR].filter((n) => !env[n]);
-  if (missing.length === 0) return { store: "redis" };
-  if (env.VERCEL_ENV === "production") return { store: "production-without-redis", missing };
-  return { store: "memory" };
+export function redisCredentialPair(
+  env: Record<string, string | undefined>,
+  opts: { kvFallback?: boolean } = {},
+): RedisPair | null {
+  for (const p of opts.kvFallback ? PAIRS : PAIRS.slice(0, 1)) {
+    const url = env[p.url];
+    const token = env[p.token];
+    if (url && token) return { pair: p.name, url, token };
+  }
+  return null;
 }
 
-export function storeChoiceLine(choice: StoreChoice): string {
-  return choice.store === "production-without-redis"
-    ? `${LOG_PREFIX} store=production-without-redis missing=${choice.missing.join(",")}`
-    : `${LOG_PREFIX} store=${choice.store}`;
+/**
+ * Which store a limiter with these credentials uses, named for the log.
+ * Without `kvFallback` this is exactly rate-limit.ts's own test (both UPSTASH
+ * variables truthy). "production-without-redis" is a label; what each limiter
+ * then does is its own (rate-limit.ts runs in memory, invite-password-limit.ts
+ * refuses). `missing` lists, by name only, every variable absent from each
+ * pair that was considered, so a mixed or partial setup names what would
+ * complete either pair.
+ */
+export function storeChoice(
+  env: Record<string, string | undefined>,
+  opts: { kvFallback?: boolean } = {},
+): StoreChoice {
+  const pair = redisCredentialPair(env, opts);
+  if (pair) return { store: "redis", source: pair.pair === "KV_REST_API" ? "kv" : "upstash" };
+  if (env.VERCEL_ENV !== "production") return { store: "memory" };
+  const missing = (opts.kvFallback ? PAIRS : PAIRS.slice(0, 1)).flatMap((p) =>
+    [p.url, p.token].filter((n) => !env[n]),
+  );
+  return { store: "production-without-redis", missing };
+}
+
+/**
+ * The store line. `withSource` adds which credential pair was used,
+ * ` source=upstash|kv`, by pair name only (the invite limiter's line; the
+ * site-wide `[rate-limit] store=redis` line is unchanged).
+ */
+export function storeChoiceLine(
+  choice: StoreChoice,
+  prefix: string = LOG_PREFIX,
+  opts: { withSource?: boolean } = {},
+): string {
+  if (choice.store === "production-without-redis") {
+    return `${prefix} store=production-without-redis missing=${choice.missing.join(",")}`;
+  }
+  if (choice.store === "redis" && opts.withSource) {
+    return `${prefix} store=redis source=${choice.source}`;
+  }
+  return `${prefix} store=${choice.store}`;
 }
 
 /** EVAL "return 1" 0: proves the URL, the token and scripting in one call that touches no key. */
