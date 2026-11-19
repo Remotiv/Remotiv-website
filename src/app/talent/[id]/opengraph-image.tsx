@@ -2,7 +2,6 @@ import { ImageResponse } from "next/og";
 import { createServiceClient } from "@/lib/supabase/server";
 import { publicRemote, publicTalent } from "@/lib/talent-visibility";
 
-export const runtime = "edge";
 export const alt = "Remotiv Talent Profile";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";

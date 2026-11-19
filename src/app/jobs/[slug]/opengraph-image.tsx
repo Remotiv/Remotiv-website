@@ -13,7 +13,6 @@ import type { ReactNode } from "react";
 import { publiclyVisible } from "@/lib/jobs";
 import { createServiceClient } from "@/lib/supabase/server";
 
-export const runtime = "edge";
 export const alt = "Remotiv job";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";

@@ -2,7 +2,6 @@ import { ImageResponse } from "next/og";
 
 // Same card as ./opengraph-image.tsx, kept as a full copy the way the homepage
 // keeps its pair. Change the copy in both files together.
-export const runtime = "edge";
 export const alt =
   "Remotiv - AI Video Interviews: Async Video Interviews, with evidence behind every score.";
 export const size = { width: 1200, height: 630 };

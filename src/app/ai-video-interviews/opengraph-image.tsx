@@ -3,7 +3,6 @@ import { ImageResponse } from "next/og";
 // The homepage card's layout, gradient and type (src/app/opengraph-image.tsx),
 // so the two read as the same site; only the copy differs. The card names the
 // Async Video Interview, which ships, and nothing that is still in development.
-export const runtime = "edge";
 export const alt =
   "Remotiv - AI Video Interviews: Async Video Interviews, with evidence behind every score.";
 export const size = { width: 1200, height: 630 };
