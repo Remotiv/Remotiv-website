@@ -43,6 +43,7 @@ import {
   type MessageRow,
   type MessageTab,
 } from "./types";
+import { senderLine, typeLabel } from "./message-display";
 
 const GRID =
   "grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.8fr)_104px] items-center gap-3.5 min-[1100px]:grid-cols-[minmax(0,1.5fr)_minmax(0,2fr)_116px_0.8fr_0.75fr_40px]";
@@ -537,7 +538,7 @@ export function MessagesClient({
                     className={`inline-flex items-center gap-1.5 justify-self-start whitespace-nowrap rounded-full px-3 py-[5px] text-xs font-bold ${PILL[row.kind].cls}`}
                   >
                     <span className={`size-[5px] shrink-0 rounded-full ${PILL[row.kind].dot}`} />
-                    {MESSAGE_KIND_LABELS[row.kind]}
+                    {typeLabel(row)}
                   </span>
 
                   <span className="hidden min-w-0 items-center gap-2 whitespace-nowrap text-[13px] text-[var(--ai-t2)] min-[1100px]:flex">
@@ -853,13 +854,7 @@ function MessageViewer({
 
   const when = whenOf(row);
   const tint = tintFor(row.applicationId ?? row.id);
-  const provenance = row.sentByName
-    ? `Written by ${row.sentByName}`
-    : row.kind === "scheduled"
-      ? `${MESSAGE_KIND_LABELS.scheduled} · automatic`
-      : row.kind === "written"
-        ? "Written by your team"
-        : "Sent automatically";
+  const provenance = senderLine(row);
 
   return (
     <div
@@ -929,6 +924,14 @@ function MessageViewer({
           <p className="m-0 mb-3.5 font-heading text-[17px] font-extrabold leading-snug tracking-[-0.022em] text-[var(--ai-t1)]">
             {row.subject || "(no subject)"}
           </p>
+          {row.bodySummary && (
+            <p
+              data-message-summary
+              className="m-0 mb-1.5 text-[10.5px] font-bold uppercase tracking-[0.14em] text-[var(--ai-t3)]"
+            >
+              Message summary
+            </p>
+          )}
           <p className="m-0 whitespace-pre-wrap rounded-[14px] border border-[var(--ai-line)] bg-[var(--ai-inset)] px-[18px] py-4 text-[13.5px] leading-[1.7] text-[var(--ai-t2)]">
             {row.body || "This message has no body."}
           </p>

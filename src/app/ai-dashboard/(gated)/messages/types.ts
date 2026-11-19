@@ -33,6 +33,11 @@ export type MessageRow = {
   /** Plain text, already stripped of the HTML shell for reading on screen. */
   body: string;
   /**
+   * The body is a summary rebuilt from a WhatsApp template's stored values
+   * (#62, message-display.ts), not the words the candidate saw.
+   */
+  bodySummary?: boolean;
+  /**
    * communication_logs.event exactly as stored, NULL included. `kind` is the
    * derived view (a NULL event reads as automatic there). Nothing currently
    * reads `event`, so the two cannot disagree anywhere a person can see.

@@ -56,6 +56,7 @@ import {
   type MessageRow,
   type MessageTab,
 } from "./types";
+import { displayMessage } from "./message-display";
 
 /**
  * The inbound walk: rows per prefilter page, and how many pages before the
@@ -285,8 +286,9 @@ async function hydrate(
       candidateEmail: deleted ? "" : email,
       jobId: app?.job_id ?? null,
       jobTitle: roleOf(app, "-"),
-      subject: l.subject ?? "",
-      body: htmlToPlain(l.body ?? ""),
+      // A WhatsApp template row reads as what was sent, not as its stored
+      // name and JSON (#62, message-display.ts). Display only.
+      ...displayMessage(l, htmlToPlain),
       // Raw, never defaulted. A NULL read as 'manual' would file the row under
       // Written while every count files it under Automatic.
       event: l.event,

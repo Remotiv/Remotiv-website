@@ -39,6 +39,7 @@ import {
   fetchApplicationInbound,
   fetchApplicationMessages,
 } from "@/app/ai-dashboard/(gated)/messages/actions";
+import { sentAutomatically, typeLabel } from "@/app/ai-dashboard/(gated)/messages/message-display";
 import {
   APPLICATION_INBOUND_CAP,
   APPLICATION_MESSAGE_CAP,
@@ -2119,7 +2120,10 @@ function InboundEntry({ message }: { message: InboundMessageRow }) {
  * message, a dashed amber one for something still scheduled.
  */
 function MessageEntry({ message }: { message: CandidateMessage }) {
-  const automatic = message.kind === "automatic";
+  // "Automatic" only when nobody sent it; a recruiter's template send shows
+  // as a Template with their name (#62, the Messages page's rule).
+  const automatic = sentAutomatically(message);
+  const template = message.kind === "automatic" && !automatic;
   const scheduled = message.kind === "scheduled";
   const failed = message.kind === "failed";
 
@@ -2152,9 +2156,9 @@ function MessageEntry({ message }: { message: CandidateMessage }) {
             Scheduled
           </span>
         )}
-        {automatic && (
+        {(automatic || template) && (
           <span className="shrink-0 rounded-[5px] bg-[var(--ai-slate-tint)] px-[7px] py-0.5 text-[9.5px] font-extrabold uppercase tracking-[0.06em] text-[var(--ai-slate-ink)]">
-            Automatic
+            {typeLabel(message)}
           </span>
         )}
         {failed && (
@@ -2563,7 +2567,8 @@ function messageEvents(messages: CandidateMessage[], local: boolean): TimelineEv
     // A manual message whose sender was never recorded is still a person's
     // doing — it predates communication_logs.sent_by_name. Calling it automatic
     // would be the one reading of it that is certainly wrong.
-    const automatic = m.kind === "automatic";
+    // Automatic only when nobody sent it (#62): a recruiter's template send is theirs.
+    const automatic = sentAutomatically(m);
     const name = automatic ? AUTO_ACTOR : (m.sentByName ?? "Someone");
     const verb = scheduled
       ? "scheduled a message"
