@@ -47,7 +47,12 @@ test("Split: a row click, a sheet open and closing the drawer carry no tab", () 
   assert.match(body("openSheet"), /encodePanelUrl\(window\.location\.search, applicantId, null\)/);
   assert.match(
     body("closePanel"),
-    /if \(split\) \{\s*syncPanelUrl\(new URLSearchParams\(window\.location\.search\)\.get\("applicant"\), null\);/,
+    /syncPanelUrl\(new URLSearchParams\(window\.location\.search\)\.get\("applicant"\), null\);/,
   );
   assert.doesNotMatch(body("openSheet"), /panelTab/);
+  assert.doesNotMatch(
+    body("closePanel"),
+    /panelTab/,
+    "closing the drawer never writes its tab back",
+  );
 });

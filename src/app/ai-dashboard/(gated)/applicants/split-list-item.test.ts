@@ -185,17 +185,15 @@ test("one button, nothing clickable inside it, and an inset focus ring", () => {
   );
 });
 
-test("the client renders the Split item only with the flag on, and keeps today's table and cards otherwise", () => {
+test("10b: the client renders the Split item for every list; the old table and cards are gone", () => {
   const client = readFileSync(new URL("./_applicants-client.tsx", import.meta.url), "utf8");
-  const at = client.indexOf("{split ? (");
-  assert.ok(at > -1, "no split branch in the list");
-  const branch = client.slice(at, client.indexOf(") : (", at));
-  assert.match(branch, /<SplitListItem/);
-  assert.match(branch, /data-split-list/);
-  assert.doesNotMatch(branch, /data-twin/, "the Split list must not use the table/card twin");
-  const rest = client.slice(client.indexOf(") : (", at));
-  assert.match(rest, /data-twin-narrow/);
-  assert.match(rest, /data-twin-wide/);
+  assert.match(client, /<div data-split-list>/);
+  assert.match(client, /<SplitListItem/);
+  assert.doesNotMatch(
+    client,
+    /data-twin|ApplicantCard|\bGRID\b/,
+    "the old table/card page is gone",
+  );
 });
 
 test("a long name keeps at least 8ch before its ellipsis; the chips wrap below it instead (commit 5e)", () => {

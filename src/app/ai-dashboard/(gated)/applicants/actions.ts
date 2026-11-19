@@ -33,7 +33,6 @@ import {
   TOP_SCORED_LIMIT,
   WORTH_A_LOOK_STAGES,
 } from "@/app/ai-dashboard/lib/applicant-types";
-import { isApplicantsSplitOn } from "@/app/ai-dashboard/lib/applicants-split-flag";
 import { getCompanyContext, requireCompanyRole } from "@/app/ai-dashboard/lib/company-guards";
 import { type CompanyContext, canChangeStage } from "@/app/ai-dashboard/lib/company-roles";
 import {
@@ -448,8 +447,6 @@ function toRow(r: ApplicantQueryRow, score?: ScoreSummaryRow): CompanyApplicantR
  * on the server, so the answers themselves never reach the browser. About
  * 1.7 KB a row from the database for at most a page of rows; no AI call.
  *
- * Runs only while Split is on: the default, unless the kill switch is set (applicants-split-flag.ts).
- *
  * A failed read is not a failed list: every row keeps `screening: null`, which
  * the list shows as no screening line, and the code is logged. Counts that are
  * merely missing must not take the applicants away with them.
@@ -459,9 +456,7 @@ async function withScreeningCounts(
   companyId: string,
   rows: CompanyApplicantRow[],
 ): Promise<CompanyApplicantRow[]> {
-  // Only the Split list shows the counts. With the kill switch on, the old page
-  // pays nothing: no read, and every row keeps screening: null.
-  if (rows.length === 0 || !isApplicantsSplitOn(companyId)) return rows;
+  if (rows.length === 0) return rows;
   const { data, error } = await service
     .from("job_applications")
     .select("id, screening_answers")

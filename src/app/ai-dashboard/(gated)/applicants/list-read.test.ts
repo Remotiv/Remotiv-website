@@ -740,20 +740,9 @@ test("filters apply to the POPULATION: a match on page 7 is found from page 1", 
 // ════════════════════════════════════════════════════════════
 
 test("one page costs the same number of requests at 8 applicants and at 2,500", async () => {
-  // Split on (the default since commit 10a; the kill switch cleared): the
-  // page's screening counts are part of the budget then.
-  const saved = process.env.APPLICANTS_SPLIT_DISABLED;
-  delete process.env.APPLICANTS_SPLIT_DISABLED;
-  const [small, large] = await (async () => {
-    try {
-      return [
-        await run(fetchCompanyApplicants, {}, { world: MIXED }),
-        await run(fetchCompanyApplicants, {}, { world: ORDERING }),
-      ];
-    } finally {
-      if (saved !== undefined) process.env.APPLICANTS_SPLIT_DISABLED = saved;
-    }
-  })();
+  // The page's screening counts are part of the budget.
+  const small = await run(fetchCompanyApplicants, {}, { world: MIXED });
+  const large = await run(fetchCompanyApplicants, {}, { world: ORDERING });
 
   // One list read, plus the page's "Screening X/Y met" counts (Split commit
   // 2): a second read of the page's own ids, never of the population.

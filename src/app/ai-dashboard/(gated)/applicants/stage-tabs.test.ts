@@ -6,11 +6,11 @@
  * it was derived from: a chip wired to the wrong stage, or a stage with no chip
  * at all, fails here.
  *
- * The four pill sites live inside _applicants-client.tsx and _overview-client.tsx,
+ * The two pill sites live inside _applicants-client.tsx and _overview-client.tsx,
  * which are 6,000-line client modules pulling in server actions — rendering
  * either one would mean stubbing most of the app. Their shared resolver
  * (lib/stage-pill.ts) is executed directly instead, with an eighth stage no
- * build has heard of, and each of the four sites is pinned to it from source.
+ * build has heard of, and each of the two sites is pinned to it from source.
  *
  * What is deliberately NOT tested: that the strip wraps onto three rows, or
  * that chips resist compression. node:test has no DOM and no layout engine, so
@@ -221,7 +221,7 @@ test("an unknown stage gets a neutral Applicants pill with both fields present",
   for (const stage of UNKNOWN_STAGES) {
     const pill = stagePill(stage);
     assert.deepEqual(pill, UNKNOWN_STAGE_PILL, `stagePill(${JSON.stringify(stage)})`);
-    // The three Applicants sites interpolate .cls and .dot into className.
+    // The Applicants site interpolates .cls and .dot into className.
     assert.equal(typeof pill.cls, "string");
     assert.equal(typeof pill.dot, "string");
     assert.ok(!`${pill.cls} ${pill.dot}`.includes("undefined"));
@@ -257,18 +257,18 @@ test("every real stage still resolves to its own pill and label", () => {
   }
 });
 
-/* ── all four render sites route through the resolver ─────────────── */
+/* ── both render sites route through the resolver ─────────────── */
 
-test("the three Applicants pill sites resolve through stagePill", () => {
+test("the Applicants pill site resolves through stagePill (one since 10b removed the table and cards)", () => {
   const sites = [...APPLICANTS.matchAll(/const pill = (\S+)/g)].map((m) => m[1]);
-  assert.equal(sites.length, 3, `expected the three known pill sites, found ${sites.length}`);
+  assert.equal(sites.length, 1, `expected the one known pill site, found ${sites.length}`);
   for (const site of sites) assert.equal(site, "stagePill(stage);");
   assert.doesNotMatch(APPLICANTS, /STAGE_PILL\[/, "no site may index a pill map directly");
 });
 
 test("the Applicants labels beside those pills resolve through pipelineStageLabel", () => {
   const pillLabels = [...APPLICANTS.matchAll(/\$\{pill\.dot\}`\}[\s\S]*?\n\s*\{([^}]+)\}/g)];
-  assert.equal(pillLabels.length, 3, "expected a label next to each of the three pills");
+  assert.equal(pillLabels.length, 1, "expected a label next to the pill");
   for (const [, expr] of pillLabels) {
     assert.equal(expr.trim(), "pipelineStageLabel(stage)");
   }

@@ -45,7 +45,7 @@ function HeaderSkeleton() {
  * Mint block + ink breakdown, matching DashboardHero, at the real hero's height:
  * 149 CSS px side by side (1180+), 276 stacked, 293 at phone width.
  */
-export function HeroSkeleton() {
+function HeroSkeleton() {
   return (
     <div className="mb-[26px] grid h-[293px] grid-cols-1 overflow-hidden rounded-[22px] bg-[var(--ai-sidebar)] min-[640px]:h-[276px] min-[1180px]:h-[149px] min-[1180px]:grid-cols-[340px_minmax(0,1fr)]">
       <div className="flex flex-col justify-center bg-remotiv-green px-[26px] py-[22px] min-[1180px]:px-7 min-[1180px]:py-[26px]">
@@ -68,7 +68,6 @@ export function SplitSkeleton() {
         <HeaderSkeleton />
         <HeroSkeleton />
         <SplitLayout
-          split
           panel={
             <aside aria-hidden className={PANEL_FRAME} data-skeleton-panel>
               <div className="shrink-0 border-b border-[var(--ai-line)] px-[22px] pb-4 pt-4">
@@ -104,7 +103,7 @@ export function SplitSkeleton() {
                 className={`${SHIMMER} h-[82px] w-full min-[640px]:h-[37px] min-[640px]:w-[648px] min-[640px]:max-w-full`}
               />
             </div>
-            <SplitListColumn split fullWidth={false}>
+            <SplitListColumn fullWidth={false}>
               {ROW_KEYS.map((k) => (
                 <div
                   key={k}

@@ -27,7 +27,9 @@ Product = a rule in the brief changes, needs your OK and backend data. Visual = 
 | Visual | Selected stage tab | Colour only | Adds aria-pressed and weight 700 |  |
 | Product | Viewer has no jobs | Live empty message inside the table panel | No job header, toolbar or split - "Applicants" title + the live message full width | Uses the live copy |
 
-> **Build note (commit 10a, switch-on, 2026-11-14):** Split is the Applicants page for every company. The old opt-in (`APPLICANTS_SPLIT_ENABLED`, and the pilot list `APPLICANTS_SPLIT_COMPANIES`) is no longer read. The kill switch is `APPLICANTS_SPLIT_DISABLED=1` (server env, exactly "1"): it turns the old table/card page back on for everyone until commit 10b removes the old page, the switch and its dead branches. The root `layout.tsx:101` data-twin rule stays either way; Jobs and Team use it.
+> **Build note (commit 10a, switch-on, 2026-11-14):** Split is the Applicants page for every company. The old opt-in (`APPLICANTS_SPLIT_ENABLED`, and the pilot list `APPLICANTS_SPLIT_COMPANIES`) is no longer read. The root `layout.tsx:101` data-twin rule stays; Jobs and Team use it.
+>
+> **Build note (commit 10b, 2026-11-19):** the old table/card page, the kill switch (`APPLICANTS_SPLIT_DISABLED` and `applicants-split-flag.ts`) and every branch that only ran with it are removed. No code reads `APPLICANTS_SPLIT_DISABLED`, `APPLICANTS_SPLIT_ENABLED` or `APPLICANTS_SPLIT_COMPANIES`; all three can be deleted from the environment. Going back to the old page now means reverting the commit.
 >
 > **All jobs kept (commit 8):** unlike the "Job select" row above and state 16, the select keeps "All jobs", written as `?job=all`. With no `?job=` the page opens on the newest open job the viewer can see; a `?q=` search with no job opens All jobs.
 

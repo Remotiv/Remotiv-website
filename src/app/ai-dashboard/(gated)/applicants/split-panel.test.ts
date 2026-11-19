@@ -213,32 +213,36 @@ describe("3. height from --vh-full", () => {
     assert.ok(rule, "the scoped overscroll rule is missing or changed shape");
     // Nothing else in the shell's stylesheet turns overscroll off.
     assert.equal((css.match(/overscroll-behavior/g) ?? []).length, 1);
-    // The marker it keys on renders only with the flag on.
-    assert.match(PANEL_SRC, /if \(!split\) return <>\{children\}<\/>;[\s\S]*?data-split-layout/);
+    // The marker it keys on is SplitLayout's own, the only page layout since 10b.
+    assert.match(PANEL_SRC, /export function SplitLayout[\s\S]*?data-split-layout/);
   });
 });
 
-describe("flag off: the layout adds nothing", () => {
+describe("10b: one layout, no switch", () => {
   const child = createElement("div", { id: "live-card" }, "live");
-  const live = renderToStaticMarkup(child);
 
-  test("SplitLayout returns its children alone, with no panel", () => {
+  test("SplitLayout always lays out the list and the panel", () => {
     const html = renderToStaticMarkup(
-      createElement(SplitLayout, { split: false, panel: createElement("aside", null, "p") }, child),
+      createElement(SplitLayout, { panel: createElement("aside", null, "p") }, child),
     );
-    assert.equal(html, live);
+    assert.match(
+      html,
+      /^<div data-split-layout="true" class="[^"]+"><div id="live-card">live<\/div><aside>p<\/aside><\/div>$/,
+    );
   });
 
-  test("SplitListColumn returns its children alone", () => {
-    const html = renderToStaticMarkup(
-      createElement(SplitListColumn, { split: false, fullWidth: false }, child),
+  test("SplitListColumn always wraps its list", () => {
+    const html = renderToStaticMarkup(createElement(SplitListColumn, { fullWidth: false }, child));
+    assert.match(
+      html,
+      /^<div data-split-list-column="true" class="[^"]+"><div id="live-card">live<\/div><\/div>$/,
     );
-    assert.equal(html, live);
   });
 
-  test("the client adds the wide classes only when split is on", () => {
-    assert.match(CLIENT_SRC, /\$\{split \? ` \$\{SPLIT_CARD_WIDE\}` : ""\}/);
-    assert.match(CLIENT_SRC, /\$\{split \? ` \$\{SPLIT_TOOLBAR_WIDE\}` : ""\}/);
+  test("neither takes a split prop, and the client always adds the wide classes", () => {
+    assert.doesNotMatch(PANEL_SRC, /\bsplit\b[?:]|if \(!split\)/);
+    assert.match(CLIENT_SRC, /shadow-\[0_6px_30px_rgba\(20,16,32,0\.06\)\] \$\{SPLIT_CARD_WIDE\}`/);
+    assert.match(CLIENT_SRC, /py-3\.5 \$\{SPLIT_TOOLBAR_WIDE\}`/);
   });
 });
 

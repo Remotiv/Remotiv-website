@@ -6,7 +6,7 @@
  * splitJobFor is shared by page.tsx and the client, so the job the server
  * serves and the client's first request are the same (no second read). These
  * pin its four cases, the explicit ?job=all writer, and that the live page's
- * URLs (flag off) are unchanged. Plus source pins on the wiring.
+ * URLs are unchanged. Plus source pins on the wiring.
  */
 // @ts-nocheck - same reason as stage-tabs.test.ts: Node's `.ts` specifier vs this tsconfig.
 import assert from "node:assert/strict";
@@ -81,30 +81,31 @@ describe("encodeListUrl", () => {
 describe("wiring", () => {
   const client = read("./_applicants-client.tsx");
   const page = read("./page.tsx");
-  test("page.tsx: the landing read runs only under Split with no job in the URL, and flag off serves the URL as decoded", () => {
+  test("page.tsx: the landing read runs whenever the URL names no job, and the page served is splitJobFor's", () => {
     assert.match(
       page,
-      /splitOn && !splitJobIsExplicit\(params\)\s*\?\s*await resolveSplitLandingJob\(params\.get\("applicant"\)\)\s*:\s*null/,
+      /const landingJobId = !splitJobIsExplicit\(params\)\s*\?\s*await resolveSplitLandingJob\(params\.get\("applicant"\)\)\s*:\s*null/,
     );
     assert.match(
       page,
-      /const served = splitOn\s*\?\s*\{ \.\.\.decoded, request: \{ \.\.\.decoded\.request, jobId: splitJobFor\(params, landingJobId\) \} \}\s*:\s*decoded;/,
+      /const served = \{\s*\.\.\.decoded,\s*request: \{ \.\.\.decoded\.request, jobId: splitJobFor\(params, landingJobId\) \},\s*\};/,
     );
+    assert.doesNotMatch(page, /splitOn|applicants-split-flag/, "10b: no switch left in page.tsx");
     assert.match(page, /landingJobId=\{landingJobId\}/);
   });
-  test("client: the request's job comes from splitJobFor under Split only", () => {
+  test("client: the request's job always comes from splitJobFor, and All jobs is always written out", () => {
     assert.match(
       client,
-      /return split\s*\?\s*\{ \.\.\.decoded, request: \{ \.\.\.decoded\.request, jobId: splitJobFor\(params, landingJobId\) \} \}\s*:\s*decoded;/,
+      /return \{\s*\.\.\.decoded,\s*request: \{ \.\.\.decoded\.request, jobId: splitJobFor\(params, landingJobId\) \},\s*\};/,
     );
     assert.match(
       client,
-      /encodeListUrl\(next, window\.location\.search, \{ explicitAllJobs: split \}\)/,
+      /encodeListUrl\(next, window\.location\.search, \{ explicitAllJobs: true \}\)/,
     );
   });
   test("client: every Split filter write spells the shown job out", () => {
     const at = client.indexOf("const setFilters = useCallback(");
-    const body = client.slice(at, client.indexOf("[writeUrl, split, landingJobId]", at));
+    const body = client.slice(at, client.indexOf("[writeUrl, landingJobId]", at));
     assert.match(body, /jobId: splitJobFor\(liveParams, landingJobId\)/);
   });
   test("client: an in-app deep link to another job switches with a REPLACE, never in All jobs", () => {
@@ -113,18 +114,18 @@ describe("wiring", () => {
       /if \(shown !== null && shown !== linkedJob && live\.get\("applicant"\) === id\) \{\s*setFilters\(\{ jobId: linkedJob \}, "replace"\);/,
     );
   });
-  test("client: the select is grouped Open / Closed under Split, flat otherwise; no 'filtered from' under Split", () => {
-    assert.match(client, /const jobSelectOptions = split \?/);
+  test("client: the select is grouped Open / Closed, with no flat list; no 'filtered from' aside", () => {
+    assert.match(client, /const jobSelectOptions = \(/);
     assert.match(client, /<optgroup label="Open">/);
     assert.match(client, /<optgroup label="Closed">/);
-    assert.match(client, /grandTotal=\{split \? null : view\.grandTotal\}/);
+    assert.doesNotMatch(client, /jobOptions\.map|grandTotal=|filtered from/);
   });
-  test("the hero stays company-wide under Split while one job is shown; flag off it is the job's view as before", () => {
-    assert.match(page, /splitOn && served\.request\.jobId \? fetchApplicantCounts\(\{\}\) : null,/);
+  test("the hero stays company-wide while one job is shown", () => {
+    assert.match(page, /served\.request\.jobId \? fetchApplicantCounts\(\{\}\) : null,/);
     assert.match(page, /initialCompanyCounts=\{heroCounts\?\.ok \? heroCounts\.value : null\}/);
     assert.match(
       client,
-      /const heroView = split && jobFilter !== "all" \? countsView\(companyCounts\) : view;/,
+      /const heroView = jobFilter !== "all" \? countsView\(companyCounts\) : view;/,
     );
     const hero = client.slice(client.indexOf("{ledeCount("), client.indexOf("</DashboardHero>"));
     assert.match(hero, /ledeCount\(heroView\.total\)/);
@@ -143,13 +144,13 @@ describe("wiring", () => {
   test("company-wide counts: re-read after a mutation, and on a job switch only when missing or stale", () => {
     assert.match(
       client,
-      /if \(split && jobFilter !== "all" && !companyFresh\.current\) readCompanyCounts\(\);/,
+      /if \(jobFilter !== "all" && !companyFresh\.current\) readCompanyCounts\(\);/,
     );
     const refresh = client.slice(
       client.indexOf("const refreshCounts = useCallback("),
-      client.indexOf("[split, readCounts, readCompanyCounts]"),
+      client.indexOf("[readCounts, readCompanyCounts]"),
     );
-    assert.match(refresh, /readCounts\(jobId\);\s*if \(!split\) return;/);
+    assert.match(refresh, /readCounts\(jobId\);/);
     assert.match(
       refresh,
       /if \(jobId === null\) companyFresh\.current = false;\s*else readCompanyCounts\(\);/,

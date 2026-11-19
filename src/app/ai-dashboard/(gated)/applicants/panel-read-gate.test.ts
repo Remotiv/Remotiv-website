@@ -73,7 +73,7 @@ test("the shown selection is derived in render, so the panel never unmounts betw
     code,
     /const shownSplitId = splitWide\s*\?\s*autoSplitSelection\(splitId, pagedIds \? pagedIds\.split\(","\) : \[\], deepLinkId\)\s*:\s*splitId;/,
   );
-  assert.match(code, /const panelId = splitWide \? shownSplitId : split \? sheetId : null;/);
+  assert.match(code, /const panelId = splitWide \? shownSplitId : sheetId;/);
   assert.match(
     code,
     /selected=\{\(splitWide \? shownSplitId : \(sheetId \?\? openId\)\) === r\.id\}/,

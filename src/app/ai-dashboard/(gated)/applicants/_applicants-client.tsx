@@ -112,14 +112,7 @@ import {
   WorthALookBanner,
 } from "./_drawer-parts";
 import { InterviewPanel } from "./_interview-panel";
-import {
-  AddedByTeamChip,
-  FlagReasonLine,
-  fullName,
-  getTint,
-  initials,
-  WorthALookChip,
-} from "./_list-row-parts";
+import { fullName, getTint, initials } from "./_list-row-parts";
 import { SplitListItem } from "./_split-list-item";
 import {
   canShortlist,
@@ -201,10 +194,6 @@ import { splitUnscored } from "./split-unscored";
 import { TAB_FADE_PX, tabScrollLeft } from "./tab-scroll";
 
 // ── Constants ────────────────────────────────────────────────
-
-/** Mock's `.gridrow`: # / Candidate / Job / CV Score / Stage / Applied / ⋯ */
-const GRID =
-  "grid grid-cols-[46px_minmax(0,2.1fr)_1.35fr_104px_1fr_0.8fr_40px] items-center gap-[14px] px-5";
 
 /**
  * The funnel and the stage tabs both key off pipeline stage, counted in the
@@ -365,8 +354,8 @@ function useSplitWide(): boolean {
  * The same test read once, for effects and handlers that run before the hook
  * above has caught up after hydration (a deep link is handled on mount).
  */
-function isSplitWide(split: boolean): boolean {
-  return split && window.matchMedia(SPLIT_MIN_WIDTH_QUERY).matches;
+function isSplitWide(): boolean {
+  return window.matchMedia(SPLIT_MIN_WIDTH_QUERY).matches;
 }
 
 function fmtApplied(iso: string, clock: PageClock): { main: string; sub: string } {
@@ -616,15 +605,11 @@ function ScoreRing({ score }: { score: ApplicantScore }) {
   );
 }
 
-/**
- * Page controls. Rendered in the panel foot for both the table and the cards,
- * so mobile paginates identically — the card list is the same `paged` slice.
- */
+/** Page controls, in the list column's foot. */
 function Pagination({
   page,
   pageCount,
   total,
-  grandTotal,
   rangeStart,
   rangeEnd,
   onPage,
@@ -633,8 +618,6 @@ function Pagination({
   pageCount: number;
   /** The filtered population. Null is unreadable — an em dash, never a 0. */
   total: number | null;
-  /** The workspace population, for the "(filtered from N)" aside. */
-  grandTotal: number | null;
   rangeStart: number;
   rangeEnd: number;
   onPage: (p: number) => void;
@@ -646,14 +629,6 @@ function Pagination({
           {rangeStart}-{rangeEnd}
         </b>{" "}
         of {countLabel(total)}
-        {/* Both numbers have to be KNOWN before this can claim they differ.
-            Either one unreadable makes "filtered from" unprovable, so the
-            aside is omitted rather than shown against an em dash — and a null
-            total would otherwise never equal grandTotal and the aside would
-            appear on every failed count. */}
-        {total !== null && grandTotal !== null && total !== grandTotal && (
-          <span className="text-[var(--ai-t3)]"> (filtered from {grandTotal})</span>
-        )}
       </span>
       {pageCount > 1 && (
         <div className="flex items-center gap-1.5">
@@ -681,132 +656,6 @@ function Pagination({
         </div>
       )}
     </div>
-  );
-}
-
-// ── Mobile card ──────────────────────────────────────────────
-
-/**
- * Stacked card shown below the table breakpoint. Same information hierarchy as
- * the desktop row — rank + identity, job, score, stage, applied — just laid
- * out vertically so nothing needs horizontal scrolling. Opens the same drawer.
- */
-
-function ApplicantCard({
-  row,
-  rank,
-  isTop,
-  selected,
-  onOpen,
-  clock,
-}: {
-  row: CompanyApplicantRow;
-  /**
-   * The row's 1-based position in the filtered population — "21" on page 2.
-   *
-   * Was a 0-based `index` the caller built from a 0-based page offset and this
-   * component incremented. The offset is now `rangeStart`, which is 1-based by
-   * contract because the pager's "21–40" needs the same number, so the +1
-   * moved out of here rather than being applied twice.
-   */
-  rank: number;
-  /** Genuine top match — see TOP_MATCH_MIN_SCORE, not "first in the list". */
-  isTop: boolean;
-  selected: boolean;
-  onOpen: () => void;
-  clock: PageClock;
-}) {
-  const tint = getTint(row.id);
-  const applied = fmtApplied(row.created_at, clock);
-  const stage = stageOf(row);
-  const pill = stagePill(stage);
-  const worthALook = showsWorthALook(row);
-
-  return (
-    <button
-      type="button"
-      data-applicant-id={row.id}
-      onClick={onOpen}
-      className={`relative w-full border-b border-[var(--ai-line-soft)] px-4 py-4 text-left transition-colors last:border-b-0 active:bg-[#FCFBFA] ${
-        selected
-          ? "bg-[var(--ai-purple-tint)]"
-          : worthALook
-            ? "bg-remotiv-purple/[0.035]"
-            : "bg-[var(--ai-surface)]"
-      }`}
-    >
-      {/* The accent stays on for a flagged row, not only when selected — it is
-          what makes the flag findable while scrolling. Selection still wins. */}
-      <span
-        aria-hidden
-        className={`absolute inset-y-0 left-0 w-[3px] bg-remotiv-purple transition-opacity ${
-          selected || worthALook ? "opacity-100" : "opacity-0"
-        }`}
-      />
-
-      <div className="flex items-start gap-3">
-        <span
-          className={`mt-[3px] shrink-0 font-heading text-sm font-extrabold tabular-nums tracking-[-0.02em] ${
-            isTop ? "text-[var(--ai-purple-ink)]" : "text-[var(--ai-t4)]"
-          }`}
-        >
-          {String(rank).padStart(2, "0")}
-        </span>
-        <span
-          className="flex size-10 shrink-0 items-center justify-center rounded-full text-[13px] font-bold"
-          style={{
-            background: tint.bg,
-            color: tint.fg,
-            boxShadow: isTop
-              ? "0 0 0 2px var(--ai-surface), 0 0 0 3.5px #49D7A7"
-              : "0 0 0 2px var(--ai-surface), 0 0 0 3.5px rgba(20,16,32,0.07)",
-          }}
-        >
-          {initials(row.first_name, row.last_name, row.email)}
-        </span>
-        <div className="min-w-0 flex-1">
-          {/* Same nested-span truncation as the table: the name row is a flex
-              container, so overflow must live on the INNER span or the
-              Top-match chip clips. */}
-          <p className="m-0 flex min-w-0 items-center gap-2 text-[14.5px] font-bold leading-tight tracking-[-0.01em] text-[var(--ai-t1)]">
-            <span className="min-w-0 truncate">{fullName(row)}</span>
-            {isTop && (
-              <span className="shrink-0 rounded-[5px] bg-remotiv-lime px-[7px] py-0.5 text-[9.5px] font-extrabold uppercase tracking-[0.06em] text-[#2F3A00]">
-                Top match
-              </span>
-            )}
-            {worthALook && <WorthALookChip />}
-          </p>
-          {worthALook ? (
-            <FlagReasonLine reason={row.shortlist.reason} />
-          ) : (
-            <p className="m-0 mt-0.5 truncate text-[12.5px] text-[var(--ai-t3)]">{row.email}</p>
-          )}
-        </div>
-      </div>
-
-      <div className="mt-3 flex min-w-0 items-center gap-1.5">
-        <span className="min-w-0 truncate rounded-lg border border-[var(--ai-line-soft)] bg-[var(--ai-inset)] px-2.5 py-[5px] text-[12.5px] font-semibold text-[var(--ai-t2)]">
-          {row.job_title}
-        </span>
-        {row.added_manually && <AddedByTeamChip />}
-      </div>
-
-      <div className="mt-3 flex items-center justify-between gap-3">
-        <ScoreRing score={row.score} />
-        <span
-          className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-[5px] text-xs font-bold ${pill.cls}`}
-        >
-          <span className={`size-[5px] shrink-0 rounded-full ${pill.dot}`} />
-          {pipelineStageLabel(stage)}
-        </span>
-      </div>
-
-      <p className="m-0 mt-3 text-[11.5px] text-[var(--ai-t4)]">
-        Applied {applied.main}
-        {applied.sub && ` · ${applied.sub}`}
-      </p>
-    </button>
   );
 }
 
@@ -3441,7 +3290,6 @@ export function ApplicantsClient({
   showScoringTip,
   renderedAt,
   quotaBanner,
-  split = false,
   landingJobId = null,
 }: {
   viewerRole: CompanyRole;
@@ -3491,8 +3339,8 @@ export function ApplicantsClient({
    */
   initialCounts: ApplicantCounts | null;
   /**
-   * Split only: the company-wide figures the hero states while one job is
-   * shown (commit 8 - the hero stays company-wide until commit 9 removes it).
+   * The company-wide figures the hero states while one job is shown
+   * (commit 8; the hero stays company-wide, see Applicants_Split_v9.md).
    * Null when the server served All jobs, where `initialCounts` already is
    * company-wide, or when the read failed.
    */
@@ -3515,11 +3363,9 @@ export function ApplicantsClient({
   renderedAt: number;
   /** The recruiter's quota notices, already rendered on the server, or null. */
   quotaBanner: ReactNode;
-  /** Split on (the default) or off by the kill switch (applicants-split-flag.ts). Off: the old page. */
-  split?: boolean;
   /**
-   * Split only (commit 8): the job the server landed this page on because the
-   * URL named none. Null: all jobs. See splitJobFor in list-state.ts.
+   * The job the server landed this page on because the URL named none
+   * (commit 8). Null: all jobs. See splitJobFor in list-state.ts.
    */
   landingJobId?: string | null;
 }) {
@@ -3569,13 +3415,14 @@ export function ApplicantsClient({
   const urlState = useMemo(() => {
     const params = new URLSearchParams(paramString);
     const decoded = decodeListUrl(params);
-    // Split (commit 8): one job at a time. No ?job= means the server's
-    // landing job, ?job=all means all jobs; splitJobFor is shared with
-    // page.tsx so this equals the request the server served.
-    return split
-      ? { ...decoded, request: { ...decoded.request, jobId: splitJobFor(params, landingJobId) } }
-      : decoded;
-  }, [paramString, split, landingJobId]);
+    // One job at a time (commit 8). No ?job= means the server's landing
+    // job, ?job=all means all jobs; splitJobFor is shared with page.tsx so
+    // this equals the request the server served.
+    return {
+      ...decoded,
+      request: { ...decoded.request, jobId: splitJobFor(params, landingJobId) },
+    };
+  }, [paramString, landingJobId]);
   /*
    * The request, stable for as long as its VALUE is.
    *
@@ -3605,12 +3452,12 @@ export function ApplicantsClient({
    */
   const writeUrl = useCallback(
     (next: ListUrlState, mode: "push" | "replace") => {
-      const qs = encodeListUrl(next, window.location.search, { explicitAllJobs: split });
+      const qs = encodeListUrl(next, window.location.search, { explicitAllJobs: true });
       const url = qs ? `${pathname}?${qs}` : pathname;
       if (mode === "push") window.history.pushState(null, "", url);
       else window.history.replaceState(null, "", url);
     },
-    [pathname, split],
+    [pathname],
   );
 
   /**
@@ -3641,14 +3488,12 @@ export function ApplicantsClient({
        */
       const liveParams = new URLSearchParams(window.location.search);
       const decodedLive = decodeListUrl(liveParams);
-      // Split: the job shown, written out, so no write ever falls back to the
+      // The job shown, written out, so no write ever falls back to the
       // landing job or to the ?q= rule by accident (commit 8).
-      const live = split
-        ? {
-            ...decodedLive,
-            request: { ...decodedLive.request, jobId: splitJobFor(liveParams, landingJobId) },
-          }
-        : decodedLive;
+      const live = {
+        ...decodedLive,
+        request: { ...decodedLive.request, jobId: splitJobFor(liveParams, landingJobId) },
+      };
       writeUrl(
         {
           request: { ...live.request, ...fields, page: fields.page ?? 1 },
@@ -3657,7 +3502,7 @@ export function ApplicantsClient({
         mode,
       );
     },
-    [writeUrl, split, landingJobId],
+    [writeUrl, landingJobId],
   );
 
   /*
@@ -3744,8 +3589,8 @@ export function ApplicantsClient({
   }, []);
 
   /*
-   * Split only: the company-wide figures the hero states while one job is
-   * shown. The stage tabs keep the job's own counts above. `companyFresh` is
+   * The company-wide figures the hero states while one job is shown. The
+   * stage tabs keep the job's own counts above. `companyFresh` is
    * false until they are read, and again after a mutation made in All jobs
    * (whose own counts are the company-wide ones), so a job switch reads them
    * only when they are missing or stale, never on every switch.
@@ -3770,17 +3615,16 @@ export function ApplicantsClient({
         setCompanyCounts((prev) => settleCounts(prev, { key, seq, counts: null }));
       });
   }, []);
-  const heroView = split && jobFilter !== "all" ? countsView(companyCounts) : view;
+  const heroView = jobFilter !== "all" ? countsView(companyCounts) : view;
 
-  /** After a mutation: the shown job's figures, and under Split the hero's company-wide ones. */
+  /** After a mutation: the shown job's figures, and the hero's company-wide ones. */
   const refreshCounts = useCallback(
     (jobId: string | null) => {
       readCounts(jobId);
-      if (!split) return;
       if (jobId === null) companyFresh.current = false;
       else readCompanyCounts();
     },
-    [split, readCounts, readCompanyCounts],
+    [readCounts, readCompanyCounts],
   );
 
   // Skips the very first run: the server already answered for "all", and
@@ -3793,8 +3637,8 @@ export function ApplicantsClient({
       return;
     }
     readCounts(jobFilter === "all" ? null : jobFilter);
-    if (split && jobFilter !== "all" && !companyFresh.current) readCompanyCounts();
-  }, [jobFilter, split, readCounts, readCompanyCounts]);
+    if (jobFilter !== "all" && !companyFresh.current) readCompanyCounts();
+  }, [jobFilter, readCounts, readCompanyCounts]);
 
   /*
    * The Flagged badge, from a server aggregate.
@@ -3986,28 +3830,24 @@ export function ApplicantsClient({
    * would fire it during that gap and close the panel just opened.
    */
   useEffect(() => {
-    // Split at 1100+: ?applicant= names the panel's applicant, not an open
-    // drawer. The drawer opens from the panel's Details button instead.
-    if (isSplitWide(split)) {
+    // 1100+: ?applicant= names the panel's applicant, not an open drawer.
+    // The drawer opens from the panel's Details button instead.
+    if (isSplitWide()) {
       if (deepLinkId) setSplitId(deepLinkId);
       return;
     }
-    // Split below 1100 (commit 7): ?applicant= names the sheet's applicant.
-    // When it goes (browser Back, or a close that replaced the URL), the sheet
-    // and any drawer opened on top of it close together.
-    if (split) {
-      setSheetId(deepLinkId);
-      if (!deepLinkId) {
-        setOpenId(null);
-        sheetPushed.current = false;
-      }
-      return;
+    // Below 1100 (commit 7): ?applicant= names the sheet's applicant. When it
+    // goes (browser Back, or a close that replaced the URL), the sheet and any
+    // drawer opened on top of it close together.
+    setSheetId(deepLinkId);
+    if (!deepLinkId) {
+      setOpenId(null);
+      sheetPushed.current = false;
     }
-    setOpenId(deepLinkId);
-  }, [deepLinkId, split]);
+  }, [deepLinkId]);
 
   /**
-   * The applicant in the Split panel (1100+ real width, flag on). Separate
+   * The applicant in the Split panel (1100+ real width). Separate
    * from openId, which stays the live drawer's. Set in state by the
    * auto-select effect, and written to the URL only by selectSplit (a click).
    */
@@ -4019,10 +3859,10 @@ export function ApplicantsClient({
    * just landed) leaves it false and waits for the list to settle.
    */
   const panelReadNow = useRef(true);
-  const splitWide = useSplitWide() && split;
+  const splitWide = useSplitWide();
 
   /**
-   * Below 1100 (flag on): the applicant open in the full-screen sheet
+   * Below 1100: the applicant open in the full-screen sheet
    * (commit 7). `sheetPushed` says whether WE added the history entry for it.
    * Back then pops exactly that entry; a sheet opened from a deep link has no
    * entry of ours, so closing it replaces the URL and never leaves the page.
@@ -4081,19 +3921,15 @@ export function ApplicantsClient({
 
   const closePanel = useCallback(() => {
     setOpenId(null);
-    // Split: the drawer only ever opens over the panel (1100+) or the sheet
-    // (below), and the URL names THEIR applicant, so closing the drawer keeps
+    // The drawer only ever opens over the panel (1100+) or the sheet (below),
+    // and the URL names THEIR applicant, so closing the drawer keeps
     // ?applicant= (below 1100 that keeps the sheet open under it, commit 7)
     // and drops only the drawer's own ?tab=.
-    if (split) {
-      syncPanelUrl(new URLSearchParams(window.location.search).get("applicant"), null);
-      return;
-    }
-    syncPanelUrl(null, panelTab);
-  }, [syncPanelUrl, panelTab, split]);
+    syncPanelUrl(new URLSearchParams(window.location.search).get("applicant"), null);
+  }, [syncPanelUrl]);
 
   /**
-   * A row click below 1100 (flag on): open the sheet with ONE pushed history
+   * A row click below 1100: open the sheet with ONE pushed history
    * entry, so the browser's Back closes it. Stepping through applicants later
    * (the drawer's prev/next) replaces that entry, never adds another.
    *
@@ -4147,9 +3983,8 @@ export function ApplicantsClient({
    * top of it follow the URL together.
    */
   useEffect(() => {
-    if (!split) return;
     const onPop = () => {
-      if (isSplitWide(split)) return;
+      if (isSplitWide()) return;
       const id = new URLSearchParams(window.location.search).get("applicant");
       setSheetId(id);
       if (!id) {
@@ -4159,7 +3994,7 @@ export function ApplicantsClient({
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
-  }, [split]);
+  }, []);
 
   /*
    * Widened past 1100 with the sheet open: the sheet closes and its applicant
@@ -4420,23 +4255,11 @@ export function ApplicantsClient({
    * clause in the query, and `pageView` is the answer.
    */
 
-  /**
-   * The roles the job filter offers, from the company's own jobs.
-   *
-   * Was the distinct jobs present in the loaded rows, which was free and
-   * correct only while "the loaded rows" meant everybody. Against a page it
-   * would offer whichever handful of roles happened to land on it, and
-   * selecting a role would then remove it from its own dropdown.
-   */
-  const jobOptions = useMemo<[string, string][]>(
-    () => assignableJobs.map((j) => [j.id, j.title]),
-    [assignableJobs],
-  );
-  /** Split's job select: Open, then Closed (on_hold, closed, archived), newest first in each (commit 8). */
+  /** The job select: Open, then Closed (on_hold, closed, archived), newest first in each (commit 8). */
   const openJobs = useMemo(() => assignableJobs.filter((j) => j.open), [assignableJobs]);
   const closedJobs = useMemo(() => assignableJobs.filter((j) => !j.open), [assignableJobs]);
-  /** The job select's options after "All jobs": grouped under Split, flat on the live page. */
-  const jobSelectOptions = split ? (
+  /** The job select's options after "All jobs". */
+  const jobSelectOptions = (
     <>
       {openJobs.length > 0 && (
         <optgroup label="Open">
@@ -4457,12 +4280,6 @@ export function ApplicantsClient({
         </optgroup>
       )}
     </>
-  ) : (
-    jobOptions.map(([id, title]) => (
-      <option key={id} value={id}>
-        {title}
-      </option>
-    ))
   );
 
   /**
@@ -4543,7 +4360,7 @@ export function ApplicantsClient({
     : null;
 
   /*
-   * ── The Split panel (flag on, 1100+ real width) ───────────────
+   * ── The Split panel (1100+ real width) ───────────────────────
    *
    * Auto-select: the first row of the page, in STATE only. This effect never
    * writes the URL; selectSplit (a click) is the only writer. While a new page
@@ -4571,7 +4388,7 @@ export function ApplicantsClient({
   const shownSplitId = splitWide
     ? autoSplitSelection(splitId, pagedIds ? pagedIds.split(",") : [], deepLinkId)
     : splitId;
-  const panelId = splitWide ? shownSplitId : split ? sheetId : null;
+  const panelId = splitWide ? shownSplitId : sheetId;
 
   /*
    * The read gate (QA C1). Paging fast used to read the panel's applicant on
@@ -4687,24 +4504,22 @@ export function ApplicantsClient({
   /**
    * Who prev/next steps from, and how a step selects its destination.
    *
-   * The drawer, when open, steps itself, and under Split the panel (1100+) or
-   * the sheet (below) underneath moves with it, so the list highlight, the
-   * panel and ?applicant= all name the drawer's applicant and closing the
-   * drawer lands on them (C2). No panelReadNow: the panel is hidden under the
-   * drawer, so its read waits for the gate's hold and fast stepping reads it
-   * once. Otherwise under Split the step moves the panel's selection
-   * (selectSplit: ?applicant= by replace) or, below 1100, the sheet's:
+   * The drawer, when open, steps itself, and the panel (1100+) or the sheet
+   * (below) underneath moves with it, so the list highlight, the panel and
+   * ?applicant= all name the drawer's applicant and closing the drawer lands
+   * on them (C2). No panelReadNow: the panel is hidden under the drawer, so
+   * its read waits for the gate's hold and fast stepping reads it once.
+   * Otherwise the step moves the panel's selection (selectSplit: ?applicant=
+   * by replace) or, below 1100, the sheet's:
    * replaced in place, never pushed, so stepping adds no history entry and
    * Back still closes the sheet in one press.
    */
   const stepId = openId ?? panelId;
   const stepOpen = useCallback(
     (id: string) => {
-      if (openId || !split) {
-        if (split) {
-          if (splitWide) setSplitId(id);
-          else setSheetId(id);
-        }
+      if (openId) {
+        if (splitWide) setSplitId(id);
+        else setSheetId(id);
         openApplicant(id);
         return;
       }
@@ -4716,14 +4531,14 @@ export function ApplicantsClient({
       setSheetId(id);
       syncPanelUrl(id, null);
     },
-    [openId, split, splitWide, openApplicant, selectSplit, syncPanelUrl],
+    [openId, splitWide, openApplicant, selectSplit, syncPanelUrl],
   );
 
   /**
    * Where the open applicant sits on the page in front of the reader.
    *
    * "Open" is whoever prev/next steps from (`stepId`): the drawer's applicant
-   * while the drawer is open, else under Split the panel's (1100+) or the
+   * while the drawer is open, else the panel's (1100+) or the
    * sheet's (below). One stepper, so the panel and the drawer can never
    * disagree about the sequence (v9 section 2, "Top row").
    *
@@ -5749,12 +5564,12 @@ export function ApplicantsClient({
         </DashboardHero>
 
         {/* Panel */}
-        <SplitLayout split={split} panel={splitPanel}>
+        <SplitLayout panel={splitPanel}>
           <div
-            className={`overflow-hidden rounded-[20px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_6px_30px_rgba(20,16,32,0.06)]${split ? ` ${SPLIT_CARD_WIDE}` : ""}`}
+            className={`overflow-hidden rounded-[20px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_6px_30px_rgba(20,16,32,0.06)] ${SPLIT_CARD_WIDE}`}
           >
             <div
-              className={`flex flex-wrap items-center gap-3 border-b border-[var(--ai-line)] px-[18px] py-3.5${split ? ` ${SPLIT_TOOLBAR_WIDE}` : ""}`}
+              className={`flex flex-wrap items-center gap-3 border-b border-[var(--ai-line)] px-[18px] py-3.5 ${SPLIT_TOOLBAR_WIDE}`}
             >
               <StageTabs
                 tab={tab}
@@ -5850,13 +5665,9 @@ export function ApplicantsClient({
               </div>
             </div>
 
-            <SplitListColumn split={split} fullWidth={paged.length === 0}>
+            <SplitListColumn fullWidth={paged.length === 0}>
               {paged.length === 0 && emptyState}
 
-              {/* Stacked cards below the table breakpoint — the 7-column grid needs
-              960 design px, which simply doesn't exist on a phone. Squeezing it
-              would clip the candidate name; scrolling it sideways hides Job /
-              Score / Stage. Same data, same tap target, no horizontal scroll. */}
               {topOnly && (
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--ai-line)] bg-[var(--ai-purple-tint)] px-5 py-2.5">
                   <p className="m-0 text-[12.5px] font-semibold text-[var(--ai-purple-ink)]">
@@ -5901,184 +5712,22 @@ export function ApplicantsClient({
                 aria-busy={!topOnly && pageView.updating}
                 className={`transition-opacity ${!topOnly && pageView.updating ? "opacity-50" : ""}`}
               >
-                {split ? (
-                  /* Split: the Split list item at every width, no table and no
-                 card twin. At 1100+ a row selects it in the panel beside the
-                 list (commit 5c); below that it opens the live drawer, as
-                 today, until the sheet in commit 7. */
-                  paged.length > 0 && (
-                    <div data-split-list>
-                      {paged.map((r) => (
-                        <SplitListItem
-                          key={r.id}
-                          row={r}
-                          ring={<ScoreRing score={r.score} />}
-                          applied={fmtApplied(r.created_at, clock).main}
-                          isTop={topMatchIds.has(r.id)}
-                          selected={(splitWide ? shownSplitId : (sheetId ?? openId)) === r.id}
-                          onOpen={() => (splitWide ? selectSplit(r.id) : openSheet(r.id))}
-                        />
-                      ))}
-                    </div>
-                  )
-                ) : (
-                  <>
-                    {paged.length > 0 && (
-                      <div data-twin-narrow className="min-[1049px]:hidden">
-                        {paged.map((r, i) => (
-                          <ApplicantCard
-                            key={r.id}
-                            row={r}
-                            rank={pageStart + i}
-                            isTop={topMatchIds.has(r.id)}
-                            selected={openId === r.id}
-                            onOpen={() => openApplicant(r.id)}
-                            clock={clock}
-                          />
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Desktop table — unchanged above the breakpoint. overflow-x-auto is
-                kept as a belt-and-braces guard; at >=1049px the grid fits. */}
-                    <div data-twin-wide className="hidden overflow-x-auto min-[1049px]:block">
-                      <div className="min-w-[960px]">
-                        <div
-                          className={`${GRID} border-b border-[var(--ai-line)] bg-[var(--ai-inset)] py-[11px] text-[10.5px] font-bold uppercase tracking-[0.08em] text-[var(--ai-t3)]`}
-                        >
-                          <span>#</span>
-                          <span>Candidate</span>
-                          <span>Job</span>
-                          <span>CV score</span>
-                          <span>Stage</span>
-                          <span>Applied</span>
-                          <span />
-                        </div>
-
-                        {paged.map((r, i) => {
-                          const tint = getTint(r.id);
-                          const applied = fmtApplied(r.created_at, clock);
-                          const stage = stageOf(r);
-                          const pill = stagePill(stage);
-                          const isTop = topMatchIds.has(r.id);
-                          const rank = pageStart + i;
-
-                          return (
-                            <button
-                              key={r.id}
-                              type="button"
-                              data-applicant-id={r.id}
-                              onClick={() => openApplicant(r.id)}
-                              className={`${GRID} group/row group relative w-full cursor-pointer border-b border-[var(--ai-line-soft)] py-[13px] text-left transition-all last:border-b-0 hover:z-[2] hover:bg-[#FCFBFA] hover:shadow-[0_6px_22px_rgba(20,16,32,0.07)] ${
-                                openId === r.id
-                                  ? "bg-[var(--ai-purple-tint)]"
-                                  : showsWorthALook(r)
-                                    ? "bg-remotiv-purple/[0.035]"
-                                    : "bg-[var(--ai-surface)]"
-                              }`}
-                            >
-                              {/* Always on for a flagged row — the accent is what makes a
-                            flag findable while scrolling, so it does not wait for a
-                            hover the way the default row's does. */}
-                              <span
-                                aria-hidden
-                                className={`absolute inset-y-0 left-0 w-[3px] bg-remotiv-purple transition-opacity ${
-                                  openId === r.id || showsWorthALook(r)
-                                    ? "opacity-100"
-                                    : "opacity-0 group-hover:opacity-100"
-                                }`}
-                              />
-                              <span
-                                className={`font-heading text-sm font-extrabold tabular-nums tracking-[-0.02em] transition-colors group-hover:text-remotiv-purple ${
-                                  isTop ? "text-[var(--ai-purple-ink)]" : "text-[var(--ai-t4)]"
-                                }`}
-                              >
-                                {/* `rank` is already 1-based — `rangeStart` is, because
-                            the pager's "21–40" reads off the same number. */}
-                                {String(rank).padStart(2, "0")}
-                              </span>
-
-                              <div className="flex min-w-0 items-center gap-3">
-                                <span
-                                  className="flex size-10 shrink-0 items-center justify-center rounded-full text-[13px] font-bold"
-                                  style={{
-                                    background: tint.bg,
-                                    color: tint.fg,
-                                    boxShadow: isTop
-                                      ? "0 0 0 2px var(--ai-surface), 0 0 0 3.5px #49D7A7"
-                                      : "0 0 0 2px var(--ai-surface), 0 0 0 3.5px rgba(20,16,32,0.07)",
-                                  }}
-                                >
-                                  {initials(r.first_name, r.last_name, r.email)}
-                                </span>
-                                <div className="min-w-0">
-                                  {/* .nm is a flex container, so truncation lives on the
-                                INNER span — otherwise the Top-match flag clips. */}
-                                  <p className="m-0 flex min-w-0 items-center gap-2 text-[14.5px] font-bold leading-tight tracking-[-0.01em] text-[var(--ai-t1)]">
-                                    <span className="min-w-0 truncate">{fullName(r)}</span>
-                                    {isTop && (
-                                      <span className="shrink-0 rounded-[5px] bg-remotiv-lime px-[7px] py-0.5 text-[9.5px] font-extrabold uppercase tracking-[0.06em] text-[#2F3A00]">
-                                        Top match
-                                      </span>
-                                    )}
-                                    {/* Display-only, exactly as ApplicantCard renders it.
-                                Passing onDismiss puts a <button> inside this row's
-                                <button>, which is invalid HTML: the parser closes
-                                the row early and reparents everything after the
-                                chip — reason, job, score, stage, date — as
-                                siblings. The server tree and the client tree then
-                                disagree, hydration fails, and React leaves the
-                                mangled server DOM orphaned below the page. Only
-                                FLAGGED rows carried the chip, which is why only
-                                they broke. Dismissal lives in the drawer's
-                                Worth-a-look banner, one click away on the row the
-                                reader is already pointing at. */}
-                                    {showsWorthALook(r) && <WorthALookChip />}
-                                  </p>
-                                  {showsWorthALook(r) ? (
-                                    <FlagReasonLine reason={r.shortlist.reason} />
-                                  ) : (
-                                    <p className="m-0 mt-0.5 truncate text-[12.5px] text-[var(--ai-t3)]">
-                                      {r.email}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-
-                              {/* min-w-0 on the flex parent and truncate on the title, so
-                          a long role name shortens rather than pushing the chip
-                          out of the cell. The chip never shrinks — it is two
-                          words or it is wrong. */}
-                              <div className="flex min-w-0 items-center gap-1.5">
-                                <span className="min-w-0 truncate rounded-lg border border-[var(--ai-line-soft)] bg-[var(--ai-inset)] px-2.5 py-[5px] text-[12.5px] font-semibold text-[var(--ai-t2)]">
-                                  {r.job_title}
-                                </span>
-                                {r.added_manually && <AddedByTeamChip />}
-                              </div>
-
-                              <ScoreRing score={r.score} />
-
-                              <span
-                                className={`inline-flex items-center gap-1.5 justify-self-start whitespace-nowrap rounded-full px-3 py-[5px] text-xs font-bold ${pill.cls}`}
-                              >
-                                <span className={`size-[5px] shrink-0 rounded-full ${pill.dot}`} />
-                                {pipelineStageLabel(stage)}
-                              </span>
-
-                              <span className="whitespace-nowrap text-[13px] text-[var(--ai-t2)]">
-                                {applied.main}
-                                <small className="mt-px block text-[11.5px] text-[var(--ai-t4)]">
-                                  {applied.sub}
-                                </small>
-                              </span>
-
-                              <span />
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </>
+                {/* The Split list item at every width. At 1100+ a row selects it
+                in the panel beside the list; below that it opens the sheet. */}
+                {paged.length > 0 && (
+                  <div data-split-list>
+                    {paged.map((r) => (
+                      <SplitListItem
+                        key={r.id}
+                        row={r}
+                        ring={<ScoreRing score={r.score} />}
+                        applied={fmtApplied(r.created_at, clock).main}
+                        isTop={topMatchIds.has(r.id)}
+                        selected={(splitWide ? shownSplitId : (sheetId ?? openId)) === r.id}
+                        onOpen={() => (splitWide ? selectSplit(r.id) : openSheet(r.id))}
+                      />
+                    ))}
+                  </div>
                 )}
               </div>
 
@@ -6092,9 +5741,6 @@ export function ApplicantsClient({
                   page={safePage}
                   pageCount={pageCount}
                   total={total}
-                  // Split shows one job by default, so "filtered from" the whole
-                  // company would sit on every page (commit 8); hidden there.
-                  grandTotal={split ? null : view.grandTotal}
                   /* `pageStart` is already the 1-based index of the page's first
                  row — `rangeStart` computes it from the page number, where the
                  old local was a 0-based offset into an in-memory array and
@@ -6468,8 +6114,7 @@ export function ApplicantsClient({
     </PageContainer>
   );
 
-  // Split only: the page-scoped AA text tokens (ai-dashboard.css). With the
-  // flag off the page renders exactly as before, with no wrapper at all.
+  // The page-scoped AA text tokens (ai-dashboard.css).
   /*
    * Split with no jobs to show (none yet, or a scoped role on no hiring team):
    * no toolbar, no list, no panel, just the live title and the live empty
@@ -6494,9 +6139,7 @@ export function ApplicantsClient({
     </PageContainer>
   );
 
-  return split ? (
+  return (
     <div className="ai-split-tokens">{assignableJobs.length === 0 ? noJobsPage : renderedPage}</div>
-  ) : (
-    renderedPage
   );
 }

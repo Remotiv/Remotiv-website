@@ -8,7 +8,7 @@
  * the page drops into the skeleton's boxes. On staging the estimated layout
  * shift from skeleton to page was 0.0000 at 1440 / 1100 / 840 and 0.0014 at
  * 375 (it was 0.0017 / 0.0147 / 0.0183 / 0.0349 before the hero heights).
- * With the kill switch on, the old page's skeleton. Synthetic only.
+ * The only skeleton since 10b removed the old page. Synthetic only.
  */
 // @ts-nocheck - same reason as stage-tabs.test.ts: Node's `.ts` specifier vs this tsconfig.
 import assert from "node:assert/strict";
@@ -23,9 +23,9 @@ const { renderToStaticMarkup } = await import("react-dom/server");
 const { default: Loading } = await import("./loading.tsx");
 const { PANEL_FRAME } = await import("./_split-panel.tsx");
 
-function render(disabled) {
+function render(disabledVar = false) {
   const saved = process.env.APPLICANTS_SPLIT_DISABLED;
-  if (disabled) process.env.APPLICANTS_SPLIT_DISABLED = "1";
+  if (disabledVar) process.env.APPLICANTS_SPLIT_DISABLED = "1";
   else delete process.env.APPLICANTS_SPLIT_DISABLED;
   try {
     return renderToStaticMarkup(createElement(Loading));
@@ -69,11 +69,8 @@ test("avatars and rings are circles, not rounded squares", () => {
   assert.doesNotMatch(html, /rounded-lg[^"]*rounded-full/);
 });
 
-test("the kill switch (APPLICANTS_SPLIT_DISABLED=1) keeps the old page's skeleton", () => {
-  const html = render(true);
-  assert.doesNotMatch(html, /data-applicants-skeleton|data-split-layout|data-skeleton-panel/);
-  assert.match(
-    html,
-    /flex items-center gap-3\.5 border-b border-\[var\(--ai-line-soft\)\] px-5 py-\[13px\] last:border-b-0/,
-  );
+test("10b: no kill switch: APPLICANTS_SPLIT_DISABLED=1 renders the same Split skeleton", () => {
+  assert.equal(render(true), render(false));
+  assert.match(render(true), /data-applicants-skeleton="split"/);
+  assert.doesNotMatch(render(true), /last:border-b-0/, "no old table skeleton row");
 });

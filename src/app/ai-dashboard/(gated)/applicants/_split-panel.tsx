@@ -117,16 +117,7 @@ export const SPLIT_CARD_WIDE = "min-[1100px]:contents";
 /** Added to the live toolbar's class: at 1100+ it is a card of its own across both columns. */
 export const SPLIT_TOOLBAR_WIDE = `${WIDE_CARD} min-[1100px]:col-span-2`;
 
-export function SplitLayout({
-  split,
-  panel,
-  children,
-}: {
-  split: boolean;
-  panel: ReactNode;
-  children: ReactNode;
-}) {
-  if (!split) return <>{children}</>;
+export function SplitLayout({ panel, children }: { panel: ReactNode; children: ReactNode }) {
   return (
     <div
       data-split-layout
@@ -139,16 +130,13 @@ export function SplitLayout({
 }
 
 export function SplitListColumn({
-  split,
   fullWidth,
   children,
 }: {
-  split: boolean;
   /** No panel beside it: an empty list spans both columns (v9 state 9). */
   fullWidth: boolean;
   children: ReactNode;
 }) {
-  if (!split) return <>{children}</>;
   return (
     <div
       data-split-list-column

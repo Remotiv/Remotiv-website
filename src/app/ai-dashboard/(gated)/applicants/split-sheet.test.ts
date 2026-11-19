@@ -173,16 +173,18 @@ describe("history", () => {
   test("the URL losing ?applicant= closes the sheet and any drawer on top, together", () => {
     assert.match(
       CLIENT_SRC,
-      /if \(split\) \{\s*setSheetId\(deepLinkId\);\s*if \(!deepLinkId\) \{\s*setOpenId\(null\);\s*sheetPushed\.current = false;\s*\}\s*return;\s*\}/,
+      /if \(isSplitWide\(\)\) \{\s*if \(deepLinkId\) setSplitId\(deepLinkId\);\s*return;\s*\}[\s\S]*?setSheetId\(deepLinkId\);\s*if \(!deepLinkId\) \{\s*setOpenId\(null\);\s*sheetPushed\.current = false;\s*\}\s*\}, \[deepLinkId\]\);/,
     );
   });
 
-  test("closing the drawer under Split keeps ?applicant= (the sheet stays under it) and drops only ?tab=", () => {
+  test("closing the drawer keeps ?applicant= (the sheet stays under it) and drops only ?tab=", () => {
     const body = fnBody("closePanel");
     assert.match(
       body,
-      /setOpenId\(null\);[\s\S]*if \(split\) \{\s*syncPanelUrl\(new URLSearchParams\(window\.location\.search\)\.get\("applicant"\), null\);\s*return;\s*\}\s*syncPanelUrl\(null, panelTab\);/,
+      /setOpenId\(null\);[\s\S]*syncPanelUrl\(new URLSearchParams\(window\.location\.search\)\.get\("applicant"\), null\);/,
     );
+    assert.match(CLIENT_SRC, /get\("applicant"\), null\);\s*\}, \[syncPanelUrl\]\);/);
+    assert.doesNotMatch(body, /syncPanelUrl\(null, panelTab\)/, "10b: no old-page close");
   });
 
   test("the drawer's prev/next replaces the URL: it never pushes", () => {

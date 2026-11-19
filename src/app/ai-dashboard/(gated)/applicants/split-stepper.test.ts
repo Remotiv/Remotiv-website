@@ -126,7 +126,7 @@ describe("one stepper, stepping from whoever is in focus", () => {
       /const openIndex = stepId \? paged\.findIndex\(\(r\) => r\.id === stepId\) : -1;/,
     );
     const open = fn("stepOpen");
-    assert.match(open, /if \(openId \|\| !split\) \{[\s\S]*?openApplicant\(id\);\s*return;/);
+    assert.match(open, /if \(openId\) \{[\s\S]*?openApplicant\(id\);\s*return;/);
     assert.match(open, /if \(splitWide\) \{\s*selectSplit\(id\);/);
     assert.match(
       open,
@@ -141,13 +141,10 @@ describe("one stepper, stepping from whoever is in focus", () => {
     // panel, highlight, ?applicant= and drawer name the same applicant on every
     // step at 1440 and 1099, history.length unchanged, one Back leaves the sheet.
     const open = fn("stepOpen");
-    const drawer = open.slice(
-      open.indexOf("if (openId || !split)"),
-      open.indexOf("openApplicant(id);"),
-    );
+    const drawer = open.slice(open.indexOf("if (openId)"), open.indexOf("openApplicant(id);"));
     assert.match(
       drawer,
-      /if \(split\) \{\s*if \(splitWide\) setSplitId\(id\);\s*else setSheetId\(id\);\s*\}/,
+      /if \(openId\) \{\s*if \(splitWide\) setSplitId\(id\);\s*else setSheetId\(id\);\s*$/,
     );
     // Hidden under the drawer, the panel's read waits for the gate's hold.
     assert.doesNotMatch(drawer, /panelReadNow/);

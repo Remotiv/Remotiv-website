@@ -1,6 +1,5 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
-import { isApplicantsSplitOn } from "@/app/ai-dashboard/lib/applicants-split-flag";
 import { isEmptyScope, readJobScope } from "@/app/ai-dashboard/lib/job-scope";
 import { isTipDismissed } from "@/app/ai-dashboard/lib/tip-state";
 import { fetchManualTemplates } from "@/app/ai-dashboard/(gated)/messages/actions";
@@ -56,18 +55,16 @@ export default async function ApplicantsPage({
    * Applicants Split (commit 8): one job at a time. With no ?job= in the URL
    * the list lands on a job chosen here, before the reads, so the page served
    * is already that job's and the client's first request matches it (no
-   * second read). getCompanyContext is cache()d per request, so the
-   * Promise.all below reuses this call. Flag off: `served` is exactly what it
-   * was, and no landing read happens.
+   * second read). getCompanyContext is cache()d per request, so the landing
+   * read and the Promise.all below share one call.
    */
-  const splitOn = isApplicantsSplitOn((await getCompanyContext()).companyId);
-  const landingJobId =
-    splitOn && !splitJobIsExplicit(params)
-      ? await resolveSplitLandingJob(params.get("applicant"))
-      : null;
-  const served = splitOn
-    ? { ...decoded, request: { ...decoded.request, jobId: splitJobFor(params, landingJobId) } }
-    : decoded;
+  const landingJobId = !splitJobIsExplicit(params)
+    ? await resolveSplitLandingJob(params.get("applicant"))
+    : null;
+  const served = {
+    ...decoded,
+    request: { ...decoded.request, jobId: splitJobFor(params, landingJobId) },
+  };
   const servedQuery = listQueryFor(served.request);
 
   const [ctx, applicants, topScored, manualTemplates, assignableJobs, quota, counts, heroCounts] =
@@ -122,11 +119,11 @@ export default async function ApplicantsPage({
        * field for the same reason.
        */
       fetchApplicantCounts(served.request.jobId ? { jobId: served.request.jobId } : {}),
-      // Split only: the hero stays company-wide while one job is shown (kept
-      // under Split for good, see Applicants_Split_v9.md). In this wave, so it
-      // adds no latency; skipped when the page shows All jobs, whose counts
-      // above already are company-wide.
-      splitOn && served.request.jobId ? fetchApplicantCounts({}) : null,
+      // The hero stays company-wide while one job is shown (see
+      // Applicants_Split_v9.md). In this wave, so it adds no latency; skipped
+      // when the page shows All jobs, whose counts above already are
+      // company-wide.
+      served.request.jobId ? fetchApplicantCounts({}) : null,
     ]);
 
   /*
@@ -215,7 +212,6 @@ export default async function ApplicantsPage({
       showScoringTip={showScoringTip}
       renderedAt={now}
       quotaBanner={quota && <QuotaBanner view={quota} />}
-      split={splitOn}
       landingJobId={landingJobId}
     />
   );
