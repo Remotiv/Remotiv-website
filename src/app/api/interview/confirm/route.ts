@@ -17,6 +17,7 @@ import {
   cancelSupersededTranscribeJobs,
   requestTranscription,
 } from "@/lib/interviews/transcribe-request";
+import { isUploadKey, RELOAD_TO_RERECORD } from "@/lib/interviews/upload-key";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -80,7 +81,13 @@ function fail(status: number, error: string) {
 }
 
 export async function POST(request: Request) {
-  let body: { token?: string; position?: number; duration?: number; kind?: string };
+  let body: {
+    token?: string;
+    position?: number;
+    duration?: number;
+    kind?: string;
+    upload?: string;
+  };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -119,18 +126,37 @@ export async function POST(request: Request) {
   }
 
   const kind = body.kind === "mp4" ? "mp4" : "webm";
-  const path = answerPath(resolved.row.id, position, kind);
+  // #50: the path is rebuilt from the upload key upload-url handed out, never
+  // taken from the client. No key is a page from before #50: its fixed path,
+  // and only for a FIRST answer to this question.
+  if (body.upload !== undefined && !isUploadKey(body.upload)) return fail(400, "Bad request.");
+  const uploadKey = body.upload;
+  const path = answerPath(resolved.row.id, position, kind, uploadKey);
+  const fileName = path.slice(path.indexOf("/") + 1);
   const service = createServiceClient();
+
+  // The file the answer points at now: a re-record replaces it below.
+  const { data: previousRow } = await service
+    .from("interview_answers")
+    .select("video_path")
+    .eq("session_id", resolved.row.id)
+    .eq("position", position)
+    .maybeSingle();
+  const previousPath = (previousRow as { video_path: string | null } | null)?.video_path ?? null;
+  // An old page may confirm its first answer again (a lost response), never a new one.
+  if (!uploadKey && question.answered && previousPath !== path) {
+    return fail(409, RELOAD_TO_RERECORD);
+  }
 
   // ── Does the object exist, and how big is it? ──
   const { data: listed } = await service.storage
     .from(INTERVIEW_BUCKET)
-    .list(resolved.row.id, { search: `q${position}.${kind}`, limit: 2 });
+    .list(resolved.row.id, { search: fileName, limit: 2 });
 
   const object = ((listed ?? []) as {
     name: string;
     metadata: { size?: number; mimetype?: string } | null;
-  }[]).find((o) => o.name === `q${position}.${kind}`);
+  }[]).find((o) => o.name === fileName);
 
   if (!object) {
     return fail(404, "That recording didn't reach our storage. Please try again.");
@@ -213,17 +239,18 @@ export async function POST(request: Request) {
   const saved = answerRow as { id: string; recorded_at: string | null };
 
   /*
-   * A re-record in the OTHER container leaves the previous object behind —
-   * q1.webm and q1.mp4 cannot overwrite each other. Only the path in the row
-   * is ever read, so the stray one is unreachable; removing it stops it
-   * lingering until the retention sweep. Failure here is not the candidate's
-   * problem and is deliberately ignored.
+   * A re-record is a new file (#50: one key per upload), so the one the
+   * answer pointed at before is left behind. Only the path in the row is ever
+   * read, so it is unreachable; removing it stops it lingering until the
+   * orphan sweep. Failure here is not the candidate's problem and is
+   * deliberately ignored.
    */
-  const stalePath = answerPath(resolved.row.id, position, kind === "webm" ? "mp4" : "webm");
-  await service.storage
-    .from(INTERVIEW_BUCKET)
-    .remove([stalePath])
-    .catch(() => {});
+  if (previousPath && previousPath !== path) {
+    await service.storage
+      .from(INTERVIEW_BUCKET)
+      .remove([previousPath])
+      .catch(() => {});
+  }
 
   // First answer flips the session out of 'invited' so the dashboard can tell
   // "sent" from "started" without inspecting the answers table.

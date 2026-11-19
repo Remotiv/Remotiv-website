@@ -11,6 +11,7 @@ import {
   INTERVIEW_BUCKET,
   resolveSessionByToken,
 } from "@/lib/interviews/session";
+import { newUploadKey, RELOAD_TO_RERECORD } from "@/lib/interviews/upload-key";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,7 +54,7 @@ function fail(status: number, error: string) {
 }
 
 export async function POST(request: Request) {
-  let body: { token?: string; position?: number; kind?: string };
+  let body: { token?: string; position?: number; kind?: string; keyed?: boolean };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -100,18 +101,26 @@ export async function POST(request: Request) {
   const kind = String(body.kind ?? "") as Kind;
   if (!(kind in EXTENSIONS)) return fail(400, "Unsupported recording format.");
 
-  const path = answerPath(resolved.row.id, position, EXTENSIONS[kind]);
+  // #50: a page that sends `keyed` gets a fresh key per upload. A page from
+  // before #50 (an old tab) gets the fixed key, for a FIRST upload only: a
+  // re-record from it would need to replace a file, which no link may do.
+  const keyed = body.keyed === true;
+  if (!keyed && question.answered) return fail(409, RELOAD_TO_RERECORD);
+  const uploadKey = keyed ? newUploadKey() : undefined;
+  const path = answerPath(resolved.row.id, position, EXTENSIONS[kind], uploadKey);
 
   const { data, error } = await createServiceClient()
     .storage.from(INTERVIEW_BUCKET)
-    // upsert so a re-record replaces the object instead of failing on a
-    // path that already exists.
-    .createSignedUploadUrl(path, { upsert: true });
+    // Create only (#50): a file that exists is never replaced, whoever holds
+    // this link, for the 2 hours it lives.
+    .createSignedUploadUrl(path, { upsert: false });
 
   if (error || !data?.signedUrl) {
     console.error("[interview] signed upload url failed:", error?.message);
     return fail(502, "Couldn't start that upload. Please try again.");
   }
 
-  return NextResponse.json({ url: data.signedUrl });
+  return NextResponse.json(
+    uploadKey ? { url: data.signedUrl, upload: uploadKey } : { url: data.signedUrl },
+  );
 }

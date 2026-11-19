@@ -211,7 +211,9 @@ test("an already-consented session is unaffected: no new write, the first time k
   assert.deepEqual(w.calls.updates, [], "nothing written");
   assert.equal(w.row.consent_at, T0, "the first agreement is kept");
   assert.equal(
-    (await uploadUrl(req({ token: "c-done-u", position: 1, kind: "webm" }))).status,
+    // keyed, as the page sends since #50: this question is already answered,
+    // and a re-record without a key is refused (lib/interviews/upload-key.ts).
+    (await uploadUrl(req({ token: "c-done-u", position: 1, kind: "webm", keyed: true }))).status,
     200,
   );
   assert.notEqual(

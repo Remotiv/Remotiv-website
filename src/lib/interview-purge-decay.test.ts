@@ -588,6 +588,36 @@ test("#59d: every root folder and nested object is reached across root pages, an
   assert.match(log[0], /COMPLETE in \d+ ms: orphans=1200 folders=150/);
 });
 
+test("#50: after a re-record, the first upload's keyed file (or one an old link recreated) is unreferenced and swept; the answer's file stays", async () => {
+  const id = "a-rerecord-0001";
+  const first = `q1-${"1".repeat(32)}.webm`;
+  const second = `q1-${"2".repeat(32)}.webm`;
+  const w = {
+    sessions: [{ id, delete_after: "2099-01-01T00:00:00+00:00", purged_at: null }],
+    answers: [
+      {
+        id: `ans-${id}`,
+        session_id: id,
+        video_path: `${id}/${second}`,
+        transcript: null,
+        transcript_segments: null,
+      },
+    ],
+    objects: new Map([[id, [first, second]]]),
+  };
+  const { bucket } = install(tablesFor(w), { objects: w.objects });
+  const { restore } = captureLog();
+  let result = null;
+  try {
+    result = await runInterviewOrphanSweep({ id: "p50", payload: {} });
+  } finally {
+    restore();
+  }
+  assert.equal(result.orphansRemoved, 1);
+  assert.deepEqual(bucket.removed, [`${id}/${first}`]);
+  assert.deepEqual([...bucket.folders.get(id).keys()], [second], "the answer's file stays");
+});
+
 test("#59d: with its budget spent per run, the cursor the handler leaves in its job row lets each run resume: every orphan goes by the second run, and 'complete' means one full pass", async () => {
   const w = orphanWorld();
   const t = tablesFor(w);

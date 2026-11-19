@@ -907,7 +907,8 @@ export function InterviewFlow({
         signed = await fetch("/api/interview/upload-url", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token, position, kind }),
+          // keyed: this page uploads each answer to its own key (#50).
+          body: JSON.stringify({ token, position, kind, keyed: true }),
         });
       } catch {
         return {
@@ -926,7 +927,7 @@ export function InterviewFlow({
           error: bodyError(body, "Couldn't start that upload."),
         };
       }
-      const { url } = (await signed.json()) as { url?: string };
+      const { url, upload } = (await signed.json()) as { url?: string; upload?: string };
       if (!url) {
         return { ok: false, retryable: true, error: "Couldn't start that upload." };
       }
@@ -944,7 +945,7 @@ export function InterviewFlow({
         confirmed = await fetch("/api/interview/confirm", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token, position, duration: seconds, kind }),
+          body: JSON.stringify({ token, position, duration: seconds, kind, upload }),
         });
       } catch {
         return {

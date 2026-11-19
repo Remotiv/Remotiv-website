@@ -389,12 +389,18 @@ export const INTERVIEW_MIME_TYPES = ["video/webm", "video/mp4"] as const;
 export const INTERVIEW_MAX_BYTES = 100 * 1024 * 1024;
 
 /**
- * Storage key for one answer.
+ * Storage key for one answer upload.
  *
- * Session-scoped and position-scoped, so a re-record overwrites rather than
- * accumulating orphans, and nothing about the path is guessable from the
- * candidate's side — they never see it either way.
+ * With an upload key (#50, lib/interviews/upload-key.ts): {session}/q{n}-{key}.{ext},
+ * one per upload, so a re-record is a new file and no saved link can replace
+ * a confirmed one. Without: the fixed key pages from before #50 used, kept for
+ * a first upload from such a page and for rows written before it.
  */
-export function answerPath(sessionId: string, position: number, ext: string): string {
-  return `${sessionId}/q${position}.${ext}`;
+export function answerPath(
+  sessionId: string,
+  position: number,
+  ext: string,
+  uploadKey?: string,
+): string {
+  return `${sessionId}/q${position}${uploadKey ? `-${uploadKey}` : ""}.${ext}`;
 }
