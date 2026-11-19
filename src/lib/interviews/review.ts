@@ -235,12 +235,24 @@ export async function listInterviewSessions(
   );
   if (sessions.length === 0) return answered(empty);
 
-  // ── Candidate + job names, one round trip each ──
-  const appIds = [...new Set(sessions.map((s) => s.application_id).filter(Boolean))] as string[];
+  /*
+   * ── Candidate names: the page's, unless a search needs them all ──
+   *
+   * Search matches on name and email, so a query reads every row's. Without
+   * one, nothing before the page slice looks at a name, so only the page's
+   * applications are read (below): one request whatever the company's size.
+   */
+  const q = (opts.query ?? "").trim().toLowerCase();
   const jobIds = [...new Set(sessions.map((s) => s.job_id).filter(Boolean))] as string[];
 
-  const [apps, jobs, answers, scores] = await Promise.all([
-    fetchApplications(service, ctx.companyId, appIds),
+  const [searchApps, jobs, answers, scores] = await Promise.all([
+    q
+      ? fetchApplications(
+          service,
+          ctx.companyId,
+          applicationIdsOf(sessions.map((s) => s.application_id)),
+        )
+      : null,
     fetchJobs(service, ctx.companyId, jobIds),
     fetchAnswerStats(
       service,
@@ -253,10 +265,12 @@ export async function listInterviewSessions(
       new Set(sessions.filter((s) => retentionPassed(s.delete_after, Date.now())).map((s) => s.id)),
     ),
   ]);
+  // A search over names that could not be read would silently miss matches.
+  if (searchApps && !searchApps.ok) return unavailable();
 
   const rows: InterviewRow[] = sessions.map((s) => {
-    const app = s.application_id ? apps.get(s.application_id) : undefined;
-    const who = resolveCandidate(s.application_id, app);
+    // Without a search the name is filled in after the page slice.
+    const who = searchApps ? candidateOf(s.application_id, searchApps) : NAME_PENDING;
     const stats = answers.ok ? answers.value.get(s.id) : undefined;
     const status = deriveStatus(s.status, s.expires_at);
     /* The snapshot is the better denominator and does not depend on the answer
@@ -330,7 +344,6 @@ export async function listInterviewSessions(
     .sort((a, b) => a.title.localeCompare(b.title));
 
   // ── Filter, then page ──
-  const q = (opts.query ?? "").trim().toLowerCase();
   const wantArchived = opts.status === "archived";
   const filtered = rows.filter((r) => {
     // Archived rows appear ONLY under their own tab, never in All or a status
@@ -353,10 +366,22 @@ export async function listInterviewSessions(
 
   const page = Math.max(1, opts.page ?? 1);
   const start = (page - 1) * PAGE_SIZE;
+  let pageRows = filtered.slice(start, start + PAGE_SIZE);
+  if (!searchApps) {
+    const apps = await fetchApplications(
+      service,
+      ctx.companyId,
+      applicationIdsOf(pageRows.map((r) => r.applicationId)),
+    );
+    pageRows = pageRows.map((r) => {
+      const who = candidateOf(r.applicationId, apps);
+      return { ...r, candidateName: who.name, candidateEmail: who.email, candidateLink: who.link };
+    });
+  }
 
   return answered({
     applied,
-    rows: filtered.slice(start, start + PAGE_SIZE),
+    rows: pageRows,
     total: filtered.length,
     page,
     pageSize: PAGE_SIZE,
@@ -367,33 +392,82 @@ export async function listInterviewSessions(
   });
 }
 
+type AppNames = Map<
+  string,
+  { first_name: string | null; last_name: string | null; email: string | null }
+>;
+
+/** Distinct, non-null application ids. */
+function applicationIdsOf(ids: (string | null)[]): string[] {
+  return [...new Set(ids.filter(Boolean))] as string[];
+}
+
+/** Stands in for a name until the page slice reads it; never returned. */
+const NAME_PENDING = { name: "", email: "", link: "linked" } as const;
+
+/**
+ * Who a row is with. A failed name read says so ("Name unavailable") rather
+ * than falling through to resolveCandidate, which would read a missing row as
+ * "Applicant deleted".
+ */
+function candidateOf(applicationId: string | null, apps: Read<AppNames>) {
+  if (applicationId && !apps.ok) {
+    return { name: "Name unavailable", email: "", link: "unavailable" as const };
+  }
+  return resolveCandidate(
+    applicationId,
+    apps.ok && applicationId ? apps.value.get(applicationId) : undefined,
+  );
+}
+
+/** Name requests in flight at once, the same bound the worker runs jobs at. */
+const NAME_READ_CONCURRENCY = 4;
+
+/**
+ * Names for the given applications, a hundred ids per request, at most
+ * NAME_READ_CONCURRENCY requests at once. One failed request fails the whole
+ * read, and no further request starts after it: a map that is right for some
+ * rows and silently empty for others cannot be told apart from rows whose
+ * applicant was deleted.
+ */
 async function fetchApplications(
   service: ReturnType<typeof createServiceClient>,
   companyId: string,
   ids: string[],
-) {
-  const out = new Map<
-    string,
-    { first_name: string | null; last_name: string | null; email: string | null }
-  >();
-  for (let i = 0; i < ids.length; i += 100) {
-    const { data } = await service
-      .from("job_applications")
-      .select("id, first_name, last_name, email")
-      // The company gate is re-applied here, not inherited from the session
-      // row — an application that moved companies must not surface a name.
-      .eq("company_id_snapshot", companyId)
-      .in("id", ids.slice(i, i + 100));
-    for (const r of (data ?? []) as {
-      id: string;
-      first_name: string | null;
-      last_name: string | null;
-      email: string | null;
-    }[]) {
-      out.set(r.id, r);
+): Promise<Read<AppNames>> {
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += 100) chunks.push(ids.slice(i, i + 100));
+  const out: AppNames = new Map();
+  let next = 0;
+  let failed = false;
+
+  const lane = async () => {
+    while (!failed && next < chunks.length) {
+      const chunk = chunks[next++];
+      const { data, error } = await service
+        .from("job_applications")
+        .select("id, first_name, last_name, email")
+        // The company gate is re-applied here, not inherited from the session
+        // row: an application that moved companies must not surface a name.
+        .eq("company_id_snapshot", companyId)
+        .in("id", chunk);
+      if (error) {
+        console.error("[interviews] applicant name read failed:", error);
+        failed = true;
+        return;
+      }
+      for (const r of (data ?? []) as {
+        id: string;
+        first_name: string | null;
+        last_name: string | null;
+        email: string | null;
+      }[]) {
+        out.set(r.id, r);
+      }
     }
-  }
-  return out;
+  };
+  await Promise.all(Array.from({ length: Math.min(NAME_READ_CONCURRENCY, chunks.length) }, lane));
+  return failed ? unavailable() : answered(out);
 }
 
 async function fetchJobs(
@@ -503,8 +577,7 @@ export async function loadInterviewSession(
     fetchApplications(service, ctx.companyId, row.application_id ? [row.application_id] : []),
     fetchJobs(service, ctx.companyId, row.job_id ? [row.job_id] : []),
   ]);
-  const app = row.application_id ? apps.get(row.application_id) : undefined;
-  const who = resolveCandidate(row.application_id, app);
+  const who = candidateOf(row.application_id, apps);
 
   const { data: appRow } = row.application_id
     ? await service

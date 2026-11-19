@@ -655,7 +655,9 @@ function Row({ row, onArchived }: { row: InterviewRow; onArchived: () => void })
               ? row.candidateEmail
               : row.candidateLink === "deleted"
                 ? "Their application record was removed"
-                : "Sent without an applicant record"}
+                : row.candidateLink === "unavailable"
+                  ? "Could not load the applicant. Refresh to try again."
+                  : "Sent without an applicant record"}
           </p>
         </div>
       </div>

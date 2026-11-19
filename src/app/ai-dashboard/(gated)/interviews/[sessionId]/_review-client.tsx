@@ -226,7 +226,9 @@ export function ReviewClient({
                   <span className="italic">
                     {session.candidateLink === "deleted"
                       ? "applicant record removed"
-                      : "no applicant record"}
+                      : session.candidateLink === "unavailable"
+                        ? "could not load the applicant, refresh to try again"
+                        : "no applicant record"}
                   </span>
                 </>
               )}

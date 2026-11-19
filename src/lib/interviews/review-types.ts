@@ -40,8 +40,12 @@ export type TranscriptState =
  * invite), while a deleted one had an applicant whose record has since been
  * removed. Rendering "Candidate" for both implies we mislaid a name we never
  * had.
+ *
+ * `unavailable` is the third: there is an applicant, but reading their name
+ * failed. It must not fall through to `deleted`, which would state something
+ * untrue about the record.
  */
-export type CandidateLink = "linked" | "unlinked" | "deleted";
+export type CandidateLink = "linked" | "unlinked" | "deleted" | "unavailable";
 
 export type InterviewRow = {
   id: string;
