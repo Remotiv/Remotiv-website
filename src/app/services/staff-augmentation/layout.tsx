@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Staff Augmentation Services | Remotiv",
+  title: "Staff Augmentation Services",
   description:
     "Augment your team with pre-vetted senior specialists across engineering, sales, design, data, marketing, operations, and more. Matched in 24 hours, deployed in days, backed by a free replacement guarantee.",
   alternates: {

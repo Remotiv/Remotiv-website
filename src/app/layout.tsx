@@ -20,7 +20,12 @@ const dmSans = DM_Sans({
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://remotiv.work"),
-  title: "Remotiv - Hire Top 1% Senior Engineering Talent",
+  // #43: one tab-title format, "Page - Remotiv". A page names itself; this adds
+  // the brand. A title that must stay exactly as written uses { absolute }.
+  title: {
+    default: "Remotiv - Hire Top 1% Senior Engineering Talent",
+    template: "%s - Remotiv",
+  },
   description:
     "Hire pre-vetted engineers, scale with staff augmentation, or build dedicated teams - without the usual delays.",
   applicationName: "Remotiv",

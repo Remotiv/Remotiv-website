@@ -31,7 +31,7 @@ const AVI_DESCRIPTION =
   "Screen candidates with Async Video Interviews, scored from the transcript with evidence behind every score. Conversational AI Video Interviews are in development.";
 
 export const metadata: Metadata = {
-  title: AVI_TITLE,
+  title: "AI Video Interviews",
   description: AVI_DESCRIPTION,
   // The root keywords ("Pakistan engineers", "staff augmentation", ...) describe
   // the hiring marketplace, not this product. null drops the inherited tag

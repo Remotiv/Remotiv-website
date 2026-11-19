@@ -10,7 +10,7 @@ const description =
 // absolute url and told every platform it was the homepage, which matters here:
 // this link gets sent to prospects.
 export const metadata: Metadata = {
-  title,
+  title: "Book a Meeting",
   description,
   openGraph: {
     title,

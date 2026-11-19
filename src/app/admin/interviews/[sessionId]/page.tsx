@@ -8,7 +8,7 @@ import { loadPlatformLiveReview } from "@/lib/interviews/live-review";
 
 export const dynamic = "force-dynamic";
 
-export const metadata = { title: "AI Video Interview review · Remotiv admin" };
+export const metadata = { title: "AI Video Interview review" };
 
 /**
  * One company's AI Video Interview, read-only, for a Remotiv super admin (F4).

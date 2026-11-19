@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Recruitment Services | Remotiv",
+  title: "Recruitment Services",
   description:
     "End-to-end recruitment across engineering, sales, design, data, marketing, and operations. Pre-vetted candidates delivered in 1 business day. 90-day replacement guarantee.",
   alternates: {

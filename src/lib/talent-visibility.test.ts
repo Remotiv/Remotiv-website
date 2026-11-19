@@ -308,7 +308,9 @@ test("hidden and missing are indistinguishable in metadata", () => {
   assert.match(page, /if \(state\.kind !== "public"\) \{/);
   const start = page.indexOf('if (state.kind !== "public") {');
   const block = page.slice(start, page.indexOf("const profile = state.profile;", start));
-  assert.match(block, /title: "Profile not found - Remotiv"/);
+  // The root layout's template adds " - Remotiv" (#43); the tab still reads
+  // "Profile not found - Remotiv" for both.
+  assert.match(block, /title: "Profile not found"/);
   assert.match(block, /robots: \{ index: false, follow: false \}/);
 });
 

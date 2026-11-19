@@ -5,7 +5,13 @@ import { adminLiveReviewEnabled } from "@/app/admin/lib/feature-flags";
 import { isSuperAdminEmail } from "@/app/admin/lib/roles";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 
-export const metadata = { title: "Admin — Remotiv" };
+// #43: "Page - Remotiv Admin"; a page with no title of its own reads
+// "Remotiv Admin". Was "Admin — Remotiv", an em dash in the tab. absolute,
+// not default: Next applies the root's "%s - Remotiv" to a default, which
+// would read "Remotiv Admin - Remotiv".
+export const metadata = {
+  title: { absolute: "Remotiv Admin", template: "%s - Remotiv Admin" },
+};
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();

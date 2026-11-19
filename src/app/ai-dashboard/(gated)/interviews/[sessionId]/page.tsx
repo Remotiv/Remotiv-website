@@ -7,7 +7,7 @@ import { decideRestartAction, resendRestartLinkAction } from "../live-actions";
 import { LiveReviewClient } from "./_live-review-client";
 import { ReviewClient } from "./_review-client";
 
-export const metadata: Metadata = { title: "Interview review · Remotiv" };
+export const metadata: Metadata = { title: "Interview review - Remotiv AI Interviews" };
 
 /**
  * One candidate's interview.

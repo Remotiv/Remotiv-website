@@ -10,7 +10,7 @@ const description =
 // card, which sells hiring to employers; this page recruits talent, so the
 // shared copy addressed the wrong audience.
 export const metadata: Metadata = {
-  title,
+  title: { absolute: "Apply to Join Remotiv - Join as Freelancer" },
   description,
   openGraph: {
     title,

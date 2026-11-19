@@ -14,7 +14,7 @@ import { canonicalUrl } from "@/lib/seo";
 // entirely — no double-brand suffix. Description is tuned to ~155 chars for
 // full SERP display.
 export const metadata: Metadata = {
-  title: "Join Our Talent Network - Remotiv",
+  title: "Join Our Talent Network",
   description:
     "Submit your profile once and get matched to remote roles at vetted global companies. Free to join. Built for engineers, sales, design and ops talent.",
   alternates: { canonical: "/join-as-talent" },

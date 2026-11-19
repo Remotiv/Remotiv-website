@@ -14,7 +14,12 @@ import { canonicalUrl } from "@/lib/seo";
 // entirely — no double-brand suffix. Description is tuned for SERP display
 // and targets the JOB-SEEKER audience (vs the root layout's hirer focus).
 export const metadata: Metadata = {
-  title: "Jobs at Remotiv - Find Your Next Remote Role",
+  // absolute keeps this headline as written; the template is restated
+  // because a title without one stops the root's reaching the job pages.
+  title: {
+    absolute: "Jobs at Remotiv - Find Your Next Remote Role",
+    template: "%s - Remotiv",
+  },
   description:
     "Browse open remote roles for engineers, designers, sales, and more. Apply directly and get matched with companies hiring through Remotiv.",
   alternates: { canonical: "/jobs" },

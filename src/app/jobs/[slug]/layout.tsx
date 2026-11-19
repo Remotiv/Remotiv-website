@@ -61,9 +61,15 @@ export async function generateMetadata({
   const { slug } = await params;
   const read = await getJobBySlug(slug);
   if (!read.ok)
-    return { title: "Role couldn't be loaded", robots: { index: false, follow: false } };
+    return {
+      title: { absolute: "Role couldn't be loaded - Remotiv" },
+      robots: { index: false, follow: false },
+    };
   if (read.value === null) {
-    return { title: "Job not found - Remotiv", robots: { index: false, follow: false } };
+    return {
+      title: { absolute: "Job not found - Remotiv" },
+      robots: { index: false, follow: false },
+    };
   }
   return {};
 }

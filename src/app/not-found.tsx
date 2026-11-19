@@ -1,4 +1,8 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+
+// Its own tab title (#43); it used to show the home page's.
+export const metadata: Metadata = { title: "Page not found" };
 
 export default function NotFound() {
   return (

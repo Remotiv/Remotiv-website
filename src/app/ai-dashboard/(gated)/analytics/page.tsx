@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { AnalyticsClient } from "./_analytics-client";
 import { fetchAnalytics } from "./actions";
 
-export const metadata: Metadata = { title: "Analytics · Remotiv" };
+export const metadata: Metadata = { title: "Analytics - Remotiv AI Interviews" };
 
 /**
  * Every figure on this page is a server aggregate.

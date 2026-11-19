@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Payroll & Compliance Services | Remotiv",
+  title: "Payroll & Compliance Services",
   description:
     "Hassle-free international payroll, contracts, and compliance for remote teams across engineering, sales, design, customer success, and operations. Live in 48 hours with full statutory coverage.",
   alternates: {

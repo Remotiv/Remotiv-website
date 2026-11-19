@@ -1,6 +1,14 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { WhiteLabelShell } from "@/components/white-label/shell";
 import "./careers.css";
+
+// notFound() renders this with its own metadata, not the page's (#43).
+// White-label, so never suffixed " - Remotiv".
+export const metadata: Metadata = {
+  title: { absolute: "Careers - not found" },
+  robots: { index: false, follow: false },
+};
 
 /**
  * Reached for an unknown slug, and for a company that is paused or archived.

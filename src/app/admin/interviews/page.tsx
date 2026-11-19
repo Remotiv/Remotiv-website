@@ -7,7 +7,7 @@ import { listPlatformLiveSessions } from "@/lib/interviews/live-review";
 
 export const dynamic = "force-dynamic";
 
-export const metadata = { title: "AI Video Interviews · Remotiv admin" };
+export const metadata = { title: "AI Video Interviews" };
 
 const CELL = "px-4 py-3 text-sm";
 

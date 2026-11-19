@@ -9,7 +9,7 @@ const description =
 // them and this route emits none. Without the block it inherited the root's
 // absolute url and told every platform it was the homepage.
 export const metadata: Metadata = {
-  title,
+  title: { absolute: title },
   description,
   openGraph: {
     title,

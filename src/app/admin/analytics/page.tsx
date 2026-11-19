@@ -6,7 +6,7 @@ import { fetchPlatformAnalytics } from "./actions";
 
 export const dynamic = "force-dynamic";
 
-export const metadata = { title: "Platform analytics — Remotiv" };
+export const metadata = { title: "Platform analytics" };
 
 /**
  * Platform analytics — cross-company, and therefore super-admin only.

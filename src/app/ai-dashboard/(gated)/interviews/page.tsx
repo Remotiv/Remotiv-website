@@ -3,7 +3,7 @@ import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import { listInterviewSessions } from "@/lib/interviews/review";
 import { InterviewsClient } from "./_interviews-client";
 
-export const metadata: Metadata = { title: "Interviews · Remotiv" };
+export const metadata: Metadata = { title: "Interviews - Remotiv AI Interviews" };
 
 /**
  * Every interview for the company, hiring-team scoped.

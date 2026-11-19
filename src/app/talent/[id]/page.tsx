@@ -360,7 +360,7 @@ export async function generateMetadata({
     // Identical metadata for hidden and missing, so the tab title cannot be
     // used to tell a paused profile from an id that never existed.
     return {
-      title: "Profile not found - Remotiv",
+      title: "Profile not found",
       robots: { index: false, follow: false },
     };
   }
@@ -374,7 +374,8 @@ export async function generateMetadata({
   const url = `/talent/${profile.id}`;
 
   return {
-    title,
+    // The tab title; the template adds " - Remotiv". openGraph keeps the full one.
+    title: `${profile.fullName} - ${profile.roleLabel}`,
     description,
     alternates: { canonical: url },
     openGraph: {

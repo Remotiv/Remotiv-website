@@ -21,11 +21,14 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   // "not found" is a claim about the company. A failed read is a claim about
   // us, and must not be dressed as the other. Neither gets indexed.
   if (!read.ok) {
-    return { title: "Careers - couldn't load", robots: { index: false, follow: false } };
+    return {
+      title: { absolute: "Careers - couldn't load" },
+      robots: { index: false, follow: false },
+    };
   }
   const data = read.value;
   if (!data) {
-    return { title: "Careers - not found", robots: { index: false, follow: false } };
+    return { title: { absolute: "Careers - not found" }, robots: { index: false, follow: false } };
   }
 
   const { company, roles } = data;
@@ -36,7 +39,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const url = `/careers/${company.slug}`;
 
   return {
-    title,
+    // White-label: the company's page, never suffixed " - Remotiv".
+    title: { absolute: title },
     description,
     alternates: { canonical: url },
     openGraph: {

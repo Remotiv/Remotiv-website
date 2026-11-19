@@ -19,11 +19,17 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   // role, and we do not know anything about the role. Both stay out of the
   // index: one because it is gone, one because it is a transient error page.
   if (!read.ok) {
-    return { title: "Role couldn't be loaded", robots: { index: false, follow: false } };
+    return {
+      title: { absolute: "Role couldn't be loaded - Remotiv" },
+      robots: { index: false, follow: false },
+    };
   }
   const job = read.value;
   if (!job) {
-    return { title: "Job not found - Remotiv", robots: { index: false, follow: false } };
+    return {
+      title: { absolute: "Job not found - Remotiv" },
+      robots: { index: false, follow: false },
+    };
   }
 
   const title = `${job.title} - ${job.company} | Remotiv`;
@@ -33,7 +39,9 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const url = `/jobs/${slug}`;
 
   return {
-    title,
+    // The tab title; the template adds " - Remotiv". A Remotiv-posted role
+    // used to read "<role> - Remotiv | Remotiv".
+    title: job.company === "Remotiv" ? job.title : `${job.title} - ${job.company}`,
     description,
     alternates: { canonical: url },
     openGraph: { title, description, url, siteName: "Remotiv", locale: "en_US", type: "website" },

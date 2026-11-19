@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
  * browser's own answer and correctable by the candidate.
  */
 export const metadata: Metadata = {
-  title: "Book your interview - Remotiv",
+  title: "Book your interview",
   // A booking link is a private URL. Keep it out of every index.
   robots: { index: false, follow: false },
 };

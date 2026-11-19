@@ -1,5 +1,13 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Navbar } from "@/components/navbar";
+
+// notFound() renders this with its own metadata, not the page's (#43).
+// Written out: a not-found boundary does not reliably take the template.
+export const metadata: Metadata = {
+  title: { absolute: "Job not found - Remotiv" },
+  robots: { index: false, follow: false },
+};
 
 /**
  * The job-page 404.

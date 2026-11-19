@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 // landing pages — no noindex). Canonical path is relative; Next.js resolves
 // it against `metadataBase` (set in src/app/layout.tsx).
 export const metadata: Metadata = {
-  title: "Find Talent - Remotiv",
+  title: "Find Talent",
   description:
     "Browse vetted senior engineers, sales talent, and operators. Filter by role, skill, and location. Hire top remote talent in hours, not weeks.",
   alternates: {

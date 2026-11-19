@@ -65,7 +65,8 @@ export async function generateMetadata({
   const description = `Open roles at ${company.name}, hiring through Remotiv. Apply directly.`;
 
   return {
-    title,
+    // The tab title; the template adds " - Remotiv". openGraph keeps the full one.
+    title: `Jobs at ${company.name}`,
     description,
     alternates: { canonical: canonicalUrl(path) },
     robots: { index: false, follow: true },

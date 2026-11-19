@@ -123,7 +123,7 @@ import { LiveInterviewsSection } from "./_live-interviews-section";
 // type and the image are restated because openGraph replaces the root's
 // wholesale rather than merging into it.
 export const metadata: Metadata = {
-  title: "Privacy Policy - Remotiv",
+  title: "Privacy Policy",
   description:
     "What personal data Remotiv collects, where it is stored, how long it is kept, and who else receives it.",
   alternates: { canonical: "/privacy" },

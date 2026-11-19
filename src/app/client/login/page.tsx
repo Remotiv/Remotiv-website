@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ClientLoginClient } from "./login-client";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Sign in - Remotiv Client Portal" };
+export const metadata = { title: { absolute: "Sign in - Remotiv Client Portal" } };
 
 export default async function ClientLoginPage({
   searchParams,

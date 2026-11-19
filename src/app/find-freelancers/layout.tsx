@@ -6,7 +6,7 @@ const DESCRIPTION =
 const URL = "https://remotiv.work/find-freelancers";
 
 export const metadata: Metadata = {
-  title: TITLE,
+  title: "Find Freelancers",
   description: DESCRIPTION,
   openGraph: {
     title: TITLE,
