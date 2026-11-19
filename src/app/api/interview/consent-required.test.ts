@@ -26,7 +26,8 @@ export async function resolveSessionByToken() { return structuredClone(globalThi
   "@/lib/supabase/server": "export function createServiceClient() { return globalThis.__service; }",
   "@/lib/interviews/transcribe-request":
     "export async function requestTranscription() {} export async function cancelSupersededTranscribeJobs() {}",
-  "@/lib/interviews/scorecard": "export async function requestScorecard() {}",
+  "@/lib/interviews/scorecard":
+    "export async function requestScorecard() {} export async function askForScorecard() { return null; }",
 };
 register(
   `data:text/javascript,${encodeURIComponent(`

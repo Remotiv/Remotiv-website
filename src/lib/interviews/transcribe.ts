@@ -14,7 +14,7 @@ import {
 import { assertProviderBudget, type JobContext } from "@/lib/queue/job-context";
 import { createServiceClient } from "@/lib/supabase/server";
 import { retentionPassed } from "./async-score-purge";
-import { requestScorecard } from "./scorecard";
+import { askForScorecard } from "./scorecard";
 import { INTERVIEW_BUCKET } from "./session";
 import { readTranscribePayload, resolveGeneration } from "./transcribe-generation";
 
@@ -415,15 +415,12 @@ export async function handleTranscribe(
  * recording cannot block the other answers forever.
  */
 async function maybeEnqueueScorecard(service: Service, sessionId: string): Promise<void> {
-  try {
-    await requestScorecard(service, sessionId);
-  } catch (err) {
-    // Non-fatal: the transcript is already stored, and a scorecard that was
-    // never queued is recoverable from the review page. Failing here would
-    // retry the whole transcription and spend another Whisper call on audio
-    // already done.
-    console.error("[transcribe] scorecard enqueue failed (non-fatal):", err);
-  }
+  // Non-fatal: the transcript is already stored, and a scorecard that was
+  // never queued is recoverable from the review page. Failing here would
+  // retry the whole transcription and spend another Whisper call on audio
+  // already done. askForScorecard never throws and logs a request that did
+  // not queue.
+  await askForScorecard(service, sessionId, "transcribe");
 }
 
 /**

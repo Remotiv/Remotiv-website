@@ -77,11 +77,16 @@ export type ScorecardFacts = {
   liveJob: boolean;
 };
 
+/**
+ * Throws when either read fails. Read as zero and none, an unknown state would
+ * look like "nothing pending, nothing queued" and let a caller queue (or offer
+ * to queue) a run it knows nothing about.
+ */
 export async function readScorecardFacts(
   service: Service,
   sessionId: string,
 ): Promise<ScorecardFacts> {
-  const [{ count }, { data: live }] = await Promise.all([
+  const [{ count, error: countError }, { data: live, error: liveError }] = await Promise.all([
     service
       .from("interview_answers")
       .select("id", { count: "exact", head: true })
@@ -95,6 +100,7 @@ export async function readScorecardFacts(
       .contains("payload", { sessionId })
       .limit(1),
   ]);
+  if (countError || liveError) throw new Error("[scorecard] facts read failed");
   return { pendingTranscripts: count ?? 0, liveJob: (live ?? []).length > 0 };
 }
 
@@ -118,11 +124,13 @@ export async function requestScorecard(
   sessionId: string,
   deps: { enqueue?: EnqueueFn } = {},
 ): Promise<ScorecardRequest> {
-  const { data: sessionRow } = await service
+  const { data: sessionRow, error: sessionError } = await service
     .from("interview_sessions")
     .select("id, status")
     .eq("id", sessionId)
     .maybeSingle();
+  // A failed read is not "no session": throw, as readScorecardFacts does.
+  if (sessionError) throw new Error("[scorecard] session read failed");
   const session = sessionRow as { status: string } | null;
   if (!session) return { ok: false, reason: "no_session" };
   if (session.status !== "submitted") return { ok: false, reason: "not_submitted" };
@@ -145,6 +153,35 @@ export async function requestScorecard(
   // and this insert. Not an error - the scorecard is on its way.
   if (queued.code === UNIQUE_VIOLATION) return { ok: true, outcome: "already_queued" };
   return { ok: false, reason: "enqueue_failed", error: queued.error };
+}
+
+/**
+ * The automatic askers' call (the submit route and the transcribe handler).
+ *
+ * Never throws and never fails the caller: the interview is submitted, or the
+ * transcript stored, either way, and the review page offers "Score interview"
+ * for a session with no scorecard and nothing queued. But a request that did
+ * not queue is logged, never dropped: requestScorecard RETURNS a failed
+ * enqueue rather than throwing it, so a bare try/catch never saw one.
+ * `transcripts_pending` and `not_submitted` are expected and stay quiet; the
+ * other asker queues later.
+ */
+export async function askForScorecard(
+  service: Service,
+  sessionId: string,
+  label: string,
+  deps: { enqueue?: EnqueueFn } = {},
+): Promise<ScorecardRequest | null> {
+  try {
+    const asked = await requestScorecard(service, sessionId, deps);
+    if (!asked.ok && (asked.reason === "enqueue_failed" || asked.reason === "no_session")) {
+      console.error(`[${label}] session ${sessionId}: scorecard not queued (${asked.reason})`);
+    }
+    return asked;
+  } catch {
+    console.error(`[${label}] session ${sessionId}: scorecard request failed (read error)`);
+    return null;
+  }
 }
 
 export type RecoveryBlock =

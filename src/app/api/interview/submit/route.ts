@@ -6,7 +6,7 @@ import {
   CONSENT_REQUIRED,
   CONSENT_REQUIRED_MESSAGE,
 } from "@/lib/interviews/consent";
-import { requestScorecard } from "@/lib/interviews/scorecard";
+import { askForScorecard } from "@/lib/interviews/scorecard";
 import { resolveSessionByToken } from "@/lib/interviews/session";
 
 export const runtime = "nodejs";
@@ -99,12 +99,9 @@ export async function POST(request: Request) {
    * the only asker left. If a transcript is still pending, this returns
    * without queueing and the transcribe handler asks when it lands. Non-fatal:
    * the interview is submitted either way, and the review page can ask again.
+   * askForScorecard logs a request that did not queue instead of dropping it.
    */
-  try {
-    await requestScorecard(service, resolved.row.id);
-  } catch (err) {
-    console.error("[interview] scorecard request at submit failed (non-fatal):", err);
-  }
+  await askForScorecard(service, resolved.row.id, "interview");
 
   return NextResponse.json({ ok: true });
 }

@@ -221,6 +221,11 @@ export async function POST(request: Request) {
         transcript_status: "pending",
         transcript: null,
         transcript_error: null,
+        // A re-record replaces the row: the previous recording's word timings
+        // and transcript length go with it, or a new recording whose
+        // transcript fails would keep the old one's timings for good.
+        transcript_segments: null,
+        transcript_duration_seconds: null,
         recorded_at: new Date().toISOString(),
       },
       { onConflict: "session_id,position" },

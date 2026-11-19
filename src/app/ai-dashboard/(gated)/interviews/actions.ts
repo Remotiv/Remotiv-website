@@ -392,21 +392,39 @@ export async function scoreInterview(sessionId: string): Promise<ScoreRequestRes
   const { ctx, session } = gate;
 
   const service = createServiceClient();
-  const [{ data: row }, { data: scoreRow }, facts] = await Promise.all([
-    service
-      .from("interview_sessions")
-      .select("kind, status, expires_at")
-      .eq("id", session.id)
-      .eq("company_id", ctx.companyId)
-      .maybeSingle(),
-    service
-      .from("interview_session_scores")
-      .select("id")
-      .eq("session_id", session.id)
-      .eq("company_id", ctx.companyId)
-      .maybeSingle(),
-    readScorecardFacts(service, session.id),
-  ]);
+  /*
+   * Every read is checked. Read as "nothing there", a failed score-row read
+   * would offer a paid run over a scorecard that exists, and failed facts
+   * would read as "nothing pending, nothing queued". None of that is known,
+   * so the recruiter is told the check failed and nothing is queued.
+   */
+  let row: unknown;
+  let scoreRow: unknown;
+  let facts: Awaited<ReturnType<typeof readScorecardFacts>>;
+  try {
+    const [sessionRead, scoreRead, factsRead] = await Promise.all([
+      service
+        .from("interview_sessions")
+        .select("kind, status, expires_at")
+        .eq("id", session.id)
+        .eq("company_id", ctx.companyId)
+        .maybeSingle(),
+      service
+        .from("interview_session_scores")
+        .select("id")
+        .eq("session_id", session.id)
+        .eq("company_id", ctx.companyId)
+        .maybeSingle(),
+      readScorecardFacts(service, session.id),
+    ]);
+    if (sessionRead.error || scoreRead.error) throw new Error("score request reads failed");
+    row = sessionRead.data;
+    scoreRow = scoreRead.data;
+    facts = factsRead;
+  } catch {
+    console.error(`[interview] score request ${session.id}: could not check the scorecard`);
+    return { ok: false, error: SCORE_CHECK_FAILED };
+  }
 
   const stored = row as { kind: string | null; status: string; expires_at: string | null } | null;
   if (!stored) return { ok: false, error: NOT_YOURS };
@@ -427,7 +445,13 @@ export async function scoreInterview(sessionId: string): Promise<ScoreRequestRes
     return { ok: false, error: RECOVERY_BLOCK_COPY[eligible.block] };
   }
 
-  const requested = await requestScorecard(service, session.id);
+  let requested: Awaited<ReturnType<typeof requestScorecard>>;
+  try {
+    requested = await requestScorecard(service, session.id);
+  } catch {
+    console.error(`[interview] score request ${session.id}: could not check the scorecard`);
+    return { ok: false, error: SCORE_CHECK_FAILED };
+  }
   if (!requested.ok) {
     console.error("[interview] score request failed:", requested.reason, requested.error);
     return { ok: false, error: "Couldn't queue the scorecard. Try again in a moment." };
@@ -437,6 +461,10 @@ export async function scoreInterview(sessionId: string): Promise<ScoreRequestRes
   revalidatePath(`/ai-dashboard/interviews/${session.id}`);
   return { ok: true, outcome: requested.outcome };
 }
+
+/** A read the request depends on failed: nothing was queued, and nothing is assumed. */
+const SCORE_CHECK_FAILED =
+  "Couldn't check this interview's scorecard. Nothing was queued. Try again.";
 
 /** Why the button was refused, in the recruiter's terms. */
 const RECOVERY_BLOCK_COPY = {
