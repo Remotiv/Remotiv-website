@@ -62,6 +62,8 @@ const STUBS = {
     fromGlobal("__inviteDeliverForTests", "email delivery"),
     "  return fake(input);",
     "}",
+    // Imported by the cancellation Retry (#59); never called by these tests.
+    'export async function resendFailedEmail() { throw new Error("resendFailedEmail is not used here"); }',
   ].join("\n"),
   "@/lib/jobs-queue": [
     "export const JOB_TYPES = {",

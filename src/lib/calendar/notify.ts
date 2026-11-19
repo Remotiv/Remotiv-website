@@ -404,26 +404,8 @@ export async function sendCancellationNotices(
 
   /* ── Candidate ───────────────────────────────────────────── */
   if (args.candidateEmail) {
-    const body = `
-      <p style="margin:0 0 12px;color:#17131F;">Hi ${escapeHtml(args.candidateName)},</p>
-      <p style="margin:0 0 12px;color:#4A4550;">
-        ${cancelledByThem ? `${escapeHtml(args.hostName || "Your interviewer")} cancelled your` : "You cancelled your"}
-        ${escapeHtml(whatOf(args))}${escapeHtml(args.companyName ? ` at ${args.companyName}` : "")}.
-      </p>
-      <p style="margin:0 0 4px;color:#847E8C;text-decoration:line-through;">${escapeHtml(candidateTime)}</p>
-      ${reasonLine}
-      <p style="margin:16px 0 0;color:#4A4550;">
-        ${cancelledByThem ? "They'll be in touch if there's another time that works." : "Your booking link no longer works, so a new time has to come from the hiring team."}
-      </p>`;
-    candidate = await deliverBooking(
-      service,
-      args,
-      EVENT_CANCELLED,
-      args.interviewLabel
-        ? `${args.interviewLabel} cancelled - ${args.jobTitle}`
-        : `Interview cancelled - ${args.jobTitle}`,
-      body,
-    );
+    const email = cancellationCandidateEmail({ ...args, candidateEmail: args.candidateEmail });
+    candidate = await deliverBooking(service, args, EVENT_CANCELLED, email.subject, email.body);
   }
 
   /* ── Host ────────────────────────────────────────────────── */
@@ -452,6 +434,46 @@ export async function sendCancellationNotices(
 }
 
 /**
+ * The candidate's cancellation email: subject and body, before
+ * buildCandidateHtml. ONE builder for the first send and the Retry (#59):
+ * Resend refuses a reused idempotency key whose message differs, so the Retry
+ * must rebuild from the same facts with the same code.
+ */
+export function cancellationCandidateEmail(
+  args: Pick<
+    NoticeArgs,
+    | "startMs"
+    | "candidateTimezone"
+    | "candidateName"
+    | "hostName"
+    | "companyName"
+    | "jobTitle"
+    | "interviewLabel"
+  > & { cancelledBy: BookingActor; reason: string | null; candidateEmail: string },
+): { subject: string; body: string } {
+  const candidateTime = timeBlock(args.startMs, args.candidateTimezone);
+  const cancelledByThem = args.cancelledBy === "recruiter";
+  const reasonLine = args.reason
+    ? `<p style="margin:12px 0;color:#4A4550;">Reason given: ${escapeHtml(args.reason)}</p>`
+    : "";
+  const body = `
+      <p style="margin:0 0 12px;color:#17131F;">Hi ${escapeHtml(args.candidateName)},</p>
+      <p style="margin:0 0 12px;color:#4A4550;">
+        ${cancelledByThem ? `${escapeHtml(args.hostName || "Your interviewer")} cancelled your` : "You cancelled your"}
+        ${escapeHtml(whatOf(args))}${escapeHtml(args.companyName ? ` at ${args.companyName}` : "")}.
+      </p>
+      <p style="margin:0 0 4px;color:#847E8C;text-decoration:line-through;">${escapeHtml(candidateTime)}</p>
+      ${reasonLine}
+      <p style="margin:16px 0 0;color:#4A4550;">
+        ${cancelledByThem ? "They'll be in touch if there's another time that works." : "Your booking link no longer works, so a new time has to come from the hiring team."}
+      </p>`;
+  const subject = args.interviewLabel
+    ? `${args.interviewLabel} cancelled - ${args.jobTitle}`
+    : `Interview cancelled - ${args.jobTitle}`;
+  return { subject, body };
+}
+
+/**
  * What a set of notices actually managed to do.
  *
  * ── Why this is no longer void ───────────────────────────────
@@ -464,6 +486,12 @@ export async function sendCancellationNotices(
  */
 export type NoticeOutcome = {
   candidate: "sent" | "skipped_no_address" | "failed";
+  /**
+   * The candidate email's communication_logs row, when one was written (#59):
+   * the Retry claims exactly this row. Null when nothing was recorded (no
+   * address, a refused or failed log write).
+   */
+  candidateLogId: string | null;
   host: "sent" | "skipped_no_address" | "failed";
   /** Populated when either side is not "sent". Safe to log; no personal data. */
   problems: string[];
@@ -476,7 +504,7 @@ async function deliverBooking(
   event: LoggedEvent,
   subject: string,
   body: string,
-): Promise<{ result: NoticeOutcome["candidate"]; problem?: string }> {
+): Promise<{ result: NoticeOutcome["candidate"]; problem?: string; logId?: string | null }> {
   if (!args.candidateEmail) {
     return { result: "skipped_no_address", problem: "candidate has no email address" };
   }
@@ -496,9 +524,9 @@ async function deliverBooking(
     if (!outcome.ok) {
       const problem = `candidate ${event}: ${outcome.kind} — ${outcome.message}`;
       console.error(`[booking] ${problem}`);
-      return { result: "failed", problem };
+      return { result: "failed", problem, logId: outcome.logId };
     }
-    return { result: "sent" };
+    return { result: "sent", logId: outcome.logId };
   } catch (err) {
     // The booking change is already real. A failed notification must not
     // unwind it — but it must not vanish either.
@@ -546,11 +574,12 @@ async function sendHostEmail(
 
 /** Fold the two halves into one reportable outcome. */
 function summarise(
-  candidate: { result: NoticeOutcome["candidate"]; problem?: string },
+  candidate: { result: NoticeOutcome["candidate"]; problem?: string; logId?: string | null },
   host: { result: NoticeOutcome["host"]; problem?: string },
 ): NoticeOutcome {
   return {
     candidate: candidate.result,
+    candidateLogId: candidate.logId ?? null,
     host: host.result,
     problems: [candidate.problem, host.problem].filter((p): p is string => Boolean(p)),
   };

@@ -436,7 +436,13 @@ test("cancelling a booked final round cancels the booking, marks the interview, 
     hostEmails,
     bell,
   } = await run("admin", () => cancelFinalInterview("fi-1", "Role filled"), { db });
-  assert.deepEqual(result, { success: true, data: { removedFromCalendar: true } });
+  assert.deepEqual(result, {
+    success: true,
+    data: {
+      removedFromCalendar: true,
+      notice: { candidate: "sent", bookingId: "b-fi1", logId: null },
+    },
+  });
   assert.equal(after.interview_bookings[0].status, "cancelled");
   assert.equal(after.interview_bookings[0].cancelled_by, "recruiter");
   assert.equal(after.interview_bookings[0].cancel_reason, "Role filled");
@@ -477,7 +483,13 @@ test("cancelling reads the candidate through the company filter: a drifted appli
 
   // The cancellation still completes. The filter protects the read, not the
   // write, and the booking was already cancelled by the time it is consulted.
-  assert.deepEqual(result, { success: true, data: { removedFromCalendar: true } });
+  assert.deepEqual(result, {
+    success: true,
+    data: {
+      removedFromCalendar: true,
+      notice: { candidate: "no_address", bookingId: "b-fi1", logId: null },
+    },
+  });
   assert.equal(after.interview_bookings[0].status, "cancelled");
   assert.equal(after.final_interviews[0].status, "cancelled");
 
@@ -499,7 +511,10 @@ test("cancelling an unbooked final round expires its link and marks the intervie
   } = await run("recruiter", () => cancelFinalInterview("fi-1"), {
     db,
   });
-  assert.deepEqual(result, { success: true, data: { removedFromCalendar: null } });
+  assert.deepEqual(result, {
+    success: true,
+    data: { removedFromCalendar: null, notice: null },
+  });
   assert.equal(after.interview_bookings[0].status, "expired");
   assert.equal(after.final_interviews[0].status, "cancelled");
   assert.equal(emails.length, 0);

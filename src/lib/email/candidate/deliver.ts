@@ -267,6 +267,40 @@ function failedSend(
   };
 }
 
+/**
+ * The Resend idempotency key of the email a log row records (#59): the same on
+ * the first send and on every Retry, so Resend sends a message for this row at
+ * most once in 24 hours whoever asks, and refuses a Retry whose message is not
+ * byte for byte the first one (invalid_idempotent_request).
+ */
+export function candidateEmailKey(logId: string): string {
+  return `comm-log:${logId}`;
+}
+
+/**
+ * The request Resend gets, built in ONE place for the first send and the
+ * Retry: an idempotency key with a different body is refused, so the two must
+ * not be able to drift.
+ */
+function resendRequest(input: {
+  to: string;
+  subject: string;
+  html: string;
+  companyName: string;
+  replyTo: string | null;
+}) {
+  const fromEmail = process.env.RESEND_FROM_EMAIL ?? "noreply@remotiv.work";
+  return {
+    from: `${senderName(input.companyName)} <${fromEmail}>`,
+    to: input.to,
+    subject: input.subject,
+    html: input.html,
+    // Omitted entirely when unset — an explicit `replyTo: undefined` is not
+    // the same request to Resend as no reply-to header.
+    ...(input.replyTo ? { replyTo: input.replyTo } : {}),
+  };
+}
+
 export async function deliverEmail(
   service: Service,
   input: {
@@ -386,16 +420,8 @@ export async function deliverEmail(
     };
   }
 
-  const fromEmail = process.env.RESEND_FROM_EMAIL ?? "noreply@remotiv.work";
-
-  const { data: sent, error } = await client.emails.send({
-    from: `${senderName(input.companyName)} <${fromEmail}>`,
-    to: input.to,
-    subject: input.subject,
-    html: input.html,
-    // Omitted entirely when unset — an explicit `replyTo: undefined` is not
-    // the same request to Resend as no reply-to header.
-    ...(input.replyTo ? { replyTo: input.replyTo } : {}),
+  const { data: sent, error } = await client.emails.send(resendRequest(input), {
+    idempotencyKey: candidateEmailKey(logId),
   });
 
   if (error) {
@@ -426,4 +452,103 @@ export async function deliverEmail(
     .eq("id", logId);
 
   return { ok: true, logId, providerId: sent?.id ?? null };
+}
+
+export type ResendOutcome =
+  | { kind: "sent" }
+  /** The claim refused (claim_failed_email_log, migration 067): nothing sent. */
+  | { kind: "not_retried"; reason: "wrong_status" | "too_old" | "missing" }
+  /** Resend refused the key: this message is not the first one, so it was not sent again. */
+  | { kind: "mismatch" }
+  | { kind: "failed"; message: string }
+  | { kind: "not_configured" }
+  | { kind: "cap" };
+
+/** Resend's answers to a reused key whose request differs, or is still in flight. */
+const IDEMPOTENCY_REFUSALS = new Set([
+  "invalid_idempotent_request",
+  "concurrent_idempotent_requests",
+]);
+
+/**
+ * Retry ONE failed candidate email (#59): the cancellation notice's Retry.
+ *
+ * Never sends twice:
+ *   1. the row is CLAIMED by id first (claim_failed_email_log, migration 067):
+ *      only a 'failed' row from the last 24 hours, one claimer at a time, by
+ *      the database's clock. A row left 'queued' by a send that never answered
+ *      is never retried (its email may have arrived);
+ *   2. the send carries the FIRST send's idempotency key, and the caller
+ *      rebuilds the message with the same builder from the same facts, so a
+ *      first send that did reach Resend is answered from Resend's record, not
+ *      sent again; a message that changed meanwhile is refused (mismatch);
+ *   3. the sent / failed write is guarded on the claim's own stamp, so a
+ *      stale Retry can never overwrite a newer outcome.
+ */
+export async function resendFailedEmail(
+  service: Service,
+  input: {
+    logId: string;
+    companyId: string;
+    to: string;
+    subject: string;
+    html: string;
+    companyName: string;
+    replyTo: string | null;
+  },
+): Promise<ResendOutcome> {
+  const client = getResend();
+  if (!client) return { kind: "not_configured" };
+  if ((await countSentToday(service)) >= dailyCap()) return { kind: "cap" };
+
+  const { data, error: claimError } = await service.rpc("claim_failed_email_log", {
+    p_id: input.logId,
+    p_company_id: input.companyId,
+  });
+  if (claimError) return { kind: "failed", message: "The email could not be claimed." };
+  const row = (Array.isArray(data) ? data[0] : data) as {
+    out_outcome?: string;
+    out_attempt_started_at?: string | null;
+  } | null;
+  const outcome = row?.out_outcome;
+  if (outcome !== "claimed" || !row?.out_attempt_started_at) {
+    const reason = outcome === "too_old" || outcome === "missing" ? outcome : "wrong_status";
+    return { kind: "not_retried", reason };
+  }
+  const stamp = row.out_attempt_started_at;
+
+  const { data: sent, error } = await client.emails.send(resendRequest(input), {
+    idempotencyKey: candidateEmailKey(input.logId),
+  });
+  // Both writes are guarded on THIS claim's stamp: a Retry that lost its claim
+  // can never overwrite a newer outcome.
+  if (error) {
+    const mismatch = IDEMPOTENCY_REFUSALS.has(error.name);
+    await service
+      .from("communication_logs")
+      .update({
+        status: "failed",
+        error: mismatch
+          ? "Not sent again: this message no longer matches the first one."
+          : (error.message ?? "Resend error"),
+      })
+      .eq("id", input.logId)
+      .eq("company_id", input.companyId)
+      .eq("attempt_started_at", stamp);
+    return mismatch
+      ? { kind: "mismatch" }
+      : { kind: "failed", message: error.message ?? "Resend error" };
+  }
+  await service
+    .from("communication_logs")
+    .update({
+      status: "sent",
+      provider_id: sent?.id ?? null,
+      sent_at: new Date().toISOString(),
+      error: null,
+    })
+    .eq("id", input.logId)
+    .eq("company_id", input.companyId)
+    .eq("attempt_started_at", stamp);
+  return { kind: "sent" };
 }

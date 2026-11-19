@@ -20,6 +20,7 @@ import {
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { type CompanyRole, canManageBookings } from "@/app/ai-dashboard/lib/company-roles";
 import { useModalFocus } from "@/hooks/use-modal-focus";
+import type { CancelNotice } from "@/lib/calendar/cancel-notice";
 import { formatInZone } from "@/lib/calendar/timezone";
 import {
   CUSTOM_LABEL_MAX,
@@ -48,6 +49,7 @@ import type {
   FinalInterviewOptions,
   FinalInterviewView,
 } from "@/lib/final-interviews/types";
+import { CancelNoticeNote } from "./_cancel-notice";
 import {
   cancelFinalInterview,
   getFinalInterviewOptions,
@@ -279,6 +281,8 @@ export function FinalInterviewCard({
   /** The id of the row with an action in flight, so a second click does nothing. */
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  // The candidate's cancellation email, when it did not go (#59).
+  const [notice, setNotice] = useState<CancelNotice | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [zone, setZone] = useState("UTC");
   /** The open inline player, at most one on the card. */
@@ -445,7 +449,10 @@ export function FinalInterviewCard({
     setBusyId(id);
     try {
       const result = await cancelFinalInterview(id);
-      onToast(result.success ? "Final interview cancelled." : result.error);
+      if (!result.success) onToast(result.error);
+      else if (result.data.notice && result.data.notice.candidate !== "sent") {
+        setNotice(result.data.notice);
+      } else onToast("Final interview cancelled.");
     } catch (err) {
       console.error("[applicants] cancelFinalInterview threw:", err);
       onToast("Couldn't cancel - please try again.");
@@ -493,6 +500,13 @@ export function FinalInterviewCard({
       </div>
 
       <div className={`${CARD} ${CARD_PAD}`}>
+        <CancelNoticeNote
+          notice={notice}
+          onResolved={(message) => {
+            setNotice(null);
+            onToast(message);
+          }}
+        />
         {rows === null ? (
           <div className="h-[11px] w-1/2 animate-pulse rounded-full bg-[var(--ai-inset)]" />
         ) : rows.length === 0 ? (

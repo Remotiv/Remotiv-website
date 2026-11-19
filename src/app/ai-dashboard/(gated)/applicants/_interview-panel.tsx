@@ -11,8 +11,10 @@ import {
   type ScoreBand,
   scoreBand,
 } from "@/app/ai-dashboard/lib/score-bands";
+import type { CancelNotice } from "@/lib/calendar/cancel-notice";
 import { liveSummaryCallBegan } from "@/lib/interviews/live-call";
 import { INTERVIEW_KIND_LABELS } from "@/lib/interviews/types";
+import { CancelNoticeNote } from "./_cancel-notice";
 import { FinalInterviewCard } from "./_final-interview-card";
 import {
   type BookingPanel,
@@ -1049,6 +1051,8 @@ function BookingSection({
   const [error, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
+  // The candidate's cancellation email, when it did not go (#59).
+  const [notice, setNotice] = useState<CancelNotice | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -1083,11 +1087,15 @@ function BookingSection({
       setError(result.error);
       return;
     }
-    onToast(
-      result.data.removedFromCalendar
-        ? "Interview cancelled"
-        : "Cancelled - remove it from your calendar too",
-    );
+    if (result.data.notice.candidate === "sent") {
+      onToast(
+        result.data.removedFromCalendar
+          ? "Interview cancelled"
+          : "Cancelled - remove it from your calendar too",
+      );
+    } else {
+      setNotice(result.data.notice);
+    }
     await load();
   }
 
@@ -1196,6 +1204,13 @@ function BookingSection({
       </div>
 
       {error && <ErrorNote>{error}</ErrorNote>}
+      <CancelNoticeNote
+        notice={notice}
+        onResolved={(message) => {
+          setNotice(null);
+          onToast(message);
+        }}
+      />
     </section>
   );
 }

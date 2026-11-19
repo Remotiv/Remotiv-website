@@ -58,6 +58,11 @@ const STUBS = {
     "  (globalThis.__fiEmails ??= []).push(input);",
     '  return globalThis.__fiDeliverResult ?? { ok: true, logId: "log", providerId: "re" };',
     "}",
+    // The cancellation Retry (#59): records the rebuilt email, answers as told.
+    "export async function resendFailedEmail(service, input) {",
+    "  (globalThis.__fiResends ??= []).push(input);",
+    '  return globalThis.__fiResendResult ?? { kind: "sent" };',
+    "}",
   ].join("\n"),
   "@/lib/email/send": [
     "export async function sendEmail(input) {",

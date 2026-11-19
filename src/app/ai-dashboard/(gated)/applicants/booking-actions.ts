@@ -15,6 +15,7 @@ import {
   createBookingLink,
   resolveHostEmail,
 } from "@/lib/calendar/bookings";
+import { type CancelNotice, cancelNotice } from "@/lib/calendar/cancel-notice";
 import { sendCancellationNotices } from "@/lib/calendar/notify";
 import "@/lib/calendar/google";
 import { buildCandidateHtml, deliverEmail } from "@/lib/email/candidate/deliver";
@@ -345,7 +346,7 @@ export async function fetchBookingPanel(applicationId: string): Promise<BookingP
 export async function cancelBookingAsRecruiter(
   applicationId: string,
   reason?: string,
-): Promise<MutationResult<{ removedFromCalendar: boolean }>> {
+): Promise<MutationResult<{ removedFromCalendar: boolean; notice: CancelNotice }>> {
   const ctx = await getCompanyContext();
   if (!canManageBookings(ctx.role)) return { success: false, error: NOT_A_BOOKING_ROLE };
   const service = createServiceClient();
@@ -421,6 +422,7 @@ export async function cancelBookingAsRecruiter(
   // Resolved, not read: company_members.email is NULL for owners, and reading
   // it directly is why the host has never received a booking email.
   const host = await resolveHostEmail(row.host_member_id, row.company_id);
+  const hostName = host.name ?? ctx.memberName;
 
   const notices = await sendCancellationNotices({
     row: cancelled.row,
@@ -433,12 +435,15 @@ export async function cancelBookingAsRecruiter(
     candidateEmail: app?.email ?? null,
     candidateName: [app?.first_name, app?.last_name].filter(Boolean).join(" ").trim() || "there",
     hostEmail: host.email,
-    hostName: host.name ?? ctx.memberName,
+    hostName,
     jobTitle: app?.jobs?.title ?? "Interview",
     companyName: ctx.company.name,
     meetingUrl: null,
-    // Null on purpose (#87): this action reports success whatever the email
-    // did, so the bell is the canceller's only sign the candidate wasn't told.
+    // The name the email used, recorded on its row (#59): the Retry rebuilds
+    // the same email from it, whoever presses Retry.
+    sentByName: hostName,
+    // Null on purpose (#87): the canceller sees the result on screen now, but
+    // the bell stays the team's sign the candidate wasn't told.
     actorMemberId: null,
   });
   for (const problem of notices.problems) {
@@ -461,5 +466,11 @@ export async function cancelBookingAsRecruiter(
   });
 
   revalidatePath("/ai-dashboard/applicants");
-  return { success: true, data: { removedFromCalendar: cancelled.removedFromCalendar } };
+  return {
+    success: true,
+    data: {
+      removedFromCalendar: cancelled.removedFromCalendar,
+      notice: cancelNotice(notices, cancelled.row.id),
+    },
+  };
 }
