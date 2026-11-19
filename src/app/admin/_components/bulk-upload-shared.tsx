@@ -34,10 +34,14 @@ export type ParsedCv = {
 };
 
 export async function extractPdfText(file: File): Promise<string> {
-  const pdfjs = await import("pdfjs-dist");
+  // pdfjs-dist 6.x (#24, GHSA-hq66-cqwq-w95j fixed in 6.2.108). The LEGACY
+  // build: the default build needs Map.getOrInsert, Math.sumPrecise and
+  // Uint8Array.toHex, which many visitors' browsers do not have yet; the
+  // legacy build polyfills them. Worker and library must be the same build.
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   // Worker bundled locally from node_modules — avoids CDN failures
   pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-    "pdfjs-dist/build/pdf.worker.min.mjs",
+    "pdfjs-dist/legacy/build/pdf.worker.min.mjs",
     import.meta.url,
   ).toString();
 

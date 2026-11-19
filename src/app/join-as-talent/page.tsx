@@ -38,11 +38,15 @@ const focusRef = <T extends HTMLElement>(ref: RefObject<T | null>): void => {
 
 // ── Client-side PDF text extraction (mirrors admin bulk-upload helper)
 async function extractPdfText(file: File): Promise<string> {
-  const pdfjs = await import("pdfjs-dist");
+  // pdfjs-dist 6.x (#24, GHSA-hq66-cqwq-w95j fixed in 6.2.108). The LEGACY
+  // build: the default build needs Map.getOrInsert, Math.sumPrecise and
+  // Uint8Array.toHex, which many visitors' browsers do not have yet; the
+  // legacy build polyfills them. Worker and library must be the same build.
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   // Phase 4 G2: only set the worker URL the first time.
   if (!pdfWorkerConfigured) {
     pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-      "pdfjs-dist/build/pdf.worker.min.mjs",
+      "pdfjs-dist/legacy/build/pdf.worker.min.mjs",
       import.meta.url,
     ).toString();
     pdfWorkerConfigured = true;
@@ -81,7 +85,8 @@ async function extractPdfText(file: File): Promise<string> {
     // extractPdfText already swallows extraction errors silently — preserve
     // that contract.
     try {
-      await doc.destroy();
+      // pdfjs 6 removed PDFDocumentProxy.destroy(); it only ever called this.
+      await doc.loadingTask.destroy();
     } catch {
       // ignore — best-effort cleanup
     }
