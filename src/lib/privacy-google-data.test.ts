@@ -87,11 +87,21 @@ test("'we do not list or read your events' holds: the only Calendar calls are th
     m[1].replace(/\$\{[^}]+\}/g, ":id"),
   );
   assert.deepEqual([...new Set(calls)].sort(), [
+    "/calendars/:id",
     "/calendars/:id/events",
     "/calendars/:id/events/:id",
     "/calendars/primary",
     "/freeBusy",
   ]);
+  // "/calendars/:id" (#61): after a 404 on a delete, whether the calendar can
+  // be seen at all. Its id only, never an event.
+  const calendarReads = [
+    ...code(GOOGLE).matchAll(/\$\{CALENDAR_API\}\/calendars\/\$\{[^}]+\}([^/`][^`]*)?`/g),
+  ];
+  assert.deepEqual(
+    calendarReads.map((m) => m[1]),
+    ["?fields=id"],
+  );
   // The event paths are only ever created, moved and deleted, never fetched.
   const eventMethods = [...code(GOOGLE).matchAll(/\/events[^`]*`,\s*\{\s*method: "([A-Z]+)"/g)].map(
     (m) => m[1],

@@ -36,6 +36,7 @@ register(
 const STUBS = {
   "@/lib/application-files": "export async function removeApplicationFiles() { globalThis.__delEvents.push('files'); return { ok: true }; }",
   "@/lib/interviews/application-deletion": "export async function deleteApplicationInterviews() { globalThis.__delEvents.push('interviews'); return { ok: true, sessions: 0 }; }",
+  "@/lib/calendar/bookings": "export async function cancelScreeningBookingsForDeletion(companyId, applicationId) { globalThis.__delEvents.push('bookings'); const next = globalThis.__delBookings?.shift(); return next ?? { ok: true, cancelled: 0 }; }",
 };
 export async function resolve(specifier, context, next) {
   if (specifier in STUBS) return { url: "data:text/javascript," + encodeURIComponent(STUBS[specifier]), shortCircuit: true };
@@ -97,7 +98,14 @@ function world({
   race = null,
   sessionFails = false,
   sessions = [SESSION],
+  rowFailures = 0,
+  preFailures = 0,
+  bookings = [],
 } = {}) {
+  // Outcomes the booking step returns, in order, then { ok: true } (#61).
+  globalThis.__delBookings = [...bookings];
+  let rowLeft = rowFailures;
+  let preLeft = preFailures;
   const events = [];
   const logged = [];
   const bells = [
@@ -112,6 +120,7 @@ function world({
   ];
   const inserted = [];
   let lateLeft = lateFailures;
+  let rowGone = false;
   const service = fakeService((table, calls) => {
     const op = calls[0]?.[0];
     if (table === "interview_sessions" && op === "select") {
@@ -119,9 +128,20 @@ function world({
       if (sessionFails) return { data: null, error: RAW };
       return { data: sessions.map((id) => ({ id })), error: null };
     }
-    if (table === "job_applications" && op === "select") return { data: { ...ROW }, error: null };
+    if (table === "job_applications" && op === "select") {
+      if (rowGone) return { data: null, error: null };
+      return { data: { ...ROW }, error: null };
+    }
     if (table === "job_applications" && op === "delete") {
       events.push("row:delete");
+      if (rowLeft > 0) {
+        rowLeft -= 1;
+        return {
+          data: null,
+          error: { code: "40P01", message: 'deadlock detected on "job_applications"' },
+        };
+      }
+      rowGone = true;
       // A bell written after the pre-clean, before the row goes.
       if (race === "applicant") bells.push(bell("race", CO, APP));
       if (race === "expiry") bells.push(bell("race", CO, APP, pageOf(SESSION)));
@@ -132,6 +152,10 @@ function world({
       const f = bellFilter(calls);
       events.push(f.isNull ? "bells:late" : "bells:pre");
       if (!f.isNull && preFails) return { data: null, error: RAW };
+      if (!f.isNull && preLeft > 0) {
+        preLeft -= 1;
+        return { data: null, error: RAW };
+      }
       if (f.isNull && lateLeft > 0) {
         lateLeft -= 1;
         return { data: null, error: RAW };
@@ -207,21 +231,18 @@ test("a: the pre-clean removes only this applicant's bells in this company, befo
 test("a2: the session ids are read before the interviews, and the order is otherwise unchanged", async () => {
   const w = world();
   await w.run();
-  assert.deepEqual(w.events.slice(0, 3), ["sessions:read", "interviews", "files"]);
+  assert.deepEqual(w.events.slice(0, 4), ["sessions:read", "bookings", "interviews", "files"]);
   const read = w.service.queries.find((q) => q.table === "interview_sessions");
   const eq = (c) => read.calls.find((x) => x[0] === "eq" && x[1] === c)?.[2];
   assert.equal(eq("company_id"), CO);
   assert.equal(eq("application_id"), APP);
 });
 
-test("b: a failed pre-clean keeps the row and returns the generic failure, code only in the log", async () => {
+test("b: a failed pre-clean keeps the row and says data may already be gone (#60), code only in the log", async () => {
   const w = world({ preFails: true });
   const res = await w.run();
   assert.equal(res.success, false);
-  assert.equal(
-    res.error,
-    "We couldn't finish that action. Refresh to check the current state, then try again.",
-  );
+  assert.equal(res.error, PARTLY_DELETED);
   assert.ok(!w.events.includes("row:delete"), "the row was deleted");
   const all = [res.error, ...w.logged].join("\n");
   assert.ok(!all.includes("statement timeout") && !all.includes('notifications_company"'), all);
@@ -239,7 +260,11 @@ test("b2: a failed session lookup stops the delete before anything is removed", 
     res.error,
     "We couldn't finish that action. Refresh to check the current state, then try again.",
   );
-  assert.deepEqual(w.events, ["sessions:read"], "interviews, files, bells or row were touched");
+  assert.deepEqual(
+    w.events,
+    ["sessions:read"],
+    "bookings, interviews, files, bells or row were touched",
+  );
   assert.ok(!w.logged.join("\n").includes("statement timeout"));
 });
 
@@ -336,4 +361,118 @@ test("f: the interview-page href matches the one expiry.ts writes (read, not cha
       `${rel} no longer builds the same interview-page href`,
     );
   }
+});
+
+/* ── #60: a failure after the files went; #61: bookings first ────────── */
+
+const PARTLY_DELETED =
+  "Deletion was not completed. Some data may already have been removed. Refresh and try Delete again.";
+const CALENDAR_NOT_CLEARED =
+  "We couldn't remove this applicant's booked interview from Google Calendar, so nothing was deleted. Try again in a moment.";
+
+test("60-1. the row delete fails after the files: the fixed sentence, the code logged, nothing of the database's message", async () => {
+  const w = world({ rowFailures: 1 });
+  const res = await w.run();
+  assert.deepEqual(res, { success: false, error: PARTLY_DELETED });
+  assert.ok(w.events.includes("files") && w.events.includes("interviews"));
+  assert.deepEqual(w.inserted, [], "no 'applicant deleted' bell for a delete that did not finish");
+  const all = [res.error, ...w.logged].join("\n");
+  assert.ok(!all.includes("deadlock") && !all.includes("job_applications"), all);
+  assert.ok(
+    w.logged.some((l) => l.includes("row delete failed: 40P01")),
+    w.logged.join("\n"),
+  );
+});
+
+test("60-2. fail then retry: the second Delete finishes cleanly, with one bell and nothing done twice that matters", async () => {
+  const w = world({ rowFailures: 1 });
+  assert.deepEqual(await w.run(), { success: false, error: PARTLY_DELETED });
+  const firstPass = w.events.length;
+  assert.deepEqual(await w.run(), { success: true, data: undefined });
+  const retry = w.events.slice(firstPass);
+  // Every step is repeated, and each is safe to repeat: no booking is left to
+  // cancel, removed files and interviews count as gone, the bells are gone.
+  assert.deepEqual(retry.slice(0, 4), ["sessions:read", "bookings", "interviews", "files"]);
+  assert.equal(retry.filter((e) => e === "row:delete").length, 1);
+  assert.equal(
+    w.inserted.filter((n) => n.type === "applicant_deleted").length,
+    1,
+    "one bell, from the retry",
+  );
+  assert.deepEqual(ids(w.bells), SURVIVORS);
+  // A third Delete finds nothing: the same reply as any applicant not in the workspace.
+  assert.deepEqual(await w.run(), {
+    success: false,
+    error: "Applicant not found in your workspace.",
+  });
+});
+
+test("60-3. the pre-clean fails, then a retry: the fixed sentence, then a clean finish", async () => {
+  const w = world({ preFailures: 1 });
+  assert.deepEqual(await w.run(), { success: false, error: PARTLY_DELETED });
+  assert.ok(!w.events.includes("row:delete"));
+  assert.deepEqual(await w.run(), { success: true, data: undefined });
+  assert.deepEqual(ids(w.bells), SURVIVORS);
+});
+
+test("61-1. the booking step runs before anything is removed, after the session read", async () => {
+  const w = world();
+  await w.run();
+  const at = (e) => w.events.indexOf(e);
+  assert.ok(
+    at("sessions:read") < at("bookings") && at("bookings") < at("interviews"),
+    w.events.join(","),
+  );
+});
+
+test("61-2. Google does not confirm: NOTHING is deleted, the applicant stays, and the error says so", async () => {
+  const w = world({ bookings: [{ ok: false, failure: "calendar" }] });
+  const res = await w.run();
+  assert.deepEqual(res, { success: false, error: CALENDAR_NOT_CLEARED });
+  assert.deepEqual(
+    w.events,
+    ["sessions:read", "bookings"],
+    "interviews, files, bells or row were touched",
+  );
+  assert.equal(w.bells.length, 7, "no bell removed");
+  assert.deepEqual(w.inserted, []);
+});
+
+test("61-3. Google fails, then Retry: the second Delete clears the calendar and finishes", async () => {
+  const w = world({ bookings: [{ ok: false, failure: "calendar" }] });
+  assert.equal((await w.run()).error, CALENDAR_NOT_CLEARED);
+  assert.deepEqual(await w.run(), { success: true, data: undefined });
+  assert.equal(w.events.filter((e) => e === "bookings").length, 2);
+  assert.equal(w.events.filter((e) => e === "row:delete").length, 1);
+});
+
+test("61-5. the booking step fails after Google deleted (its local write failed), then Retry: one finish, one bell", async () => {
+  // cancelScreeningBookingsForDeletion reports a failed local write as
+  // "database" with nothing else touched (delete-bookings.test.ts 61-i).
+  const w = world({ bookings: [{ ok: false, failure: "database" }] });
+  const first = await w.run();
+  assert.equal(first.success, false);
+  assert.deepEqual(w.events, ["sessions:read", "bookings"], "nothing removed on the first try");
+  assert.deepEqual(w.inserted, [], "no 'applicant deleted' bell for a delete that did not happen");
+  assert.deepEqual(await w.run(), { success: true, data: undefined });
+  assert.equal(w.inserted.filter((n) => n.type === "applicant_deleted").length, 1);
+  assert.equal(w.events.filter((e) => e === "row:delete").length, 1);
+});
+
+test("61-4. the bookings read or write fails: nothing deleted, the generic refresh-and-retry message", async () => {
+  const w = world({ bookings: [{ ok: false, failure: "database" }] });
+  const res = await w.run();
+  assert.equal(
+    res.error,
+    "We couldn't finish that action. Refresh to check the current state, then try again.",
+  );
+  assert.deepEqual(w.events, ["sessions:read", "bookings"]);
+});
+
+test("60/61 copy: no dashes", () => {
+  for (const copy of [PARTLY_DELETED, CALENDAR_NOT_CLEARED]) {
+    assert.ok(!/[\u2013\u2014]/.test(copy), copy);
+  }
+  const src = readFileSync(new URL("./actions.ts", import.meta.url), "utf8");
+  assert.ok(src.includes(PARTLY_DELETED) && src.includes(CALENDAR_NOT_CLEARED));
 });

@@ -161,7 +161,17 @@ export interface CalendarProvider {
    */
   deleteEvent?(
     accessToken: string,
-    args: { calendarId: string; eventId: string },
+    args: {
+      calendarId: string;
+      eventId: string;
+      /**
+       * True: the provider tells no attendee. Deleting an applicant (#61)
+       * must not email the candidate, and Google's own "event cancelled"
+       * message to attendees would. Default false: a recruiter's or a
+       * candidate's cancel tells everyone, as before.
+       */
+      silent?: boolean;
+    },
   ): Promise<boolean>;
 
   /**

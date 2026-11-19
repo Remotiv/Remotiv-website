@@ -51,6 +51,7 @@ import {
   cvExpired,
 } from "@/lib/ai/rescore-collect";
 import { removeApplicationFiles } from "@/lib/application-files";
+import { cancelScreeningBookingsForDeletion } from "@/lib/calendar/bookings";
 import {
   RESCORE_NO_ALLOWANCE_MESSAGE,
   readCvCapacity,
@@ -2617,6 +2618,19 @@ export async function rescoreJob(
 }
 
 /**
+ * A delete that failed AFTER the interviews and files were removed (#60): the
+ * applicant row is still there, so "nothing happened" would be false. Delete
+ * again finishes it: removed files count as already gone, and every step
+ * repeats safely. The same words as the admin delete (#93).
+ */
+const PARTLY_DELETED =
+  "Deletion was not completed. Some data may already have been removed. Refresh and try Delete again.";
+
+/** #61: Google did not confirm the interview was removed, so nothing was deleted. */
+const CALENDAR_NOT_CLEARED =
+  "We couldn't remove this applicant's booked interview from Google Calendar, so nothing was deleted. Try again in a moment.";
+
+/**
  * Permanently delete one application.
  *
  * HARD delete, not soft, for three reasons:
@@ -2635,6 +2649,11 @@ export async function rescoreJob(
  * deleted_applications table holding non-PII only (application id, job id,
  * deleted_by, deleted_at), NOT a flag on a row that still carries the person's
  * details.
+ *
+ * BOOKINGS (#61), before anything is removed: their upcoming screening calls
+ * are cancelled, Google Calendar first and silently (no email to the
+ * candidate, from us or from Google). If Google does not confirm, NOTHING is
+ * deleted and the error says so; Delete again retries it.
  *
  * ORDER: storage object first, then the row. Deliberate — this order is
  * retry-safe. If the row delete fails, cv_path is still on the row so the
@@ -2712,6 +2731,19 @@ export async function deleteApplication(applicationId: string): Promise<Mutation
     return { success: false, error: actionIncomplete("read an applicant's interviews", code) };
   }
 
+  // Their upcoming screening calls (#61), before anything is removed: a
+  // calendar Google will not clear keeps the applicant whole.
+  const bookings = await cancelScreeningBookingsForDeletion(ctx.companyId, applicationId);
+  if (!bookings.ok) {
+    return {
+      success: false,
+      error:
+        bookings.failure === "calendar"
+          ? CALENDAR_NOT_CLEARED
+          : actionIncomplete("cancel an applicant's bookings", "error"),
+    };
+  }
+
   // 0. Their AI interviews and recordings (B7), first: if a file is left, the
   //    delete stops here with nothing else removed, and a retry finishes it.
   const interviews = await deleteApplicationInterviews(service, ctx.companyId, applicationId);
@@ -2732,10 +2764,8 @@ export async function deleteApplication(applicationId: string): Promise<Mutation
     .eq("company_id", ctx.companyId)
     .eq("application_id", applicationId);
   if (bellErr) {
-    return {
-      success: false,
-      error: actionIncomplete("delete an applicant's notifications", bellErr.code ?? "error"),
-    };
+    console.error(`[applicants] delete applicant: bell clean failed: ${bellErr.code ?? "error"}`);
+    return { success: false, error: PARTLY_DELETED };
   }
 
   // 3. The row. Scoped again on company_id_snapshot so the DELETE itself
@@ -2748,7 +2778,11 @@ export async function deleteApplication(applicationId: string): Promise<Mutation
 
   // The files above are already gone when this fails, so this is not a
   // "nothing was changed" case; a retry finds them gone and deletes the row.
-  if (delErr) return { success: false, error: actionIncomplete("delete that applicant", delErr) };
+  // The code only, never the message (#95).
+  if (delErr) {
+    console.error(`[applicants] delete applicant: row delete failed: ${delErr.code ?? "error"}`);
+    return { success: false, error: PARTLY_DELETED };
+  }
 
   // 4. POST-CLEAN (#88): a bell written between step 2 and step 3 had its
   //    pointer nulled by the FK. Found by href: the applicant link

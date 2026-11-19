@@ -847,6 +847,107 @@ export async function cancelBooking(args: {
   return { ok: true, row: cancelled, removedFromCalendar };
 }
 
+export type DeletionBookingsOutcome =
+  | { ok: true; cancelled: number }
+  /** Google did not confirm the event was removed, or could not be reached: nothing changed. */
+  | { ok: false; failure: "calendar" }
+  /** The bookings could not be read or marked: nothing changed that a retry would not redo. */
+  | { ok: false; failure: "database" };
+
+/**
+ * Before an applicant is deleted (#61): cancel their upcoming SCREENING calls,
+ * calendar first, the way cancelBooking does, and with no email to anyone.
+ *
+ * Unlike cancelBooking, a calendar that does not confirm STOPS here: the
+ * applicant is about to vanish, and an interview left in the host's diary
+ * would point at nobody, with no row left to cancel it from. So:
+ *   - no event id, no active calendar connection, or no provider: nothing we
+ *     can remove, the booking is just marked cancelled;
+ *   - a connected calendar whose token cannot be had, or whose delete does not
+ *     confirm (Google treats an already-gone event as success): refused, with
+ *     nothing marked, so a retry starts over;
+ *   - the event deleted SILENTLY (sendUpdates=none): no Google email to the
+ *     candidate either.
+ * A booking already started or past (canCancel) is left as it is: there is no
+ * upcoming meeting to remove. Final-round bookings are not touched here.
+ *
+ * Retry-safe in every order: an event already deleted reads as success, and
+ * the status write is the same single-winner `status = 'booked'` gate.
+ */
+export async function cancelScreeningBookingsForDeletion(
+  companyId: string,
+  applicationId: string,
+): Promise<DeletionBookingsOutcome> {
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("interview_bookings")
+    .select(ROW_COLUMNS)
+    .eq("company_id", companyId)
+    .eq("application_id", applicationId)
+    .eq("purpose", "interview")
+    .eq("status", "booked");
+  if (error) {
+    console.error(`[booking] applicant delete: bookings read failed: ${error.code ?? "error"}`);
+    return { ok: false, failure: "database" };
+  }
+
+  let cancelled = 0;
+  for (const row of (data ?? []) as BookingRow[]) {
+    if (!canCancel(row)) continue;
+
+    if (row.provider_event_id) {
+      const { data: connRow, error: connErr } = await service
+        .from("calendar_connections")
+        .select("provider, calendar_id")
+        .eq("member_id", row.host_member_id)
+        .eq("status", "active")
+        .maybeSingle();
+      if (connErr) {
+        console.error(
+          `[booking] applicant delete: connection read failed: ${connErr.code ?? "error"}`,
+        );
+        return { ok: false, failure: "database" };
+      }
+      const conn = connRow as { provider: string; calendar_id: string | null } | null;
+      const provider = conn ? getProvider(row.provider ?? conn.provider) : null;
+      if (conn && provider?.deleteEvent) {
+        const accessToken = await getAccessToken(row.host_member_id, conn.provider as "google");
+        const removed = accessToken
+          ? await provider.deleteEvent(accessToken, {
+              calendarId: conn.calendar_id ?? "primary",
+              eventId: row.provider_event_id,
+              silent: true,
+            })
+          : false;
+        if (!removed) {
+          console.error("[booking] applicant delete: calendar delete did not confirm", {
+            bookingId: row.id,
+          });
+          return { ok: false, failure: "calendar" };
+        }
+      }
+    }
+
+    const { error: writeErr } = await service
+      .from("interview_bookings")
+      .update({
+        status: "cancelled",
+        cancelled_at: new Date().toISOString(),
+        cancelled_by: "recruiter",
+        cancel_reason: null,
+      })
+      .eq("id", row.id)
+      .eq("company_id", companyId)
+      .eq("status", "booked");
+    if (writeErr) {
+      console.error(`[booking] applicant delete: cancel write failed: ${writeErr.code ?? "error"}`);
+      return { ok: false, failure: "database" };
+    }
+    cancelled += 1;
+  }
+  return { ok: true, cancelled };
+}
+
 /**
  * Resolve everything needed to act on a booking's provider event, or null when
  * there is nothing to act on.

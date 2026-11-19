@@ -363,23 +363,32 @@ const google: CalendarProvider = {
   /**
    * Delete the event.
    *
-   * 200/204 is success. So is 404 or 410 — the event is already gone, which is
-   * the state we were asking for, and treating that as a failure would leave a
-   * cancellation permanently stuck. Anything else means we could not tell, and
-   * the caller cancels locally regardless.
+   * 200/204 is success, and so is 410: the event was deleted already, which is
+   * the state we were asking for (failing it would leave a cancellation stuck).
+   *
+   * 404 is NOT taken on its word (#61). Google answers 404 both for an event
+   * that is not there and for a calendar this token cannot see, and only the
+   * first is "already gone". So a 404 is checked against the calendar itself
+   * (calendars.get, under the calendar.readonly scope we hold): the calendar
+   * answers 200, so the event is really gone; anything else, the calendar is
+   * out of reach and nothing was deleted, so this reports false. Anything else
+   * from the delete is "could not tell" (false), and so is a network failure.
    */
-  async deleteEvent(accessToken, { calendarId, eventId }) {
+  async deleteEvent(accessToken, { calendarId, eventId, silent = false }) {
     try {
+      const headers = { authorization: `Bearer ${accessToken}` };
       const res = await fetch(
-        `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}?sendUpdates=all`,
-        {
-          method: "DELETE",
-          headers: { authorization: `Bearer ${accessToken}` },
-          cache: "no-store",
-        },
+        `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}?sendUpdates=${silent ? "none" : "all"}`,
+        { method: "DELETE", headers, cache: "no-store" },
       );
-      if (res.ok || res.status === 404 || res.status === 410) return true;
-      return false;
+      if (res.ok || res.status === 410) return true;
+      if (res.status !== 404) return false;
+      // The calendar's id only: no event is listed or read.
+      const calendar = await fetch(
+        `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}?fields=id`,
+        { headers, cache: "no-store" },
+      );
+      return calendar.ok;
     } catch {
       return false;
     }
