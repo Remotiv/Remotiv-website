@@ -90,6 +90,8 @@ export default async function MessagesPage() {
       applicantCount={applicants.count ?? 0}
       roleCount={roles.count ?? 0}
       unassigned={unassigned}
+      // The times render from this until the page hydrates (#36).
+      renderedAt={Date.now()}
     />
   );
 }

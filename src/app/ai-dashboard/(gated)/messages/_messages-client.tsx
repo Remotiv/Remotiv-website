@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   Check,
   ChevronLeft,
@@ -44,6 +44,7 @@ import {
   type MessageTab,
 } from "./types";
 import { senderLine, typeLabel } from "./message-display";
+import { type PageClock, whenOf } from "./message-time";
 
 const GRID =
   "grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.8fr)_104px] items-center gap-3.5 min-[1100px]:grid-cols-[minmax(0,1.5fr)_minmax(0,2fr)_116px_0.8fr_0.75fr_40px]";
@@ -71,39 +72,14 @@ const TABS: ReadonlyArray<{ key: MessageTab; label: string }> = [
   { key: "failed", label: "Failed" },
 ];
 
-/** "in 2 days" / "6h ago" — the relative half of the When column. */
-function relative(iso: string | null): string {
-  if (!iso) return "-";
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return "-";
-  const diff = then - Date.now();
-  const abs = Math.abs(diff);
-  const mins = Math.round(abs / 60000);
-  const hours = Math.round(abs / 3600000);
-  const days = Math.round(abs / 86400000);
-  const unit = mins < 60 ? `${mins}m` : hours < 24 ? `${hours}h` : `${days} day${days === 1 ? "" : "s"}`;
-  if (mins < 1) return diff >= 0 ? "in a moment" : "just now";
-  return diff > 0 ? `in ${unit}` : `${unit} ago`;
-}
-
-/** The exact stamp beneath it. */
-function exact(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const today = new Date();
-  const sameDay =
-    d.getDate() === today.getDate() &&
-    d.getMonth() === today.getMonth() &&
-    d.getFullYear() === today.getFullYear();
-  const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-  if (sameDay) return `Today ${time}`;
-  return `${d.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}, ${time}`;
-}
-
-function whenOf(row: MessageRow): { rel: string; exact: string } {
-  const stamp = row.kind === "scheduled" ? (row.scheduledFor ?? row.createdAt) : (row.sentAt ?? row.createdAt);
-  return { rel: relative(stamp), exact: exact(stamp) };
+const NEVER_CHANGES = () => () => {};
+/** False on the server and during hydration, true after: the same in both renders. */
+function useIsHydrated(): boolean {
+  return useSyncExternalStore(
+    NEVER_CHANGES,
+    () => true,
+    () => false,
+  );
 }
 
 export function MessagesClient({
@@ -119,6 +95,7 @@ export function MessagesClient({
   applicantCount,
   roleCount,
   unassigned,
+  renderedAt,
 }: {
   companyName: string;
   replyToAddress: string | null;
@@ -132,9 +109,17 @@ export function MessagesClient({
   jobs: { id: string; title: string }[];
   applicantCount: number;
   roleCount: number;
+  /** The server's clock when it rendered this page (#36): the times until hydration. */
+  renderedAt: number;
   /** True for a scoped member on no hiring teams — see the empty state. */
   unassigned: boolean;
 }) {
+  const hydrated = useIsHydrated();
+  // Read ONCE, on the render where `hydrated` flips: no ticking clock (#36).
+  const clock = useMemo<PageClock>(
+    () => ({ now: hydrated ? Date.now() : renderedAt, local: hydrated }),
+    [hydrated, renderedAt],
+  );
   const [rows, setRows] = useState(initialRows);
   const [matching, setMatching] = useState(initialMatching);
   /**
@@ -490,7 +475,7 @@ export function MessagesClient({
           </div>
         ) : (
           rows.map((row) => {
-            const when = whenOf(row);
+            const when = whenOf(row, clock);
             const tint = tintFor(row.applicationId ?? row.id);
             const scheduled = row.kind === "scheduled";
             return (
@@ -708,6 +693,7 @@ export function MessagesClient({
       {viewing && (
         <MessageViewer
           row={viewing}
+          clock={clock}
           onClose={() => setViewing(null)}
           onSendNow={() => {
             const row = viewing;
@@ -830,12 +816,14 @@ function MenuItem({
 
 function MessageViewer({
   row,
+  clock,
   onClose,
   onFollowUp,
   onSendNow,
   onCancelSend,
 }: {
   row: MessageRow;
+  clock: PageClock;
   onClose: () => void;
   onFollowUp: () => void;
   /**
@@ -852,7 +840,7 @@ function MessageViewer({
   const panelRef = useRef<HTMLDivElement>(null);
   useModalFocus(panelRef, true, { onClose, overlayRef, initialFocus: "container" });
 
-  const when = whenOf(row);
+  const when = whenOf(row, clock);
   const tint = tintFor(row.applicationId ?? row.id);
   const provenance = senderLine(row);
 
