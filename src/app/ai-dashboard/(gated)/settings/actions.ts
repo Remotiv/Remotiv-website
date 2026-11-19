@@ -118,7 +118,7 @@ export async function updateCompanyProfile(input: {
   if (teamSize.length > COMPANY_FACT_MAX) {
     return {
       success: false,
-      error: `Team size is too long (max ${COMPANY_FACT_MAX} characters). Try a range like "40–60 people".`,
+      error: `Team size is too long (max ${COMPANY_FACT_MAX} characters). Try a range like "40-60 people".`,
     };
   }
 

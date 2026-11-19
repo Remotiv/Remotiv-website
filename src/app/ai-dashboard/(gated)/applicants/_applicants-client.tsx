@@ -3335,7 +3335,7 @@ export function ApplicantsClient({
    * Every population figure, counted server-side and resolved in the page's
    * first wave — so the first paint carries true numbers rather than a
    * skeleton. Null when the whole batch failed; a single unreadable count
-   * arrives as a null FIELD. Either way the surfaces draw an em dash, never 0.
+   * arrives as a null FIELD. Either way the surfaces draw a hyphen, never 0.
    */
   initialCounts: ApplicantCounts | null;
   /**
@@ -5497,7 +5497,7 @@ export function ApplicantsClient({
         {quotaBanner}
 
         {/* Dark hero strip. Every figure in it is a server count, so every one
-            can be unknown — `countLabel` draws an em dash rather than a 0, and
+            can be unknown: `countLabel` draws a hyphen rather than a 0, and
             `aria-busy` plus the subline say when the figures are being
             refreshed instead of letting the previous filter's stand as this
             one's. */}

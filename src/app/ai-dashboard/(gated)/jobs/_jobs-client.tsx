@@ -1429,7 +1429,7 @@ export function JobsClient({
           </p>
           <span className="text-[12.5px] font-semibold text-[var(--ai-t2)]">
             <b className="text-remotiv-purple">
-              {filtered.length === 0 ? 0 : pageStart + 1}–{pageStart + paged.length}
+              {filtered.length === 0 ? 0 : pageStart + 1}-{pageStart + paged.length}
             </b>{" "}
             of {filtered.length}
             {filtered.length !== jobs.length && (

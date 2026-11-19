@@ -740,7 +740,7 @@ test("all ten rejecting is ten nulls, not a thrown page", async () => {
   assert.equal(read.value.total, null);
   assert.equal(read.value.newThisWeek, null);
   assert.equal(read.value.openRoles, null);
-  // The one figure here that is not rendered as an em dash. It decides a
+  // The one figure here that is not rendered as a hyphen. It decides a
   // SENTENCE — "No applicants yet" against "Nothing in this view" — and there
   // is no dash to put in prose, so a 0 would be read as a fact about their
   // pipeline with nothing on screen to qualify it.

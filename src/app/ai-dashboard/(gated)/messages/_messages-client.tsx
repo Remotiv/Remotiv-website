@@ -668,7 +668,7 @@ export function MessagesClient({
           <div className="flex items-center gap-3">
             <span className="whitespace-nowrap text-[12.5px] font-semibold text-[var(--ai-t2)]">
               <b className="text-remotiv-purple">
-                {rangeStart}–{rangeEnd}
+                {rangeStart}-{rangeEnd}
               </b>{" "}
               of {matching}
               {matching !== agg.all && (

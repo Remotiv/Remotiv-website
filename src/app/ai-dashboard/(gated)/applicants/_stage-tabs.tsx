@@ -132,7 +132,7 @@ function TabButton({
    */
   stage: PipelineStage | "all";
   on: boolean;
-  /** A server count. Null is unknown — drawn as an em dash, never as 0. */
+  /** A server count. Null is unknown: drawn as a hyphen, never as 0. */
   count: number | null;
   /** The figure is being re-read. Dimmed so it does not read as current. */
   updating: boolean;

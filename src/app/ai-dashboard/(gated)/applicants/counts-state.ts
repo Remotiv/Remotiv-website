@@ -29,7 +29,7 @@ import type { ApplicantCounts, PipelineStage } from "@/app/ai-dashboard/lib/appl
  *      all: an array length cannot fail, a count can, and "0 applicants" over
  *      a company with two thousand of them is believed instantly because
  *      nothing about it looks broken. Every field is `number | null` and null
- *      renders as an em dash. A true zero stays 0.
+ *      renders as a hyphen. A true zero stays 0.
  *
  * Pure on purpose. There is no DOM test runner in this repo, so anything left
  * in the component could only be checked by matching source text — which

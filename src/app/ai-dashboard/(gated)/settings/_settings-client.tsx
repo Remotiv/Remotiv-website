@@ -652,14 +652,14 @@ export function SettingsClient({
                 <input
                   id="co-team-size"
                   value={co.team_size}
-                  placeholder="40–60 people"
+                  placeholder="40-60 people"
                   maxLength={COMPANY_FACT_MAX}
                   disabled={!canEditCompany}
                   onChange={(e) => setCoField("team_size", e.target.value)}
                   className={INPUT_CLS}
                 />
                 <p className={HINT_CLS}>
-                  A range reads better than a number - &ldquo;40–60 people&rdquo;, not
+                  A range reads better than a number - &ldquo;40-60 people&rdquo;, not
                   &ldquo;52&rdquo;. Shown on your careers page.
                 </p>
               </div>
