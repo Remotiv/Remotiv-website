@@ -215,11 +215,6 @@ export function retentionOver(
   return Boolean(row.purged_at) || retentionPassed(row.delete_after, nowMs);
 }
 
-/**
- * Every status this file knows. SESSION_STATUSES does not list 'abandoned'
- * (migration 020), so it is added here.
- */
-type KnownStatus = SessionStatus | "abandoned";
 
 /**
  * What the stored status and the deadline say, before the session's kind is
@@ -241,7 +236,7 @@ function recordedStateFor(
   expired: boolean,
   nowMs: number,
 ): CandidateSession["state"] {
-  const status = row.status as KnownStatus;
+  const status = row.status as SessionStatus;
   switch (status) {
     case "cancelled":
       return "cancelled";

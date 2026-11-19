@@ -170,5 +170,11 @@ test("the section is numbered, cross-referenced, dated, and uses hyphens only", 
   assert.doesNotMatch(PAGE, /The permission we request covers calendar events/);
   assert.doesNotMatch(SECTION, /—/);
   assert.match(PAGE, /Google user data \(section 13\)\s+read from src\/lib\/calendar\//);
-  assert.doesNotMatch(PAGE, /const LAST_UPDATED = "30 September 2026";/);
+  // Dated no earlier than the day section 13 was added (7 October 2026). The
+  // old check only refused "30 September 2026", so any other date passed,
+  // including one from before this section existed.
+  const shown = PAGE.match(/const LAST_UPDATED = "([^"]+)";/)[1];
+  const shownMs = Date.parse(`${shown} 12:00 UTC`);
+  assert.ok(Number.isFinite(shownMs), `LAST_UPDATED is a date: ${shown}`);
+  assert.ok(shownMs >= Date.parse("2026-10-07T00:00:00Z"), `LAST_UPDATED ${shown}`);
 });

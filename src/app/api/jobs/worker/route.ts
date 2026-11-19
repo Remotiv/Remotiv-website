@@ -119,8 +119,8 @@ function secretMatches(provided: string, expected: string): boolean {
 /**
  * Gate the worker.
  *
- * Vercel Cron sends `Authorization: Bearer $CRON_SECRET` automatically when
- * the CRON_SECRET environment variable is set on the project, so the same
+ * The scheduler (cron-job.org, docs/OPERATIONS-WORKER-SCHEDULER.md) sends
+ * `Authorization: Bearer $CRON_SECRET` as a configured header, so the same
  * check covers both the scheduler and a manual curl during an incident.
  *
  * Fails CLOSED: if CRON_SECRET is unset the route refuses every request rather
@@ -461,9 +461,9 @@ export async function POST(request: Request) {
 }
 
 /**
- * Vercel Cron issues GET. Same gate, same work — the handler is idempotent at
- * the batch level because claiming is atomic, so a duplicate tick simply
- * finds nothing to claim.
+ * GET as well as POST, for schedulers that only send GET. Same gate, same
+ * work — the handler is idempotent at the batch level because claiming is
+ * atomic, so a duplicate tick simply finds nothing to claim.
  */
 export async function GET(request: Request) {
   return POST(request);

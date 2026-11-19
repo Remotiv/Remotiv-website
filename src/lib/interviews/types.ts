@@ -7,12 +7,18 @@
 
 import type { QuestionMix } from "./question-mix";
 
+/**
+ * Every value interview_sessions.status can hold. 'abandoned' is a live
+ * attempt that was replaced by a restart (migration 020); a CHECK keeps it off
+ * async sessions.
+ */
 export const SESSION_STATUSES = [
   "invited",
   "started",
   "submitted",
   "expired",
   "cancelled",
+  "abandoned",
 ] as const;
 export type SessionStatus = (typeof SESSION_STATUSES)[number];
 
