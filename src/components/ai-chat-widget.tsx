@@ -313,9 +313,11 @@ export function AIChatWidget() {
         }}
         aria-label={isOpen ? "Close AI chat" : "Open AI chat"}
       >
-        {/* Ping animation - only when chat is closed */}
+        {/* Ping animation - only when chat is closed. inset-1.5, not inset-0:
+            at its 2x peak the ring ends 4px inside the window's edge instead
+            of 8px past it (#44). */}
         {!isOpen && (
-          <span className="absolute inset-0 animate-[ping_2s_cubic-bezier(0,0,0.2,1)_infinite] rounded-full bg-[#7E47FF] opacity-20" />
+          <span className="absolute inset-1.5 animate-[ping_2s_cubic-bezier(0,0,0.2,1)_infinite] rounded-full bg-[#7E47FF] opacity-20" />
         )}
 
         {/* 3D highlight */}
