@@ -88,6 +88,7 @@ import {
   suggestScreeningQuestions,
   updateCompanyJob,
 } from "../actions";
+import { fieldErrorId, fieldErrorProps, firstInvalidFieldId } from "./field-errors";
 import { currencySymbol, salaryRange } from "./salary-range";
 
 // ── Constants ────────────────────────────────────────────────
@@ -1343,6 +1344,12 @@ export function WizardClient({
 
   // ── Validation ─────────────────────────────────────────────
 
+  /** After the step change commits, put focus on the first field in error (#37). */
+  function focusFirstInvalid(errs: Record<string, string>) {
+    const id = firstInvalidFieldId(errs);
+    if (id) requestAnimationFrame(() => document.getElementById(id)?.focus());
+  }
+
   function validate(target: number): boolean {
     const next: Record<string, string> = {};
 
@@ -1383,6 +1390,7 @@ export function WizardClient({
     if (Object.keys(next).length > 0) {
       setErrors(next);
       showToast(Object.values(next)[0]);
+      focusFirstInvalid(next);
       return false;
     }
     return true;
@@ -1672,9 +1680,11 @@ export function WizardClient({
         }
       }
     } else if (!state.title.trim()) {
-      setErrors({ title: "Add a job title to save a draft." });
+      const draftErrors = { title: "Add a job title to save a draft." };
+      setErrors(draftErrors);
       setStep(1);
       showToast("Add a job title to save a draft");
+      focusFirstInvalid(draftErrors);
       return;
     }
 
@@ -1902,13 +1912,16 @@ export function WizardClient({
                     </label>
                     <input
                       id="w-title"
+                      {...fieldErrorProps("w-title", errors.title)}
                       value={state.title}
                       onChange={(e) => set("title", e.target.value)}
                       placeholder="e.g. Senior Frontend Engineer"
                       className={`${INPUT_CLS} ${errors.title ? INPUT_ERR_CLS : ""}`}
                     />
                     {errors.title && (
-                      <p className="mt-1.5 text-xs text-[#C4362F]">{errors.title}</p>
+                      <p id={fieldErrorId("w-title")} className="mt-1.5 text-xs text-[#C4362F]">
+                        {errors.title}
+                      </p>
                     )}
                   </div>
 
@@ -2001,6 +2014,7 @@ export function WizardClient({
                       */}
                       <select
                         id="w-country"
+                        {...fieldErrorProps("w-country", errors.location)}
                         value={state.country}
                         onChange={(e) => set("country", e.target.value)}
                         className={`${INPUT_CLS} ${errors.location ? INPUT_ERR_CLS : ""}`}
@@ -2013,7 +2027,9 @@ export function WizardClient({
                         ))}
                       </select>
                       {errors.location && (
-                        <p className="mt-1.5 text-xs text-[#C4362F]">{errors.location}</p>
+                        <p id={fieldErrorId("w-country")} className="mt-1.5 text-xs text-[#C4362F]">
+                          {errors.location}
+                        </p>
                       )}
                       <label htmlFor="w-city" className={`${LABEL_CLS} mt-3`}>
                         City <span className="font-normal text-[var(--ai-t3)]">(optional)</span>
@@ -2050,6 +2066,7 @@ export function WizardClient({
                   </label>
                   <textarea
                     id="w-jd"
+                    {...fieldErrorProps("w-jd", errors.description)}
                     value={jdBox}
                     onChange={(e) => setJdBox(e.target.value)}
                     onBlur={() => {
@@ -2064,7 +2081,9 @@ export function WizardClient({
                     className={`${TEXTAREA_CLS} min-h-[360px] ${errors.description ? INPUT_ERR_CLS : ""}`}
                   />
                   {errors.description && (
-                    <p className="mt-1.5 text-xs text-[#C4362F]">{errors.description}</p>
+                    <p id={fieldErrorId("w-jd")} className="mt-1.5 text-xs text-[#C4362F]">
+                      {errors.description}
+                    </p>
                   )}
                   {jdSplitting && (
                     <p className="mt-2 text-[12.5px] text-[var(--ai-t3)]">
@@ -2131,6 +2150,7 @@ export function WizardClient({
                         </span>
                         <input
                           id="w-min"
+                          {...fieldErrorProps("w-min", errors.salary_min)}
                           type="number"
                           min={0}
                           value={state.salary_min}
@@ -2140,7 +2160,9 @@ export function WizardClient({
                         />
                       </div>
                       {errors.salary_min && (
-                        <p className="mt-1.5 text-xs text-[#C4362F]">{errors.salary_min}</p>
+                        <p id={fieldErrorId("w-min")} className="mt-1.5 text-xs text-[#C4362F]">
+                          {errors.salary_min}
+                        </p>
                       )}
                     </div>
                     <div>
@@ -2153,6 +2175,7 @@ export function WizardClient({
                         </span>
                         <input
                           id="w-max"
+                          {...fieldErrorProps("w-max", errors.salary_max)}
                           type="number"
                           min={0}
                           value={state.salary_max}
@@ -2162,7 +2185,9 @@ export function WizardClient({
                         />
                       </div>
                       {errors.salary_max && (
-                        <p className="mt-1.5 text-xs text-[#C4362F]">{errors.salary_max}</p>
+                        <p id={fieldErrorId("w-max")} className="mt-1.5 text-xs text-[#C4362F]">
+                          {errors.salary_max}
+                        </p>
                       )}
                     </div>
                   </div>
