@@ -24,6 +24,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -124,7 +125,8 @@ import {
   SplitPanel,
   type SplitPanelProps,
 } from "./_split-panel";
-import { SplitSheet } from "./_split-sheet";
+import { SplitSheet, SplitSheetSkeleton } from "./_split-sheet";
+import { SplitPanelSkeleton } from "./_split-skeleton";
 import { StageTabs } from "./_stage-tabs";
 import {
   addApplicationComment,
@@ -3828,8 +3830,13 @@ export function ApplicantsClient({
    * safe: opening sets the state and then the param, so this runs only once the
    * param has caught up and the write is a no-op. Adding `openId` to the deps
    * would fire it during that gap and close the panel just opened.
+   *
+   * A layout effect (#47): its state lands in the same commit as hydration.
+   * As a passive effect, the update waited behind the rest of hydration: on
+   * staging below 1100 a deep link's sheet stayed shut for 23 s after the
+   * page hydrated, with ?applicant= in the URL the whole time.
    */
-  useEffect(() => {
+  useLayoutEffect(() => {
     // 1100+: ?applicant= names the panel's applicant, not an open drawer.
     // The drawer opens from the panel's Details button instead.
     if (isSplitWide()) {
@@ -5400,19 +5407,36 @@ export function ApplicantsClient({
       }
     : null;
 
-  /** 1100+: the page column beside the list. */
+  /**
+   * 1100+: the page column beside the list. Until its applicant is on screen
+   * the column holds the panel's skeleton, never nothing (#47): before the page
+   * hydrates (splitWide is false until then, so the server HTML used to leave
+   * the column empty), and while a deep-linked applicant off this page is
+   * read. No rows, no panel: the empty list spans both columns instead.
+   */
+  const panelLoading = paged.length > 0 && (splitWide ? panelId !== null : !hydrated);
   const splitPanel =
-    splitProps && splitWide ? <SplitPanel key={splitProps.row.id} {...splitProps} /> : null;
+    splitProps && splitWide ? (
+      <SplitPanel key={splitProps.row.id} {...splitProps} />
+    ) : panelLoading ? (
+      <SplitPanelSkeleton />
+    ) : null;
   /**
    * Below 1100: the same content as a full-screen sheet, open only on demand
    * (commit 7). Its key is prefixed: the live drawer, a sibling in the same
    * parent, is keyed by the bare applicant id, and two siblings sharing a key
    * left the sheet's DOM behind when Back closed both at once.
    */
-  const splitSheet =
-    splitProps && !splitWide && sheetId ? (
+  const splitSheet = splitWide ? null : sheetId ? (
+    splitProps ? (
       <SplitSheet key={`sheet-${splitProps.row.id}`} {...splitProps} onClose={closeSheet} />
-    ) : null;
+    ) : (
+      <SplitSheetSkeleton key="sheet-loading" onClose={closeSheet} />
+    )
+  ) : !hydrated && deepLinkId ? (
+    // A deep link, before hydration: the sheet from the first paint (#47).
+    <SplitSheetSkeleton key="sheet-loading" onClose={closeSheet} wideHidden />
+  ) : null;
 
   const renderedPage = (
     <PageContainer>

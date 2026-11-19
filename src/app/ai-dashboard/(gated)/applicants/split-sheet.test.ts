@@ -114,8 +114,9 @@ describe("the sheet", () => {
   });
 
   test("traps focus with the shared primitive, and Escape calls onClose", () => {
-    assert.equal((SHEET_SRC.match(/useModalFocus\(/g) ?? []).length, 1);
-    assert.match(SHEET_SRC, /useModalFocus\(ref, true, \{ onClose \}\);/);
+    // The sheet and its loading skeleton (#47) are both modals, trapped the same way.
+    assert.equal((SHEET_SRC.match(/useModalFocus\(/g) ?? []).length, 2);
+    assert.equal((SHEET_SRC.match(/useModalFocus\(ref, true, \{ onClose \}\);/g) ?? []).length, 2);
     assert.equal(
       (PANEL_SRC.match(/useModalFocus\(/g) ?? []).length,
       0,
@@ -224,7 +225,8 @@ describe("history", () => {
       CLIENT_SRC,
       /onOpen=\{\(\) => \(splitWide \? selectSplit\(r\.id\) : openSheet\(r\.id\)\)\}/,
     );
-    assert.match(CLIENT_SRC, /splitProps && splitWide \? <SplitPanel/);
-    assert.match(CLIENT_SRC, /splitProps && !splitWide && sheetId \? \(/);
+    assert.match(CLIENT_SRC, /splitProps && splitWide \? \(\s*<SplitPanel/);
+    // The sheet (or its loading skeleton, #47) only below 1100.
+    assert.match(CLIENT_SRC, /const splitSheet = splitWide \? null : sheetId \? \(/);
   });
 });

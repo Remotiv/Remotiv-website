@@ -3,6 +3,7 @@ import { useRef } from "react";
 import { useModalFocus } from "@/hooks/use-modal-focus";
 import { fullName } from "./_list-row-parts";
 import { SplitPanelContent, type SplitPanelProps } from "./_split-panel";
+import { PanelSkeletonBody } from "./_split-skeleton";
 
 /**
  * The Applicants Split details below 1100px real width: the panel's content as
@@ -19,13 +20,32 @@ import { SplitPanelContent, type SplitPanelProps } from "./_split-panel";
  * under the Composer and confirm dialogs (z-[100]). The modal stack makes the
  * top layer the one that answers Escape, so one press closes one layer.
  */
+// var(--vh-full), never h-screen: inside .ai-shell's zoom, vh comes out 18%
+// short. Same frame rule as the live drawer.
+const SHEET_FRAME =
+  "fixed inset-x-0 top-0 z-[90] flex h-[var(--vh-full)] w-full flex-col bg-[var(--ai-surface)] outline-none";
+
+function SheetBackBar({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="shrink-0 border-b border-[var(--ai-line-soft)] bg-[var(--ai-surface)] px-[22px] pb-2.5 pt-3">
+      <button
+        type="button"
+        onClick={onClose}
+        data-split-sheet-back
+        className="-ml-1.5 flex items-center gap-2 rounded-[11px] py-1.5 pl-1.5 pr-2.5 text-[12.5px] font-semibold text-[var(--ai-t3)] transition-colors hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)]"
+      >
+        <ChevronLeft className="size-4" strokeWidth={1.6} />
+        Back to applicants
+      </button>
+    </div>
+  );
+}
+
 export function SplitSheet({ onClose, ...content }: SplitPanelProps & { onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   useModalFocus(ref, true, { onClose });
 
   return (
-    // var(--vh-full), never h-screen: inside .ai-shell's zoom, vh comes out 18%
-    // short. Same frame rule as the live drawer.
     <div
       ref={ref}
       tabIndex={-1}
@@ -33,20 +53,43 @@ export function SplitSheet({ onClose, ...content }: SplitPanelProps & { onClose:
       aria-modal="true"
       aria-label={`${fullName(content.row)} - applicant detail`}
       data-split-sheet
-      className="fixed inset-x-0 top-0 z-[90] flex h-[var(--vh-full)] w-full flex-col bg-[var(--ai-surface)] outline-none"
+      className={SHEET_FRAME}
     >
-      <div className="shrink-0 border-b border-[var(--ai-line-soft)] bg-[var(--ai-surface)] px-[22px] pb-2.5 pt-3">
-        <button
-          type="button"
-          onClick={onClose}
-          data-split-sheet-back
-          className="-ml-1.5 flex items-center gap-2 rounded-[11px] py-1.5 pl-1.5 pr-2.5 text-[12.5px] font-semibold text-[var(--ai-t3)] transition-colors hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)]"
-        >
-          <ChevronLeft className="size-4" strokeWidth={1.6} />
-          Back to applicants
-        </button>
-      </div>
+      <SheetBackBar onClose={onClose} />
       <SplitPanelContent {...content} />
+    </div>
+  );
+}
+
+/**
+ * The sheet while a deep-linked applicant loads (#47): the same frame and
+ * Back, the panel's skeleton below. Server-rendered for a deep link too, so a
+ * phone opening ?applicant= sees the sheet from the first paint; `wideHidden`
+ * hides that copy at 1100+, where the panel takes the applicant instead.
+ */
+export function SplitSheetSkeleton({
+  onClose,
+  wideHidden = false,
+}: {
+  onClose: () => void;
+  wideHidden?: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useModalFocus(ref, true, { onClose });
+
+  return (
+    <div
+      ref={ref}
+      tabIndex={-1}
+      role="dialog"
+      aria-modal="true"
+      aria-busy="true"
+      aria-label="Loading applicant"
+      data-split-sheet-skeleton
+      className={`${SHEET_FRAME} ${wideHidden ? "min-[1100px]:hidden" : ""}`}
+    >
+      <SheetBackBar onClose={onClose} />
+      <PanelSkeletonBody />
     </div>
   );
 }

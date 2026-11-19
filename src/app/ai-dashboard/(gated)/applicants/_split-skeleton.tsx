@@ -61,6 +61,54 @@ function HeroSkeleton() {
   );
 }
 
+/**
+ * The panel's inside while an applicant loads: the top row's two buttons, the
+ * identity row, and two cards on the inset body. Shared by the route skeleton,
+ * the panel at 1100+ and the sheet below it (#47), so all three wait in the
+ * same shape.
+ */
+export function PanelSkeletonBody() {
+  return (
+    <>
+      <div className="shrink-0 border-b border-[var(--ai-line)] px-[22px] pb-4 pt-4">
+        <div className="mb-3.5 flex gap-[9px]">
+          <div className={`${SHIMMER} h-[38px] w-24`} />
+          <div className={`${SHIMMER} h-[38px] w-20`} />
+        </div>
+        <div className="flex items-center gap-3.5">
+          <div className={`${CIRCLE} size-[54px] shrink-0`} />
+          <div className="min-w-0 flex-1">
+            <div className={`${SHIMMER} h-5 w-56 max-w-full`} />
+            <div className={`${SHIMMER} mt-2 h-3 w-72 max-w-full`} />
+          </div>
+        </div>
+      </div>
+      <div className="flex flex-1 flex-col gap-4 bg-[var(--ai-inset)] px-[22px] pt-[18px]">
+        <div className={`${SHIMMER} h-28 rounded-[20px] bg-[var(--ai-surface)]`} />
+        <div className={`${SHIMMER} h-48 rounded-[20px] bg-[var(--ai-surface)]`} />
+      </div>
+    </>
+  );
+}
+
+/**
+ * The panel column while its applicant is not on screen yet (#47): before the
+ * page hydrates, and while a deep-linked applicant off this page is read. The
+ * real panel's frame, so the real panel replaces it in the same box.
+ */
+export function SplitPanelSkeleton() {
+  return (
+    <aside
+      aria-busy="true"
+      aria-label="Loading applicant"
+      className={PANEL_FRAME}
+      data-split-panel-skeleton
+    >
+      <PanelSkeletonBody />
+    </aside>
+  );
+}
+
 export function SplitSkeleton() {
   return (
     <PageContainer>
@@ -70,23 +118,7 @@ export function SplitSkeleton() {
         <SplitLayout
           panel={
             <aside aria-hidden className={PANEL_FRAME} data-skeleton-panel>
-              <div className="shrink-0 border-b border-[var(--ai-line)] px-[22px] pb-4 pt-4">
-                <div className="mb-3.5 flex gap-[9px]">
-                  <div className={`${SHIMMER} h-[38px] w-24`} />
-                  <div className={`${SHIMMER} h-[38px] w-20`} />
-                </div>
-                <div className="flex items-center gap-3.5">
-                  <div className={`${CIRCLE} size-[54px] shrink-0`} />
-                  <div className="min-w-0 flex-1">
-                    <div className={`${SHIMMER} h-5 w-56`} />
-                    <div className={`${SHIMMER} mt-2 h-3 w-72 max-w-full`} />
-                  </div>
-                </div>
-              </div>
-              <div className="flex flex-1 flex-col gap-4 bg-[var(--ai-inset)] px-[22px] pt-[18px]">
-                <div className={`${SHIMMER} h-28 rounded-[20px] bg-[var(--ai-surface)]`} />
-                <div className={`${SHIMMER} h-48 rounded-[20px] bg-[var(--ai-surface)]`} />
-              </div>
+              <PanelSkeletonBody />
             </aside>
           }
         >
