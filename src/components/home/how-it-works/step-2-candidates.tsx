@@ -41,19 +41,15 @@ export function Step2Candidates() {
             />
           </div>
           <span className="flex-1 text-[13px] font-medium text-[#111]">Hassan Malik</span>
-          <div className="flex gap-1.5">
-            <button
-              type="button"
-              className="flex size-11 items-center justify-center rounded-full bg-[#f2ede8] transition-colors hover:bg-[#e8e0d8] sm:size-[30px]"
-            >
+          {/* Illustration only: the mock-up's action icons do nothing, so they
+              are not buttons and are hidden from assistive technology (#38). */}
+          <div aria-hidden="true" className="flex gap-1.5">
+            <span className="flex size-11 items-center justify-center rounded-full bg-[#f2ede8] sm:size-[30px]">
               <ActionOverlap />
-            </button>
-            <button
-              type="button"
-              className="flex size-11 items-center justify-center rounded-full bg-[#f2ede8] transition-colors hover:bg-[#e8e0d8] sm:size-[30px]"
-            >
+            </span>
+            <span className="flex size-11 items-center justify-center rounded-full bg-[#f2ede8] sm:size-[30px]">
               <ActionChat />
-            </button>
+            </span>
           </div>
         </div>
         <div className="ml-2.5 flex items-center gap-3 rounded-[14px] bg-white px-3.5 py-2.5 shadow-sm">
@@ -68,19 +64,13 @@ export function Step2Candidates() {
             />
           </div>
           <span className="flex-1 text-[13px] font-medium text-[#111]">Sara Qureshi</span>
-          <div className="flex gap-1.5">
-            <button
-              type="button"
-              className="flex size-11 items-center justify-center rounded-full bg-[#f2ede8] transition-colors hover:bg-[#e8e0d8] sm:size-[30px]"
-            >
+          <div aria-hidden="true" className="flex gap-1.5">
+            <span className="flex size-11 items-center justify-center rounded-full bg-[#f2ede8] sm:size-[30px]">
               <ActionOverlap />
-            </button>
-            <button
-              type="button"
-              className="flex size-11 items-center justify-center rounded-full bg-[#f2ede8] transition-colors hover:bg-[#e8e0d8] sm:size-[30px]"
-            >
+            </span>
+            <span className="flex size-11 items-center justify-center rounded-full bg-[#f2ede8] sm:size-[30px]">
               <ActionChat />
-            </button>
+            </span>
           </div>
         </div>
         <div className="ml-5 flex items-center gap-3 rounded-[14px] bg-white px-3.5 py-2.5 shadow-sm">
@@ -95,19 +85,13 @@ export function Step2Candidates() {
             />
           </div>
           <span className="flex-1 text-[13px] font-medium text-[#111]">Ali Rehman</span>
-          <div className="flex gap-1.5">
-            <button
-              type="button"
-              className="flex size-11 items-center justify-center rounded-full bg-[#f2ede8] transition-colors hover:bg-[#e8e0d8] sm:size-[30px]"
-            >
+          <div aria-hidden="true" className="flex gap-1.5">
+            <span className="flex size-11 items-center justify-center rounded-full bg-[#f2ede8] sm:size-[30px]">
               <ActionOverlap />
-            </button>
-            <button
-              type="button"
-              className="flex size-11 items-center justify-center rounded-full bg-[#f2ede8] transition-colors hover:bg-[#e8e0d8] sm:size-[30px]"
-            >
+            </span>
+            <span className="flex size-11 items-center justify-center rounded-full bg-[#f2ede8] sm:size-[30px]">
               <ActionChat />
-            </button>
+            </span>
           </div>
         </div>
       </div>
