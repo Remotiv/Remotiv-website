@@ -103,10 +103,12 @@ export function FooterCanvas() {
       clearTimeout(resizeTimeout);
       resizeTimeout = setTimeout(() => {
         if (!canvas || !wrap) return;
+        // The drawing buffer only. Its displayed size is the CSS `size-full`
+        // below, NOT an inline px width: one written here was the OLD width
+        // until this debounced callback ran, so narrowing the window left the
+        // footer wider than the page and it scrolled sideways (#42).
         canvas.width = wrap.offsetWidth * dpr;
         canvas.height = wrap.offsetHeight * dpr;
-        canvas.style.width = `${wrap.offsetWidth}px`;
-        canvas.style.height = `${wrap.offsetHeight}px`;
 
         // Compute scaleFactor relative to a 1200px reference width.
         // Clamped to [0.35, 1.0] so very narrow viewports don't render
