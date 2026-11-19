@@ -245,7 +245,7 @@ export async function listInterviewSessions(
   const q = (opts.query ?? "").trim().toLowerCase();
   const jobIds = [...new Set(sessions.map((s) => s.job_id).filter(Boolean))] as string[];
 
-  const [searchApps, jobs, answers, scores] = await Promise.all([
+  const [searchApps, jobs] = await Promise.all([
     q
       ? fetchApplications(
           service,
@@ -254,29 +254,20 @@ export async function listInterviewSessions(
         )
       : null,
     fetchJobs(service, ctx.companyId, jobIds),
-    fetchAnswerStats(
-      service,
-      sessions.map((s) => s.id),
-    ),
-    fetchSessionScores(
-      service,
-      ctx.companyId,
-      sessions.map((s) => s.id),
-      new Set(sessions.filter((s) => retentionPassed(s.delete_after, Date.now())).map((s) => s.id)),
-    ),
   ]);
   // A search over names that could not be read would silently miss matches.
   if (searchApps && !searchApps.ok) return unavailable();
 
+  /*
+   * Every scoped session becomes a row, for the counts, tabs, filters and
+   * search. Answer counts and scores are filled in after the page slice
+   * (withPageDetail): nothing before it reads them, so they are read for the
+   * visible rows only, one request each whatever the company's size.
+   */
   const rows: InterviewRow[] = sessions.map((s) => {
     // Without a search the name is filled in after the page slice.
     const who = searchApps ? candidateOf(s.application_id, searchApps) : NAME_PENDING;
-    const stats = answers.ok ? answers.value.get(s.id) : undefined;
     const status = deriveStatus(s.status, s.expires_at);
-    /* The snapshot is the better denominator and does not depend on the answer
-       read, so it survives that read failing. Only when there is no snapshot
-       does the count become unknown rather than zero. */
-    const total = snapshotLength(s.questions_snapshot) ?? (answers.ok ? (stats?.total ?? 0) : null);
     return {
       id: s.id,
       applicationId: s.application_id,
@@ -287,23 +278,16 @@ export async function listInterviewSessions(
       jobTitle: (s.job_id ? jobs.get(s.job_id) : null) ?? "This role",
       kind: readInterviewKind(s.kind, s.id),
       status,
-      /* Null when the answer read failed — see InterviewRow.progress. Purged
-         is a PRESENTATION state, not a status: the interview is still
-         submitted, its media has simply passed the retention date. Derived
-         from rows that were recorded but no longer hold a path. */
-      progress: answers.ok
-        ? {
-            answered: stats?.answered ?? 0,
-            purged: Boolean(stats && stats.answered > 0 && stats.withVideo === 0),
-          }
-        : null,
-      totalQuestions: total,
+      // Filled in for the visible rows by withPageDetail; never returned as is.
+      progress: null,
+      totalQuestions: null,
       submittedAt: s.submitted_at,
       startedAt: s.started_at,
       expiresAt: s.expires_at,
       sentAt: s.created_at,
       invitedByName: s.invited_by_name,
-      score: scores.get(s.id) ?? null,
+      score: null,
+      scoreUnavailable: false,
       archivedAt: s.archived_at,
     };
   });
@@ -366,18 +350,55 @@ export async function listInterviewSessions(
 
   const page = Math.max(1, opts.page ?? 1);
   const start = (page - 1) * PAGE_SIZE;
-  let pageRows = filtered.slice(start, start + PAGE_SIZE);
-  if (!searchApps) {
-    const apps = await fetchApplications(
+  const sliced = filtered.slice(start, start + PAGE_SIZE);
+  const pageIds = sliced.map((r) => r.id);
+  const pageSessions = sessions.filter((s) => pageIds.includes(s.id));
+  const nowMs = Date.now();
+  const [pageApps, answers, scores] = await Promise.all([
+    searchApps
+      ? null
+      : fetchApplications(
+          service,
+          ctx.companyId,
+          applicationIdsOf(sliced.map((r) => r.applicationId)),
+        ),
+    fetchAnswerStats(service, pageIds),
+    fetchSessionScores(
       service,
       ctx.companyId,
-      applicationIdsOf(pageRows.map((r) => r.applicationId)),
-    );
-    pageRows = pageRows.map((r) => {
-      const who = candidateOf(r.applicationId, apps);
-      return { ...r, candidateName: who.name, candidateEmail: who.email, candidateLink: who.link };
-    });
-  }
+      pageIds,
+      new Set(pageSessions.filter((s) => retentionPassed(s.delete_after, nowMs)).map((s) => s.id)),
+    ),
+  ]);
+  const snapshotOf = new Map(pageSessions.map((s) => [s.id, s.questions_snapshot]));
+
+  const pageRows: InterviewRow[] = sliced.map((r) => {
+    const named = pageApps ? candidateOf(r.applicationId, pageApps) : null;
+    const stats = answers.ok ? answers.value.get(r.id) : undefined;
+    /* The snapshot is the better denominator and does not depend on the answer
+       read, so it survives that read failing. Only when there is no snapshot
+       does the count become unknown rather than zero. */
+    const total = snapshotLength(snapshotOf.get(r.id)) ?? (answers.ok ? (stats?.total ?? 0) : null);
+    return {
+      ...r,
+      ...(named
+        ? { candidateName: named.name, candidateEmail: named.email, candidateLink: named.link }
+        : {}),
+      /* Null when the answer read failed — see InterviewRow.progress. Purged
+         is a PRESENTATION state, not a status: the interview is still
+         submitted, its media has simply passed the retention date. Derived
+         from rows that were recorded but no longer hold a path. */
+      progress: answers.ok
+        ? {
+            answered: stats?.answered ?? 0,
+            purged: Boolean(stats && stats.answered > 0 && stats.withVideo === 0),
+          }
+        : null,
+      totalQuestions: total,
+      score: scores.ok ? (scores.value.get(r.id) ?? null) : null,
+      scoreUnavailable: !scores.ok,
+    };
+  });
 
   return answered({
     applied,
@@ -722,15 +743,17 @@ export async function loadInterviewSession(
    * So the score arrives with nulls and gets its offsets filled in against
    * the segments already in hand.
    */
+  // A failed read throws, like the answers read above: read as "no score", it
+  // would offer "Score interview" on an interview that may already be scored.
+  const scoreRead = await fetchSessionScores(
+    service,
+    ctx.companyId,
+    [row.id],
+    new Set(evidenceDeleted ? [row.id] : []),
+  );
+  if (!scoreRead.ok) throw new Error("[review] session score read failed");
   const score = withPlacedCriteria(
-    (
-      await fetchSessionScores(
-        service,
-        ctx.companyId,
-        [row.id],
-        new Set(evidenceDeleted ? [row.id] : []),
-      )
-    ).get(row.id) ?? null,
+    scoreRead.value.get(row.id) ?? null,
     answers.map((a) => ({ id: a.id, segments: segmentsById.get(a.id) ?? null })),
   );
 
@@ -932,6 +955,9 @@ async function fetchAnswerScores(
  *
  * Company-gated on its own column rather than trusting the session join — the
  * scores table carries company_id for exactly this reason.
+ *
+ * A failed read is unavailable, for every session asked about: read as an
+ * empty map it would show "Not scored" on interviews that have a score.
  */
 async function fetchSessionScores(
   service: ReturnType<typeof createServiceClient>,
@@ -939,16 +965,20 @@ async function fetchSessionScores(
   sessionIds: string[],
   /** Sessions past delete_after: their summary and criterion quotes are not sent. */
   wordsDeleted: ReadonlySet<string>,
-): Promise<Map<string, InterviewScore>> {
+): Promise<Read<Map<string, InterviewScore>>> {
   const out = new Map<string, InterviewScore>();
   for (let i = 0; i < sessionIds.length; i += 100) {
-    const { data } = await service
+    const { data, error } = await service
       .from("interview_session_scores")
       .select(
         "session_id, status, overall_score, human_adjusted_score, human_feedback, adjusted_by_name, adjusted_at, verdict, summary, confidence, criteria, error, scored_at",
       )
       .eq("company_id", companyId)
       .in("session_id", sessionIds.slice(i, i + 100));
+    if (error) {
+      console.error("[interviews] session score read failed:", error.code ?? "error");
+      return unavailable();
+    }
 
     for (const r of (data ?? []) as {
       session_id: string;
@@ -990,7 +1020,7 @@ async function fetchSessionScores(
       });
     }
   }
-  return out;
+  return answered(out);
 }
 
 /** The note thread for one session. Oldest first — it reads as a conversation. */

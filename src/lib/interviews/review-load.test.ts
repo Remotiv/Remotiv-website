@@ -200,8 +200,9 @@ test("1,500 rows across two pages are every one of them counted", async () => {
 });
 
 // ── 5 ──
-test("a failed answer chunk makes that column unknown for every row, and fails nothing else", async () => {
-  install({ sessions: seed(250), failAnswerChunk: 2 });
+test("a failed answer read makes that column unknown for every row, and fails nothing else", async () => {
+  // #20 part 2: answer counts are read for the visible page only, one read.
+  install({ sessions: seed(250), failAnswerChunk: 1 });
   const result = await quiet(() => listInterviewSessions(ctx, { status: "all" }));
 
   assert.equal(
@@ -215,9 +216,8 @@ test("a failed answer chunk makes that column unknown for every row, and fails n
     assert.equal(
       row.progress,
       null,
-      "unknown for EVERY row or for none. These 20 rows are in the chunk that succeeded, so " +
-        "a partial map would populate them and leave the sessions after #100 reading 0/3 — " +
-        "and map.get() cannot tell 'no answers' from 'that chunk failed'",
+      "unknown for EVERY row or for none: a failed read must never render as 0/3, and " +
+        "map.get() cannot tell 'no answers' from 'the read failed'",
     );
   }
 

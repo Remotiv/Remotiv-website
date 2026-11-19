@@ -86,8 +86,13 @@ export type InterviewRow = {
   expiresAt: string | null;
   sentAt: string;
   invitedByName: string | null;
-  /** Null when nothing has scored this interview yet. */
+  /** Null when nothing has scored this interview yet, or the read failed. */
   score: InterviewScore | null;
+  /**
+   * True when the score read FAILED, so a null `score` means "unknown", not
+   * "not scored". Rendered as "Score unavailable", never as "Not scored".
+   */
+  scoreUnavailable: boolean;
   /**
    * Set when the interview has been archived out of the working list.
    *

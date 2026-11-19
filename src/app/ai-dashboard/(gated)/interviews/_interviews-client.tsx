@@ -488,7 +488,12 @@ function LoadFailure({
  * reviewer's correction always wins over the model's — the point of the
  * override column is that the human is right.
  */
-function ScorePill({ score }: { score: InterviewScore | null }) {
+function ScorePill({ score, unavailable }: { score: InterviewScore | null; unavailable: boolean }) {
+  if (unavailable) {
+    return (
+      <span className="text-[12.5px] italic text-[var(--ai-t4)]">Score unavailable</span>
+    );
+  }
   if (!score) {
     return (
       <span className="text-[12.5px] italic text-[var(--ai-t4)]">Not scored</span>
@@ -694,7 +699,7 @@ function Row({ row, onArchived }: { row: InterviewRow; onArchived: () => void })
       <AnswerCount row={row} />
 
       <span className="justify-self-start">
-        <ScorePill score={row.score} />
+        <ScorePill score={row.score} unavailable={row.scoreUnavailable} />
       </span>
 
       <span className="whitespace-nowrap text-[13px] text-[var(--ai-t2)]">
