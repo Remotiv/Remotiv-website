@@ -19,9 +19,10 @@
  * degrades to the previous per-instance behaviour — never blocks the request
  * path, never throws.
  *
- * Fallback: when UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN are not
- * set (e.g. local dev without a Redis account), `redis` is null and the
- * limiter runs in-memory only — local dev keeps working with zero setup.
+ * Fallback: with no complete credential pair (UPSTASH_REDIS_REST_URL +
+ * UPSTASH_REDIS_REST_TOKEN, else KV_REST_API_URL + KV_REST_API_TOKEN, never one
+ * name from each), or a pair the client refuses, there is no Redis client and
+ * the limiter runs in-memory only. Local dev keeps working with zero setup.
  *
  * Defaults: 30 requests / minute / IP. Per-route overrides via the opts
  * argument — see /api/check-duplicate which raises the cap to 100/min
@@ -30,7 +31,10 @@
 
 import { Redis } from "@upstash/redis";
 import {
+  LOG_PREFIX,
   redisCheckLine,
+  redisCredentialPair,
+  redisReasonCode,
   storeChoice,
   storeChoiceLine,
   throttledFailureLog,
@@ -42,11 +46,33 @@ const buckets = new Map<string, Bucket>();
 const DEFAULT_WINDOW_MS = 60_000;
 const DEFAULT_MAX = 30;
 
-// Shared store across all instances; null → in-memory fallback (local dev).
-const redis =
-  process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
-    ? Redis.fromEnv()
-    : null;
+/**
+ * The shared store's client, built on FIRST USE inside a try (#57), the way
+ * invite-password-limit.ts builds #48's. It used to be built while this module
+ * loaded (Redis.fromEnv()), and the client's constructor throws UrlError on a
+ * malformed URL, so one bad setting threw out of the import: every route that
+ * limits (41 call sites) and `next build` with it, and the error's message is
+ * the URL itself, which then sat in the build log.
+ *
+ * Now a refused client is one line, `[rate-limit] redis-client=failed
+ * reason=BADURL` (a reason code, never the message), and the limiter runs in
+ * memory, as it does with no Redis configured. Settings do not change inside a
+ * running instance, so the answer is kept for its life: no retry, no repeated
+ * line. Credentials only as a complete pair (redisCredentialPair).
+ */
+let client: Redis | null | undefined;
+function redisClient(): Redis | null {
+  if (client !== undefined) return client;
+  const creds = redisCredentialPair(process.env, { kvFallback: true });
+  client = null;
+  if (!creds) return client;
+  try {
+    client = new Redis({ url: creds.url, token: creds.token });
+  } catch (err) {
+    console.error(`${LOG_PREFIX} redis-client=failed reason=${redisReasonCode(err)}`);
+  }
+  return client;
+}
 
 /*
  * Diagnostics only (#48 / #57): which store this instance picked, and whether
@@ -56,7 +82,8 @@ const redis =
  */
 const diagnosticsOn = process.env.NEXT_PHASE !== "phase-production-build";
 if (diagnosticsOn) {
-  console.info(storeChoiceLine(storeChoice(process.env)));
+  console.info(storeChoiceLine(storeChoice(process.env, { kvFallback: true })));
+  const redis = redisClient();
   if (redis) void redisCheckLine(redis).then((line) => console.info(line));
 }
 const logSyncFailure = throttledFailureLog((line) => console.error(line));
@@ -73,6 +100,7 @@ export type RateLimitResult =
  * as a reason code, at most once a minute (redis-diagnostics.ts).
  */
 function syncRemoteCount(key: string, windowMs: number, resetAt: number): void {
+  const redis = redisClient();
   if (!redis) return;
   const redisKey = `rl:${key}:${resetAt}`;
   redis
