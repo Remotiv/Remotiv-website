@@ -201,7 +201,7 @@ test("no invited-only path accepts an unknown status", () => {
   );
   assert.match(
     client,
-    /row\.status === "unknown"\s*\?\s*"Needs check"\s*:\s*`Due \$\{fmtDate\(row\.expiresAt\)\}`/,
+    /row\.status === "unknown"\s*\?\s*"Needs check"\s*:\s*`Due \$\{fmtDate\(row\.expiresAt, local\)\}`/,
   );
   assert.match(client, /\{ key: "unknown", label: "Needs check" \}/);
   assert.match(

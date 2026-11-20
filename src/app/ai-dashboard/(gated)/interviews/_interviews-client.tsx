@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState, useTransition } from "react";
+import { useCallback, useMemo, useState, useSyncExternalStore, useTransition } from "react";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -68,16 +68,32 @@ function initials(name: string): string {
     .toUpperCase();
 }
 
-function fmtDate(iso: string | null): string {
+/**
+ * A date, in UTC until hydration and then in the reader's own zone (#64): the
+ * server (Vercel) runs in UTC and the browser does not, a late-evening stamp is
+ * the next day in Karachi, and text that differs between the two renders is
+ * React's #418 hydration error. Same rule as the review page (#63).
+ */
+export function fmtDate(iso: string | null, local: boolean): string {
   if (!iso) return "";
   const d = new Date(iso);
   return Number.isNaN(d.getTime())
     ? ""
-    : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+    : d.toLocaleDateString("en-GB", {
+        day: "numeric",
+        month: "short",
+        ...(local ? {} : { timeZone: "UTC" }),
+      });
 }
 
-function relative(iso: string | null): string {
+/**
+ * "5h ago" needs a clock, and the server's and the browser's read at different
+ * moments, so until hydration this is the UTC date instead. After hydration,
+ * the live relative time.
+ */
+export function relative(iso: string | null, local: boolean): string {
   if (!iso) return "";
+  if (!local) return fmtDate(iso, false);
   const ms = Date.now() - new Date(iso).getTime();
   const days = Math.floor(ms / 86_400_000);
   if (days <= 0) {
@@ -86,7 +102,17 @@ function relative(iso: string | null): string {
   }
   if (days === 1) return "Yesterday";
   if (days < 30) return `${days} days ago`;
-  return fmtDate(iso);
+  return fmtDate(iso, true);
+}
+
+const NEVER_CHANGES = () => () => {};
+/** False on the server and during hydration, true after: the same in both renders. */
+function useIsHydrated(): boolean {
+  return useSyncExternalStore(
+    NEVER_CHANGES,
+    () => true,
+    () => false,
+  );
 }
 
 const PILL: Record<InterviewStatus, string> = {
@@ -627,6 +653,7 @@ function Row({ row, onArchived }: { row: InterviewRow; onArchived: () => void })
   const [bg, fg] = getTint(row.id);
   const openable = rowOpenable(row);
   const archived = row.archivedAt !== null;
+  const local = useIsHydrated();
 
   const inner = (
     <>
@@ -704,18 +731,18 @@ function Row({ row, onArchived }: { row: InterviewRow; onArchived: () => void })
 
       <span className="whitespace-nowrap text-[13px] text-[var(--ai-t2)]">
         {row.status === "submitted"
-          ? relative(row.submittedAt)
+          ? relative(row.submittedAt, local)
           : row.status === "started"
-            ? `Started ${relative(row.startedAt)}`
+            ? `Started ${relative(row.startedAt, local)}`
             : row.status === "expired"
-              ? `Expired ${fmtDate(row.expiresAt)}`
+              ? `Expired ${fmtDate(row.expiresAt, local)}`
               : row.status === "unknown"
                 ? "Needs check"
-                : `Due ${fmtDate(row.expiresAt)}`}
+                : `Due ${fmtDate(row.expiresAt, local)}`}
         <small className="mt-px block text-[11.5px] text-[var(--ai-t4)]">
           {row.status === "submitted"
-            ? fmtDate(row.submittedAt)
-            : `Invited ${fmtDate(row.sentAt)}`}
+            ? fmtDate(row.submittedAt, local)
+            : `Invited ${fmtDate(row.sentAt, local)}`}
         </small>
       </span>
 
