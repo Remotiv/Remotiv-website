@@ -189,7 +189,8 @@ async function gate(
   if (session.live_ended_at === null) {
     const due = liveEndDueAt(session);
     if (due !== null && due <= now()) {
-      await stampLiveEnded(deps.service, session.id, now);
+      // At the due time, not now (#17): see stampLiveEnded.
+      await stampLiveEnded(deps.service, session.id, () => due);
       const again = await sessionFor(deps.service, token);
       if (!again) return fail(404, "not_found", "This interview link isn't valid.");
       return { session: again, phase: phase(again, now()) };

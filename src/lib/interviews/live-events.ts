@@ -54,6 +54,15 @@ type Service = ReturnType<typeof createServiceClient>;
 /** After the time limit, how long before the backstop ends the interview. */
 export const END_GRACE_MS = 10 * 60_000;
 
+/**
+ * How long after the call ended a report is still taken (#17): the same 30
+ * minutes a reserved video piece may still be confirmed (UPLOAD_WINDOW_MS in
+ * live-video.ts, which imports this file, so the value is repeated here and a
+ * test pins the two equal). A report is a record of the call; one arriving
+ * later than this is an old link, not the call.
+ */
+export const REPORT_WINDOW_MS = 30 * 60_000;
+
 /** Sessions the sweep looks at per tick. */
 export const BACKSTOP_BATCH = 200;
 
@@ -81,6 +90,24 @@ type SessionRow = {
 const SESSION_COLUMNS =
   "id, company_id, kind, status, expires_at, started_at, live_ended_at, provider_session_id, live_settings, delete_after, purged_at";
 
+/**
+ * When the call ended, for the report window (#17): the stamped end, or the
+ * backstop's due time once that has passed, whichever is earlier. The earlier
+ * one because a stamp can land later than the due time (the sweep's next tick,
+ * or 044 storing now() for the due time written), and a window measured from
+ * that would restart each time the end was noticed late.
+ */
+export function effectiveEndMs(
+  row: Pick<SessionRow, "id" | "started_at" | "live_settings" | "live_ended_at">,
+  nowMs: number,
+): number | null {
+  const stamped = row.live_ended_at ? Date.parse(row.live_ended_at) : null;
+  const due = liveEndDueAt(row);
+  const dueEnd = due !== null && due <= nowMs ? due : null;
+  if (stamped === null || Number.isNaN(stamped)) return dueEnd;
+  return dueEnd === null ? stamped : Math.min(stamped, dueEnd);
+}
+
 /** When the backstop ends this interview, or null before it has started. */
 export function liveEndDueAt(
   row: Pick<SessionRow, "id" | "started_at" | "live_settings">,
@@ -94,9 +121,17 @@ export function liveEndDueAt(
 }
 
 /**
- * Stamp the end, if it is not stamped yet. The value written is replaced by
- * the database's now() (044); writing it a second time would be refused, so
- * the update only matches an unstamped row. True when this call stamped it.
+ * Stamp the end, if it is not stamped yet. Writing it a second time would be
+ * refused, so the update only matches an unstamped row. True when this call
+ * stamped it.
+ *
+ * `now` is the end to record. The backstop passes the moment it was DUE, not
+ * the moment it noticed (#17), so a call that ran over ends when its limit
+ * says, however late a report, a video request or the sweep arrives. Migration
+ * 044 replaces any written value with the database's now(); migration 069 lets
+ * a past value between started_at and now() stand. Until 069 runs, the stored
+ * end may be later than the due time, and the report window does not depend
+ * on it (effectiveEndMs).
  */
 export async function stampLiveEnded(
   service: Service,
@@ -117,13 +152,18 @@ export async function stampLiveEnded(
   return ((data ?? []) as unknown[]).length > 0;
 }
 
-async function sessionFor(service: Service, token: string): Promise<SessionRow | null> {
+/** The live session for this link; "unread" when the read failed (#17): not "no such link". */
+async function sessionFor(service: Service, token: string): Promise<SessionRow | null | "unread"> {
   if (!token || token.length < 20 || token.length > 200) return null;
-  const { data } = await service
+  const { data, error } = await service
     .from("interview_sessions")
     .select(SESSION_COLUMNS)
     .eq("token_hash", hashSessionToken(token))
     .maybeSingle();
+  if (error) {
+    console.error(`[live-events] session read failed (${error.code ?? "error"})`);
+    return "unread";
+  }
   const row = data as SessionRow | null;
   return row?.kind === "live" ? row : null;
 }
@@ -136,10 +176,18 @@ async function sessionFor(service: Service, token: string): Promise<SessionRow |
  * An `invited` session is closed once its deadline passes. Anything else is
  * refused, so a status this code has never heard of records nothing and stamps
  * nothing.
+ *
+ * And no report lands more than REPORT_WINDOW_MS after the call ended (#17):
+ * until then an old link could write rows until the retention date, six months.
+ * The end is effectiveEndMs: a call that ran over ended when its limit was due,
+ * whenever that was noticed, so a late arrival can never restart the window.
  */
 function closedToReports(row: SessionRow, nowMs: number): boolean {
   if (retentionOver(row, nowMs)) return true;
-  if (row.status === "started") return false;
+  if (row.status === "started") {
+    const ended = effectiveEndMs(row, nowMs);
+    return ended !== null && nowMs > ended + REPORT_WINDOW_MS;
+  }
   if (row.status === "invited") return Date.parse(row.expires_at) <= nowMs;
   return true;
 }
@@ -162,7 +210,23 @@ export async function handleLiveEvent(
     return fail(400, "bad_event", "That event detail isn't recognised.");
   }
   const session = await sessionFor(deps.service, String(body.token ?? ""));
+  // Unknown is not "invalid": 5xx, which the screen may send again.
+  if (session === "unread")
+    return fail(502, "not_recorded", "Couldn't record that. Please try again.");
   if (!session) return fail(404, "not_found", "This interview link isn't valid.");
+
+  // A report never ends the interview (RB1). Only the server-side backstop may
+  // stamp here, at the time it was due (#17), and before the report is judged:
+  // a call that ran over is ended even when this late report is refused.
+  if (
+    session.status === "started" &&
+    session.provider_session_id &&
+    session.live_ended_at === null &&
+    !retentionOver(session, now())
+  ) {
+    const due = liveEndDueAt(session);
+    if (due !== null && due <= now()) await stampLiveEnded(deps.service, session.id, () => due);
+  }
   if (closedToReports(session, now())) {
     console.warn(`[live-events] session ${session.id}: refused, closed`);
     return fail(409, "not_open", "This interview is closed.");
@@ -170,12 +234,6 @@ export async function handleLiveEvent(
   // Nothing to report before the conversation was set up (api/interview/live/start).
   if (!session.provider_session_id) {
     return fail(409, "not_started", "This interview hasn't started.");
-  }
-
-  // A report never ends the interview (RB1). Only the server-side backstop may stamp here.
-  if (session.live_ended_at === null) {
-    const due = liveEndDueAt(session);
-    if (due !== null && due <= now()) await stampLiveEnded(deps.service, session.id, now);
   }
 
   const { error } = await deps.service.from("live_session_events").insert({
@@ -222,7 +280,9 @@ export async function stampOverdueLiveEnds(
   let stamped = 0;
   for (const row of (data ?? []) as Pick<SessionRow, "id" | "started_at" | "live_settings">[]) {
     const due = liveEndDueAt(row);
-    if (due !== null && due <= now() && (await stampLiveEnded(service, row.id, now))) stamped += 1;
+    if (due !== null && due <= now() && (await stampLiveEnded(service, row.id, () => due))) {
+      stamped += 1;
+    }
   }
   if (stamped > 0) console.log(`[live-events] backstop ended ${stamped} live interviews`);
   return stamped;

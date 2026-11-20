@@ -294,21 +294,24 @@ test("a live event on an abandoned session is refused and nothing is stored", as
 });
 
 test("a live event on any other session is handled as before", async () => {
-  const restart = world([firstAbandoned(), secondInvited({ ...called, status: "started" })]);
+  // Calls still in progress: started a minute ago (#17 refuses reports long
+  // after a call's limit, and `called` started 48 hours ago).
+  const inCall = { ...called, status: "started", started_at: iso(NOW - 60_000) };
+  const restart = world([firstAbandoned(), secondInvited(inCall)]);
   const ok = await post(NEW_TOKEN);
   assert.deepEqual(ok.result, { status: 200, body: { ok: true } }, "attempt 2");
   assert.deepEqual(
     restart.tables.live_session_events.map((e) => [e.session_id, e.kind]),
     [[SECOND, "tab_closed"]],
   );
-  world([live({ ...called, status: "started" })]);
+  world([live(inCall)]);
   assert.equal((await post(OLD_TOKEN)).result.status, 200, "a call never restarted");
   world([live()]);
   assert.equal((await post(OLD_TOKEN)).result.body.code, "not_started");
   world([]);
   assert.equal((await post(OLD_TOKEN)).result.body.code, "not_found");
   assert.equal((await post("short")).result.body.code, "not_found", "a malformed token");
-  world([live({ ...called, status: "started" })]);
+  world([live(inCall)]);
   assert.equal((await post(OLD_TOKEN, "not_a_kind")).result.body.code, "bad_event");
 });
 

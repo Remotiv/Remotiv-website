@@ -191,10 +191,13 @@ test("a late report after the end, the export saved: still recorded, the end unm
   assert.equal(db.tables.interview_sessions[0].live_ended_at, ended);
 });
 
-test("the backstop still ends a real call that runs over, and no delete_after changes nothing", async () => {
+// #17: the call ended when its limit was due (29 hours ago), so this late
+// report is refused, and the backstop still stamps the end.
+test("the backstop still ends a real call that runs over; a report this late is refused; no delete_after changes nothing", async () => {
   const db = world({ ...OVERDUE, delete_after: null });
-  assert.equal((await send()).status, 200);
-  assert.equal(rowsOf(db).length, 1);
+  const res = await send();
+  assert.deepEqual([res.status, res.body], [409, NOT_OPEN]);
+  assert.equal(rowsOf(db).length, 0);
   assert.notEqual(db.tables.interview_sessions[0].live_ended_at, null);
 });
 
