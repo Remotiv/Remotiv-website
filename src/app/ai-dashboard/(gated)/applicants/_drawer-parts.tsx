@@ -9,7 +9,7 @@ import {
   Mail,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   ApplicantScoreDetail,
   CompanyApplicantRow,
@@ -630,6 +630,32 @@ export function WorthALookBanner({
   );
 }
 
+/**
+ * #6: can this row's CV really be opened? Asked of the CV route (`?check=1`,
+ * same company and job checks, storage's own answer, not logged as a view)
+ * once per row with a CV. "unavailable" means storage says the file is gone;
+ * anything else, including no answer yet or a failed check, keeps the button.
+ */
+export function useCvAvailability(applicationId: string, hasCv: boolean): string | null {
+  const [cv, setCv] = useState<{ id: string; value: string } | null>(null);
+  useEffect(() => {
+    if (!hasCv) return;
+    let cancelled = false;
+    fetch(`/api/cv/company-application/${applicationId}?check=1`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: { cv?: string } | null) => {
+        if (!cancelled && typeof body?.cv === "string")
+          setCv({ id: applicationId, value: body.cv });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [applicationId, hasCv]);
+  // An answer for another row (the drawer moved on) is never shown for this one.
+  return cv?.id === applicationId ? cv.value : null;
+}
+
 export function ApplicationCard({
   row,
   applied,
@@ -639,6 +665,7 @@ export function ApplicationCard({
   applied: { main: string };
   onEmail: () => void;
 }) {
+  const cvLost = useCvAvailability(row.id, row.has_cv) === "unavailable";
   return (
     <PaneCard title="Application">
       <p className="m-0 text-[13px] leading-relaxed text-[var(--ai-t3)]">
@@ -665,24 +692,35 @@ export function ApplicationCard({
           than floating below the fact they act on. */}
       <div className="mt-4 flex gap-[9px] border-t border-[var(--ai-line-soft)] pt-4">
         {/* A real anchor, not window.open from an async handler — Safari
-            blocks the latter. The route signs and 302-redirects. */}
-        <a
-          href={`/api/cv/company-application/${row.id}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-disabled={!row.has_cv}
-          onClick={(e) => {
-            if (!row.has_cv) e.preventDefault();
-          }}
-          className={`flex flex-1 items-center justify-center gap-[7px] rounded-xl px-3 py-[11px] text-[13px] font-bold transition-colors ${
-            row.has_cv
-              ? "bg-remotiv-purple text-white shadow-[0_6px_18px_rgba(126,71,255,0.3)] hover:bg-[var(--ai-purple-hover)]"
-              : "cursor-not-allowed bg-[var(--ai-inset)] text-[var(--ai-t4)]"
-          }`}
-        >
-          <File className="size-[15px]" strokeWidth={1.9} />
-          {cvLabel(row)}
-        </a>
+            blocks the latter. The route signs and 302-redirects. A CV whose
+            file storage reports gone (#6) gets no link at all. */}
+        {cvLost ? (
+          <span
+            className="flex flex-1 cursor-not-allowed items-center justify-center gap-[7px] rounded-xl bg-[var(--ai-inset)] px-3 py-[11px] text-[13px] font-bold text-[var(--ai-t4)]"
+            data-cv-unavailable
+          >
+            <File className="size-[15px]" strokeWidth={1.9} />
+            CV unavailable
+          </span>
+        ) : (
+          <a
+            href={`/api/cv/company-application/${row.id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-disabled={!row.has_cv}
+            onClick={(e) => {
+              if (!row.has_cv) e.preventDefault();
+            }}
+            className={`flex flex-1 items-center justify-center gap-[7px] rounded-xl px-3 py-[11px] text-[13px] font-bold transition-colors ${
+              row.has_cv
+                ? "bg-remotiv-purple text-white shadow-[0_6px_18px_rgba(126,71,255,0.3)] hover:bg-[var(--ai-purple-hover)]"
+                : "cursor-not-allowed bg-[var(--ai-inset)] text-[var(--ai-t4)]"
+            }`}
+          >
+            <File className="size-[15px]" strokeWidth={1.9} />
+            {cvLabel(row)}
+          </a>
+        )}
         {/* Opens the composer rather than handing off to the OS mail
             client. A mailto: sends from the recruiter's own address, which
             is the one thing the identity block exists to prevent — and it

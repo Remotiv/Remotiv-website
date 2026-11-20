@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/app/admin/lib/role-guards";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
 import { adminApplicationScope } from "@/lib/admin-scope";
+import { CV_UNAVAILABLE, cvObjectState } from "@/lib/cv-object";
 import { deriveCvPathFromUrl } from "@/lib/cv-path";
 
 export const runtime = "nodejs";
@@ -90,6 +91,15 @@ export async function GET(
       "CV not found",
       "This application doesn't have a CV file attached.",
     );
+  }
+
+  // 4b. #6: is the file really there? Only storage's own "not found" counts
+  //     (cv-object.ts). A missing CV gets a plain page instead of a link that
+  //     fails, and no audit row, because nothing is opened. Anything else goes
+  //     on to sign exactly as before.
+  if ((await cvObjectState(service.storage.from(CV_BUCKET), cvPath)).state === "missing") {
+    console.error("[cv-admin-application] CV object missing from storage");
+    return htmlError(404, CV_UNAVAILABLE.title, CV_UNAVAILABLE.body);
   }
 
   // 5. Download mode? ?download=1 → force Content-Disposition: attachment via

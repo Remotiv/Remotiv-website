@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import { roleAllowsJobAction } from "@/app/ai-dashboard/lib/job-scope";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
+import { CV_UNAVAILABLE, availabilityOf, cvObjectState } from "@/lib/cv-object";
 import { deriveCvPathFromUrl } from "@/lib/cv-path";
 import { createServiceClient } from "@/lib/supabase/server";
 
@@ -122,6 +123,12 @@ export async function GET(request: Request, routeCtx: { params: Promise<{ id: st
   // 3. Resolve the storage path (prefer cv_path; derive from the legacy public
   //    cv_url for rows that predate the private bucket).
   const cvPath = application.cv_path ?? deriveCvPathFromUrl(application.cv_url);
+  // #6: `?check=1` asks only whether the CV can be opened, so the drawer can
+  // say "CV unavailable" instead of offering a link that cannot work. Same
+  // checks as an open, answered in JSON, and NOT logged as a view: nothing is
+  // served. A refused check gets the same HTML 404 as a refused open.
+  const checkOnly = new URL(request.url).searchParams.get("check") === "1";
+  if (checkOnly && !cvPath) return NextResponse.json({ cv: "none" });
   if (!cvPath) {
     /*
      * Expired and never-supplied are different facts and must not share a
@@ -159,17 +166,22 @@ export async function GET(request: Request, routeCtx: { params: Promise<{ id: st
   //    a THROW (dropped connection, DNS, abort) are both "no size". Nothing of
   //    the thrown object is logged; a storage error is the one place a path or
   //    URL could still reach the logs.
+  //    #6: the same read says whether the object exists at all. Only storage's
+  //    own "not found" counts as missing (cv-object.ts): that CV is lost, the
+  //    recruiter is told so in plain words, and no view is logged because
+  //    nothing is served. Any other failure is unknown and the open goes on
+  //    exactly as before.
+  const object = await cvObjectState(bucket, cvPath);
+  if (checkOnly) return NextResponse.json({ cv: availabilityOf(object) });
+  if (object.state === "missing") {
+    console.error("[cv-company-application] CV object missing from storage");
+    return htmlError(404, CV_UNAVAILABLE.title, CV_UNAVAILABLE.body);
+  }
   let contentLength: string | null = null;
-  try {
-    const { data: info, error: infoErr } = await bucket.info(cvPath);
-    const size = infoErr ? undefined : info?.size;
-    if (typeof size === "number" && Number.isSafeInteger(size) && size > 0) {
-      contentLength = String(size);
-    } else {
-      console.error("[cv-company-application] size unavailable; serving without Content-Length");
-    }
-  } catch {
-    console.error("[cv-company-application] size read threw; serving without Content-Length");
+  if (object.state === "present" && object.size !== null) {
+    contentLength = String(object.size);
+  } else {
+    console.error("[cv-company-application] size unavailable; serving without Content-Length");
   }
 
   // 6. The access log, AWAITED and FAIL-CLOSED (#99; the #71A defect class).

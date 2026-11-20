@@ -1403,6 +1403,34 @@ export function ApplicationsDashboard({
   }, [search, filterJob, tagFilters, talentFilter]);
   const pageItems = paginate(filtered, page);
 
+  /*
+   * #6: which of this page's CVs can really be opened. One request per page;
+   * storage answers (api/cv/admin-application/availability). A row whose file
+   * is gone shows "CV unavailable" instead of links that would fail. Until the
+   * answer arrives, or if it cannot be had, the links stay as they were.
+   */
+  const pageIds = pageItems.map((a) => a.id).join(",");
+  const [cvAvailability, setCvAvailability] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!pageIds) return;
+    let cancelled = false;
+    fetch("/api/cv/admin-application/availability", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ids: pageIds.split(",") }),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: { results?: Record<string, string> } | null) => {
+        if (!cancelled && body?.results) {
+          setCvAvailability((prev) => ({ ...prev, ...body.results }));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [pageIds]);
+
   // ── Stats ─────────────────────────────────────────────────
   // Phase 4: tile counts now come from the current admin's own tag rows,
   // not the shared legacy `status`. A row with two of this admin's tags is
@@ -1675,28 +1703,34 @@ export function ApplicationsDashboard({
                           {app.job_title ?? <span className="text-gray-300">—</span>}
                         </td>
                         <td className="px-6 py-4">
-                          <div className="flex items-center gap-2">
-                            <a
-                              href={`/api/cv/admin-application/${app.id}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center gap-1 rounded-lg bg-remotiv-purple/10 px-2.5 py-1 text-xs font-medium text-remotiv-purple transition-colors hover:bg-remotiv-purple/20"
-                            >
-                              <ExternalLink className="size-3" strokeWidth={2} />
-                              View
-                            </a>
-                            <a
-                              href={`/api/cv/admin-application/${app.id}?download=1`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-200"
-                            >
-                              <Download className="size-3" strokeWidth={2} />
-                              Download
-                            </a>
-                          </div>
+                          {cvAvailability[app.id] === "unavailable" ? (
+                            <span className="text-xs text-gray-400" data-cv-unavailable>
+                              CV unavailable
+                            </span>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <a
+                                href={`/api/cv/admin-application/${app.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center gap-1 rounded-lg bg-remotiv-purple/10 px-2.5 py-1 text-xs font-medium text-remotiv-purple transition-colors hover:bg-remotiv-purple/20"
+                              >
+                                <ExternalLink className="size-3" strokeWidth={2} />
+                                View
+                              </a>
+                              <a
+                                href={`/api/cv/admin-application/${app.id}?download=1`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-200"
+                              >
+                                <Download className="size-3" strokeWidth={2} />
+                                Download
+                              </a>
+                            </div>
+                          )}
                         </td>
                         <td className="px-6 py-4">
                           {app.source === "manual_upload" ? (

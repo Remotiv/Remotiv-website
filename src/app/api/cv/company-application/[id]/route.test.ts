@@ -153,6 +153,7 @@ async function open(
     storageFails = false,
     infoFails = false,
     infoThrows = false,
+    infoMissing = false,
     streamThrows = false,
     size = PDF_BYTES.length,
   } = {},
@@ -186,6 +187,18 @@ async function open(
           // A network failure THROWS rather than resolving; the message carries
           // the secret so a leak would be caught.
           if (infoThrows) throw new Error(`info failed ${SECRET_URL}`);
+          // #6: storage's own answer for a missing object (read on staging).
+          if (infoMissing) {
+            return {
+              data: null,
+              error: {
+                name: "StorageApiError",
+                status: 400,
+                statusCode: "404",
+                message: "Object not found",
+              },
+            };
+          }
           if (infoFails) {
             return { data: null, error: { message: `info failed ${SECRET_URL}`, status: 500 } };
           }
@@ -479,8 +492,60 @@ test("15. asStream() THROWS: the 502 page, no bytes, nothing leaked - one path w
 test("16. neither catch logs the thrown object: the console lines are fixed strings", async () => {
   const infoCase = await open("recruiter", "A1", { infoThrows: true });
   const streamCase = await open("recruiter", "A1", { streamThrows: true });
+  // #6: a throw is "unknown" in cvObjectState, logged as the one fixed size line.
   assert.deepEqual(infoCase.logged, [
-    "[cv-company-application] size read threw; serving without Content-Length",
+    "[cv-company-application] size unavailable; serving without Content-Length",
   ]);
   assert.deepEqual(streamCase.logged, ["[cv-company-application] storage read failed"]);
+});
+
+// ── #6: a CV whose file is gone from storage ─────────────────────
+
+const UNAVAILABLE_BODY =
+  "The CV file for this application is missing, so it can't be opened. The applicant's details and your hiring notes are unaffected.";
+
+// Negative control: delete the `object.state === "missing"` branch and this
+// is the old 502 "Something went wrong" after a logged view.
+test("19. storage says the file is gone: a plain 'CV unavailable' page, no view logged, nothing streamed", async () => {
+  const r = await open("recruiter", "A1", { infoMissing: true });
+  assert.equal(r.res.status, 404);
+  const body = await bodyText(r.res);
+  assert.match(body, /<title>CV unavailable<\/title>/);
+  assert.ok(body.includes(UNAVAILABLE_BODY));
+  assert.ok(
+    !/Object not found|statusCode|x\/a1\.pdf|try again/i.test(body),
+    "no storage text, no false retry",
+  );
+  assert.equal(r.logs.length, 0, "nothing was viewed, so nothing is logged");
+  assert.deepEqual(r.events, ["info"], "no stream is asked for");
+  assert.deepEqual(r.logged, ["[cv-company-application] CV object missing from storage"]);
+});
+
+test("20. ?check=1 says available, unavailable or unknown, and logs no view", async () => {
+  for (const [opts, cv] of [
+    [{}, "available"],
+    [{ infoMissing: true }, "unavailable"],
+    [{ infoFails: true }, "unknown"],
+    [{ infoThrows: true }, "unknown"],
+  ]) {
+    const r = await open("recruiter", "A1", { ...opts, query: "?check=1" });
+    assert.equal(r.res.status, 200, JSON.stringify(opts));
+    assert.deepEqual(JSON.parse(await bodyText(r.res)), { cv }, JSON.stringify(opts));
+    assert.equal(r.logs.length, 0, "a check is not a view");
+    assert.ok(!r.events.includes("stream"));
+  }
+});
+
+test("21. ?check=1 is refused exactly as an open is: not in workspace, other job, other company", async () => {
+  for (const [role, who, teamJobs] of [
+    ["recruiter", "B1", [JOB_A]],
+    ["recruiter", "C1", [JOB_A]],
+    ["recruiter", "N1", [JOB_A]],
+  ]) {
+    const checked = await open(role, who, { teamJobs, query: "?check=1" });
+    const opened = await open(role, who, { teamJobs });
+    assert.equal(checked.res.status, 404, who);
+    assert.equal(await bodyText(checked.res), await bodyText(opened.res), `${who}: same refusal`);
+    assert.deepEqual(checked.events, [], `${who}: storage never asked`);
+  }
 });
