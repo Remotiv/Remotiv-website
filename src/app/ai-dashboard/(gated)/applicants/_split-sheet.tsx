@@ -21,9 +21,11 @@ import { PanelSkeletonBody } from "./_split-skeleton";
  * top layer the one that answers Escape, so one press closes one layer.
  */
 // var(--vh-full), never h-screen: inside .ai-shell's zoom, vh comes out 18%
-// short. Same frame rule as the live drawer.
+// short. Same frame rule as the live drawer. The sheet takes focus when it
+// opens, so it keeps a keyboard focus ring (#46): inset, since the sheet fills
+// the screen and an outer ring would fall outside it.
 const SHEET_FRAME =
-  "fixed inset-x-0 top-0 z-[90] flex h-[var(--vh-full)] w-full flex-col bg-[var(--ai-surface)] outline-none";
+  "fixed inset-x-0 top-0 z-[90] flex h-[var(--vh-full)] w-full flex-col bg-[var(--ai-surface)] outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-remotiv-purple";
 
 function SheetBackBar({ onClose }: { onClose: () => void }) {
   return (
