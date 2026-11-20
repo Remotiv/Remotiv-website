@@ -12,6 +12,7 @@ import { excludedFailedTurns, type LiveActionRow } from "@/lib/interviews/live-r
 import { INTERVIEW_BUCKET } from "@/lib/interviews/session";
 import { type TranscriptSegment, toStoredSegments } from "@/lib/interviews/transcribe";
 import { mayHoldAnswer, turnSpeech } from "@/lib/interviews/turn-speech";
+import { skipJob } from "@/lib/job-skip";
 import {
   logProviderCall,
   MIN_PROVIDER_CALL_BUDGET_MS,
@@ -413,7 +414,9 @@ export async function queueLiveTranscription(
     .select("id")
     .eq("session_id", sessionId)
     .eq("speaker", "candidate")
-    .eq("transcript_status", "pending");
+    .eq("transcript_status", "pending")
+    // Only a turn with a saved recording: one without has nothing to transcribe (#15).
+    .not("media_path", "is", null);
   if (error) throw new Error(`live transcribe: pending read failed (${error.code ?? "db"})`);
   const { data: jobs, error: jErr } = await service
     .from("background_jobs")
@@ -519,13 +522,25 @@ function defaultDeps(): LiveTranscribeDeps {
   return { service: createServiceClient(), transcribe: whisperTranscribe };
 }
 
-async function markTurnFailed(service: Service, turnId: string, message: string): Promise<void> {
-  const { error } = await service
+/**
+ * Mark a candidate turn failed. True when a row changed; false when the turn is
+ * no longer pending or failed (finished elsewhere, purged or deleted). Throws on
+ * a refused write. A turn this cannot mark stays `pending`; the recovery sweep
+ * (live-turn-recovery.ts) marks it on a later tick once its job is dead (#15).
+ */
+export async function markTurnFailed(
+  service: Service,
+  turnId: string,
+  message: string,
+): Promise<boolean> {
+  const { data, error } = await service
     .from("interview_turns")
     .update({ transcript_status: "failed", transcript_error: message.slice(0, 1000) })
     .eq("id", turnId)
-    .in("transcript_status", ["pending", "failed"]);
+    .in("transcript_status", ["pending", "failed"])
+    .select("id");
   if (error) throw new Error(`live transcribe: failure write failed (${error.code ?? "db"})`);
+  return ((data ?? []) as unknown[]).length > 0;
 }
 
 /** One `transcribe` job with a `{ turnId }` payload. */
@@ -538,11 +553,18 @@ export async function handleLiveTurnTranscribe(
   if (!turnId) throw new TerminalJobError("deterministic", "transcribe: payload.turnId missing");
   const { service } = deps;
 
-  const { data } = await service
+  const { data, error: readError } = await service
     .from("interview_turns")
     .select("id, session_id, sequence, speaker, media_path, media_mime_type, transcript_status")
     .eq("id", turnId)
     .maybeSingle();
+  // #15, as the async handler: a failed read is retried, never read as "the
+  // turn is gone", which would end the job and leave the turn pending for good.
+  if (readError) {
+    throw new Error(
+      `live transcribe: turn ${turnId} could not be read (${readError.code ?? "db"})`,
+    );
+  }
   const turn = data as {
     id: string;
     session_id: string;
@@ -589,9 +611,10 @@ export async function handleLiveTurnTranscribe(
   }
 
   const giveUp = async (message: string) => {
-    await markTurnFailed(service, turnId, message);
+    const marked = await markTurnFailed(service, turnId, message);
     await settleLiveOutcome(service, turn.session_id, { onDecided: deps.onDecided });
-    console.error(`[live-transcribe] turn ${turnId}: transcription failed for good`);
+    if (marked) console.error(`[live-transcribe] turn ${turnId}: transcription failed for good`);
+    else skipJob("transcribe", job.id, `turn ${turnId}: not marked failed, no longer pending`);
   };
 
   const { data: blob, error: dErr } = await service.storage
@@ -631,13 +654,17 @@ export async function handleLiveTurnTranscribe(
   }
 
   if (!hasRealWords(result.text, result.segments) && mayHoldAnswer(turnSpeech(bytes))) {
-    await markTurnFailed(service, turnId, NO_WORDS_HEARD);
+    const marked = await markTurnFailed(service, turnId, NO_WORDS_HEARD);
     await settleLiveOutcome(service, turn.session_id, { onDecided: deps.onDecided });
-    console.warn(`[live-transcribe] turn ${turnId}: no words over audio that may hold an answer`);
+    if (marked) {
+      console.warn(`[live-transcribe] turn ${turnId}: no words over audio that may hold an answer`);
+    } else {
+      skipJob("transcribe", job.id, `turn ${turnId}: not marked failed, no longer pending`);
+    }
     return;
   }
 
-  const { error: wErr } = await service
+  const { data: written, error: wErr } = await service
     .from("interview_turns")
     .update({
       transcript: result.text,
@@ -646,8 +673,19 @@ export async function handleLiveTurnTranscribe(
       transcript_error: null,
     })
     .eq("id", turnId)
-    .in("transcript_status", ["pending", "failed"]);
+    .in("transcript_status", ["pending", "failed"])
+    .select("id");
   if (wErr) throw new Error(`live transcribe: transcript write failed (${wErr.code ?? "db"})`);
+  // #15, as the async handler: a write that matched no row saved nothing, so
+  // this run says so and does not report the turn done.
+  if (((written ?? []) as unknown[]).length === 0) {
+    skipJob(
+      "transcribe",
+      job.id,
+      `turn ${turnId}: transcript not written, the turn is no longer pending or failed (finished elsewhere, purged or deleted)`,
+    );
+    return;
+  }
 
   const settled = await settleLiveOutcome(service, turn.session_id, { onDecided: deps.onDecided });
   console.log(

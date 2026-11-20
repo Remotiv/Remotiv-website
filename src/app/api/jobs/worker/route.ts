@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse, after } from "next/server";
 import { stampOverdueLiveEnds } from "@/lib/interviews/live-events";
+import { runLiveTurnRecovery } from "@/lib/interviews/live-turn-recovery";
 import { type RecoveryService, runTranscribeRecovery } from "@/lib/interviews/transcribe-recovery";
 import {
   claimJobs,
@@ -150,6 +151,8 @@ async function drain(startedAt: number) {
     purgesScheduled: [] as string[],
     /** Answers whose transcription was never queued and has now been re-queued. */
     transcribeRecovery: null as null | Record<string, number>,
+    /** Live interview turns stuck pending: queued or marked failed (live-turn-recovery.ts). */
+    liveTurnRecovery: null as null | Record<string, number>,
     /** Live interviews past their time limit plus grace, ended for video now (live-events.ts). */
     liveEndsStamped: 0,
     reclaimed: 0,
@@ -184,6 +187,18 @@ async function drain(startedAt: number) {
     );
   } catch (err) {
     console.error("[worker] transcribe recovery failed (non-fatal):", err);
+  }
+
+  /*
+   * The same for live interview turns stuck `pending` (#15,
+   * lib/interviews/live-turn-recovery.ts): queued when they never were,
+   * marked failed when their job finished without settling them, so the
+   * outcome is decided or put in front of a person. Non-fatal like the above.
+   */
+  try {
+    summary.liveTurnRecovery = await runLiveTurnRecovery(createServiceClient());
+  } catch (err) {
+    console.error("[worker] live turn recovery failed (non-fatal):", err);
   }
 
   /*
