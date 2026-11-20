@@ -211,7 +211,12 @@ async function drain(startedAt: number) {
 
   // Recover leases orphaned by a crashed invocation before claiming, so those
   // jobs are eligible again on this very tick.
-  summary.reclaimed = await reclaimStaleJobs();
+  const reclaim = await reclaimStaleJobs();
+  summary.reclaimed = reclaim.reclaimed;
+  // A job a reclaim buried is a dead job like any other (#56 Q-1): counted,
+  // and in the one job_dead notice this tick sends.
+  summary.dead += reclaim.dead.length;
+  summary.deadJobs.push(...reclaim.dead);
 
   const jobs = await claimJobs(BATCH_SIZE);
   summary.claimed = jobs.length;

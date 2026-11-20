@@ -391,3 +391,54 @@ test("a bad yield delay takes the counted failure path, never an uncounted yield
   assert.equal(final.dead, 1);
   assert.equal(alerts("job_dead").length, 1, "and a person is told");
 });
+
+/* ── #56 (QA #40 Q-1): a job a lease reclaim buries raises the dead-job notice ── */
+
+const STALE = new Date(Date.now() - 6 * 60_000).toISOString();
+const stale = (type, over = {}) =>
+  job(type, { status: "running", locked_by: "worker-crashed-run", locked_at: STALE, ...over });
+
+test("Q1. a stale lease on its last attempt: buried by the reclaim, counted dead, and ONE job_dead notice", async () => {
+  const row = stale("send_message", { attempts: 2 });
+  world([row]);
+  queue.registerHandler("send_message", OUTCOMES.ok);
+  const { summary } = await quietTick();
+  assert.equal(row.status, "dead");
+  assert.equal(summary.dead, 1);
+  const notices = alerts("job_dead");
+  assert.equal(notices.length, 1);
+  assert.match(notices[0].message, /1 send_message\./);
+  assert.deepEqual(notices[0].metadata.byClass, { retryable: 1 });
+});
+
+test("Q2. a stale lease with attempts left: requeued (and run), no notice", async () => {
+  const row = stale("send_message", { attempts: 0 });
+  world([row]);
+  queue.registerHandler("send_message", OUTCOMES.ok);
+  const { summary } = await quietTick();
+  assert.equal(summary.reclaimed, 1);
+  assert.equal(summary.dead, 0);
+  assert.equal(alerts("job_dead").length, 0);
+});
+
+test("Q3. the reclaim's write did not land: nothing counted, no notice (only a confirmed burial is reported)", async () => {
+  const row = stale("send_message", { attempts: 2 });
+  const db = world([row]);
+  db.failUpdate = (patch) => patch.status === "dead";
+  const { summary } = await quietTick();
+  assert.equal(row.status, "running", "left for the next reclaim");
+  assert.equal(summary.dead, 0);
+  assert.equal(alerts("job_dead").length, 0);
+});
+
+test("Q4. one buried by the reclaim and one dead in its handler, same tick: one notice for both", async () => {
+  const buried = stale("send_message", { attempts: 2 });
+  const failing = job("send_message", { attempts: 2 });
+  world([buried, failing]);
+  queue.registerHandler("send_message", OUTCOMES.retry);
+  const { summary } = await quietTick();
+  assert.equal(summary.dead, 2);
+  const notices = alerts("job_dead");
+  assert.equal(notices.length, 1);
+  assert.equal(notices[0].metadata.deadCount, 2);
+});

@@ -556,8 +556,17 @@ export async function ensureMaintenanceScheduled(): Promise<string[]> {
  * still being `running` under the SAME lease token, so two workers reclaiming
  * at once cannot both count an attempt, and a worker that legitimately
  * re-claimed the row in between is never touched.
+ *
+ * Returns the jobs it buried as well as the count (#56, QA #40 Q-1): a job
+ * that ran out of attempts here used to get one console line and nothing
+ * else, while one that died in failJob raised the admin notice. The worker
+ * now feeds these into the same dead-job notice. Class "retryable": its runs
+ * kept dying or timing out, which is the out-of-attempts path's class too.
  */
-export async function reclaimStaleJobs(): Promise<number> {
+export async function reclaimStaleJobs(): Promise<{
+  reclaimed: number;
+  dead: { type: string; failureClass: "retryable" }[];
+}> {
   const service = createServiceClient();
   const now = Date.now();
   const cutoff = new Date(now - LEASE_TIMEOUT_MS).toISOString();
@@ -571,10 +580,11 @@ export async function reclaimStaleJobs(): Promise<number> {
 
   if (error) {
     console.error("[jobs-queue] reclaimStaleJobs select failed:", error);
-    return 0;
+    return { reclaimed: 0, dead: [] };
   }
 
   let reclaimed = 0;
+  const dead: { type: string; failureClass: "retryable" }[] = [];
   for (const row of (data ?? []) as Pick<
     BackgroundJob,
     "id" | "type" | "attempts" | "max_attempts" | "locked_at" | "locked_by"
@@ -593,11 +603,13 @@ export async function reclaimStaleJobs(): Promise<number> {
     }
     if ((hit ?? []).length === 0) continue;
     reclaimed += 1;
+    // Only a write that landed counts: a row another worker took is not ours to report.
+    if (plan.status === "dead") dead.push({ type: row.type, failureClass: "retryable" });
     console.warn(
       `[jobs-queue] reclaimed ${row.type} ${row.id} → ${plan.status}: ${plan.last_error}`,
     );
   }
-  return reclaimed;
+  return { reclaimed, dead };
 }
 
 // ── Claim ────────────────────────────────────────────────────
