@@ -13,6 +13,7 @@ import { COMPANY_LOGO_BUCKET } from "./settings/constants";
 import { SessionRefresh } from "./_session-refresh";
 import { badgeCount, scopeBadges } from "./scope-badges";
 import type { CompanyContext } from "../lib/company-roles";
+import { fetchNotifications } from "@/app/ai-dashboard/(gated)/notification-actions";
 
 export default async function GatedCompanyLayout({
   children,
@@ -91,7 +92,15 @@ export default async function GatedCompanyLayout({
   // readJobScope, not getJobScope (#24): a failed hiring-team read must show
   // no badges, not four confident zeros. scopeBadges decides both short cuts,
   // and `scope` exists only inside the count it runs on a successful read.
-  const scopeRead = await readJobScope(ctx);
+  //
+  // The bell's first read rides along (#41): rendered here, the bell no longer
+  // spends the page's first server action on it after hydration, where every
+  // page's own reads queued behind it. A failed read is null, and the bell
+  // then reads on mount as before.
+  const [scopeRead, bellRead] = await Promise.all([
+    readJobScope(ctx),
+    fetchNotifications().catch(() => null),
+  ]);
   const [jobs, applicants, messages, interviews] = await scopeBadges(scopeRead, (scope) =>
     Promise.all([
           (() => {
@@ -188,6 +197,7 @@ export default async function GatedCompanyLayout({
       applicantCount={badgeCount(applicants)}
       messageCount={badgeCount(messages)}
       interviewCount={badgeCount(interviews)}
+      initialNotifications={bellRead}
     >
       <SessionRefresh />
       {children}

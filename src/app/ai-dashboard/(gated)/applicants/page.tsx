@@ -4,6 +4,7 @@ import { isEmptyScope, readJobScope } from "@/app/ai-dashboard/lib/job-scope";
 import { isTipDismissed } from "@/app/ai-dashboard/lib/tip-state";
 import { fetchManualTemplates } from "@/app/ai-dashboard/(gated)/messages/actions";
 import {
+  countFlaggedApplicants,
   fetchApplicantCounts,
   fetchAssignableJobs,
   fetchCompanyApplicants,
@@ -67,93 +68,118 @@ export default async function ApplicantsPage({
   };
   const servedQuery = listQueryFor(served.request);
 
-  const [ctx, applicants, topScored, manualTemplates, assignableJobs, quota, counts, heroCounts] =
-    await Promise.all([
-      getCompanyContext(),
-      /*
-       * ONE page, ordered in the database, for the filters the URL states.
-       *
-       * The whole population used to come down here and the browser did the
-       * filtering, the sorting and the paging. It cannot: PostgREST caps a
-       * response at 1,000 rows, measured, so past that size the page was
-       * sorting a truncated set and presenting it as the best candidates.
-       */
-      fetchCompanyApplicants(servedQuery),
-      /*
-       * The ten best scored applicants, for "Review top 10" and the "Top
-       * match" chips.
-       *
-       * Its own query rather than a slice of the list, because both are claims
-       * about the whole population and the list is now one page of it. In the
-       * server wave rather than on demand so the chips are right on first
-       * paint instead of appearing a round trip later.
-       */
-      fetchTopScoredApplicants(servedQuery),
-      fetchManualTemplates(),
-      /*
-       * The company's roles — what the Add candidate form files someone under,
-       * and now also what the list's job filter offers.
-       *
-       * It used to be a separate read only because the filter was derived from
-       * the loaded applicant rows and so could not name a job with no
-       * applicants yet. That derivation is gone: the rows are one page, and a
-       * filter built from them would offer whichever handful of jobs happened
-       * to appear on it.
-       */
-      fetchAssignableJobs(),
-      // Owner, admin and recruiter, at 80% and 100% of a capped metric; null otherwise.
-      loadApplicantsUsage(),
-      /*
-       * Every population figure the page states, counted in the database.
-       *
-       * In this wave rather than after it, which is the whole of the
-       * no-added-latency claim: the ten head-counts resolve alongside the list
-       * instead of behind it, so the first paint carries true numbers and the
-       * browser makes no round trip to get them. The client re-reads them only
-       * when the job filter moves or a mutation changes the population.
-       *
-       * The job filter alone, not the whole query: these are figures about a
-       * population, and the stage tab, the flag chip and the search are what
-       * the reader narrows WITHIN it. Passing them would filter the stage
-       * counts by stage. counts-state.ts's `countsKey` keys on the same one
-       * field for the same reason.
-       */
-      fetchApplicantCounts(served.request.jobId ? { jobId: served.request.jobId } : {}),
-      // The hero stays company-wide while one job is shown (see
-      // Applicants_Split_v9.md). In this wave, so it adds no latency; skipped
-      // when the page shows All jobs, whose counts above already are
-      // company-wide.
-      served.request.jobId ? fetchApplicantCounts({}) : null,
-    ]);
-
   /*
-   * Distinguishes "this company has no applicants" from "you are on no jobs",
-   * which look identical on screen and need opposite copy.
-   *
-   * readJobScope, not getJobScope: an unreadable hiring-team row would
-   * otherwise collapse to the empty scope and this page would state, in the
-   * table's own empty copy, that the reader is assigned to no roles — on
-   * evidence it does not have. An unknown scope is NOT unassigned, so the flag
-   * is false and `loadFailed` wins the empty-state chain instead, because the
-   * same failure has already made the list unavailable.
+   * ONE wave (#41). The reads that need the context (the scope, the tip, the
+   * reply-to address) used to wait behind the whole wave and then behind each
+   * other; they now chain on the context inside it. getCompanyContext and
+   * readJobScope are cache()d per request, so the reads below that call them
+   * share the same one.
    */
-  const scopeRead = await readJobScope(ctx);
+  const ctxRead = getCompanyContext();
+  const [
+    ctx,
+    applicants,
+    topScored,
+    manualTemplates,
+    assignableJobs,
+    quota,
+    counts,
+    heroCounts,
+    flagged,
+    scopeRead,
+    tipDismissed,
+    replyRead,
+  ] = await Promise.all([
+    ctxRead,
+    /*
+     * ONE page, ordered in the database, for the filters the URL states.
+     *
+     * The whole population used to come down here and the browser did the
+     * filtering, the sorting and the paging. It cannot: PostgREST caps a
+     * response at 1,000 rows, measured, so past that size the page was
+     * sorting a truncated set and presenting it as the best candidates.
+     */
+    fetchCompanyApplicants(servedQuery),
+    /*
+     * The ten best scored applicants, for "Review top 10" and the "Top
+     * match" chips.
+     *
+     * Its own query rather than a slice of the list, because both are claims
+     * about the whole population and the list is now one page of it. In the
+     * server wave rather than on demand so the chips are right on first
+     * paint instead of appearing a round trip later.
+     */
+    fetchTopScoredApplicants(servedQuery),
+    fetchManualTemplates(),
+    /*
+     * The company's roles — what the Add candidate form files someone under,
+     * and now also what the list's job filter offers.
+     *
+     * It used to be a separate read only because the filter was derived from
+     * the loaded applicant rows and so could not name a job with no
+     * applicants yet. That derivation is gone: the rows are one page, and a
+     * filter built from them would offer whichever handful of jobs happened
+     * to appear on it.
+     */
+    fetchAssignableJobs(),
+    // Owner, admin and recruiter, at 80% and 100% of a capped metric; null otherwise.
+    loadApplicantsUsage(),
+    /*
+     * Every population figure the page states, counted in the database.
+     *
+     * In this wave rather than after it, which is the whole of the
+     * no-added-latency claim: the ten head-counts resolve alongside the list
+     * instead of behind it, so the first paint carries true numbers and the
+     * browser makes no round trip to get them. The client re-reads them only
+     * when the job filter moves or a mutation changes the population.
+     *
+     * The job filter alone, not the whole query: these are figures about a
+     * population, and the stage tab, the flag chip and the search are what
+     * the reader narrows WITHIN it. Passing them would filter the stage
+     * counts by stage. counts-state.ts's `countsKey` keys on the same one
+     * field for the same reason.
+     */
+    fetchApplicantCounts(served.request.jobId ? { jobId: served.request.jobId } : {}),
+    // The hero stays company-wide while one job is shown (see
+    // Applicants_Split_v9.md). In this wave, so it adds no latency; skipped
+    // when the page shows All jobs, whose counts above already are
+    // company-wide.
+    served.request.jobId ? fetchApplicantCounts({}) : null,
+    /*
+     * The flagged count, for the chip and the Review-top button (#41): in
+     * this wave so the page does not spend a round trip on it after
+     * hydration. The same job the client keys it on.
+     */
+    countFlaggedApplicants(served.request.jobId ? { jobId: served.request.jobId } : {}),
+    /*
+     * Distinguishes "this company has no applicants" from "you are on no
+     * jobs", which look identical on screen and need opposite copy.
+     *
+     * readJobScope, not getJobScope: an unreadable hiring-team row would
+     * otherwise collapse to the empty scope and this page would state, in
+     * the table's own empty copy, that the reader is assigned to no roles,
+     * on evidence it does not have. An unknown scope is NOT unassigned, so
+     * the flag is false and `loadFailed` wins the empty-state chain instead,
+     * because the same failure has already made the list unavailable.
+     */
+    ctxRead.then((c) => readJobScope(c)),
+    // Keyed on the member. Every role sees it (the score belongs to whoever
+    // reviews the applicant, not to a permission), and a failed read
+    // answers "not dismissed", which shows the tip.
+    ctxRead.then((c) => isTipDismissed(c.memberId, "cv_scoring")),
+    // The address the drawer's composer quotes back to the sender.
+    ctxRead.then((c) =>
+      createServiceClient()
+        .from("companies")
+        .select("candidate_reply_email")
+        .eq("id", c.companyId)
+        .maybeSingle(),
+    ),
+  ]);
+
   const unassigned = scopeRead.ok && isEmptyScope(scopeRead.value);
-
-  /*
-   * Below the Promise.all rather than inside it: the read is keyed on
-   * ctx.memberId, which that call is what produces. Every role sees it — the
-   * score belongs to whoever reviews the applicant, not to a permission — and
-   * a failed read answers "not dismissed", which shows the tip.
-   */
-  const showScoringTip = !(await isTipDismissed(ctx.memberId, "cv_scoring"));
-
-  // The address the drawer's composer quotes back to the sender.
-  const { data: replyRow } = await createServiceClient()
-    .from("companies")
-    .select("candidate_reply_email")
-    .eq("id", ctx.companyId)
-    .maybeSingle();
+  const showScoringTip = !tipDismissed;
+  const replyRow = replyRead.data;
   const replyToAddress =
     ((replyRow as { candidate_reply_email: string | null } | null)
       ?.candidate_reply_email ?? "").trim() || null;
@@ -213,6 +239,9 @@ export default async function ApplicantsPage({
       renderedAt={now}
       quotaBanner={quota && <QuotaBanner view={quota} />}
       landingJobId={landingJobId}
+      initialFlagged={
+        flagged.ok ? { job: served.request.jobId ?? "all", count: flagged.value } : null
+      }
     />
   );
 }

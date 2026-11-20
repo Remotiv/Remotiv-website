@@ -37,12 +37,16 @@ test("the drawer and the panel both go through that handler", () => {
 });
 
 test("the job-filter effect uses the same read, and only the newest answer lands", () => {
+  // Keyed on the job the count on screen was read for (#41): the server
+  // renders the first one, and a re-run for the same job reads nothing.
   assert.match(
     SRC,
-    /useEffect\(\(\) => \{\s*refreshFlaggedCount\(jobFilter\);\s*\}, \[jobFilter, refreshFlaggedCount\]\);/,
+    /useEffect\(\(\) => \{\s*if \(flaggedReadFor\.current === jobFilter\) return;\s*flaggedReadFor\.current = jobFilter;\s*refreshFlaggedCount\(jobFilter\);\s*\}, \[jobFilter, refreshFlaggedCount\]\);/,
   );
   const cb = SRC.slice(SRC.indexOf("const refreshFlaggedCount = useCallback("));
   assert.match(cb.slice(0, 900), /const seq = \+\+flaggedSeq\.current;/);
   assert.equal((cb.slice(0, 900).match(/seq === flaggedSeq\.current/g) ?? []).length, 2);
-  assert.equal((SRC.match(/countFlaggedApplicants\(/g) ?? []).length, 1, "one read site");
+  // One read site, through the view batch (#41); no direct call left.
+  assert.equal((SRC.match(/viewBatch\s*\.flagged\(/g) ?? []).length, 1, "one read site");
+  assert.equal((SRC.match(/countFlaggedApplicants\(/g) ?? []).length, 0);
 });

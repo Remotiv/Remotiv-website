@@ -91,6 +91,8 @@ function tablesFor(w, extra = {}) {
     live_interview_scores: new FakeTable([]),
     interview_answer_scores: new FakeTable([]),
     interview_session_scores: new FakeTable([]),
+    // #21: the purge deletes each due session's reviewer notes.
+    interview_notes: new FakeTable([]),
     background_jobs: new FakeTable([]),
     ...extra,
   };

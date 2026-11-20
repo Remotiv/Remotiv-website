@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import type { CompanyRole } from "@/app/ai-dashboard/lib/company-roles";
 import { AiSidebar } from "./ai-sidebar";
 import { AiTopbar } from "./ai-topbar";
+import type { BellRead } from "./notification-bell";
 import { HelpPanel } from "./help-panel";
 
 /**
@@ -26,6 +27,7 @@ export function AiShell({
   applicantCount,
   messageCount,
   interviewCount,
+  initialNotifications = null,
   children,
 }: {
   companyName: string;
@@ -39,6 +41,8 @@ export function AiShell({
   applicantCount: number | undefined;
   messageCount: number | undefined;
   interviewCount: number | undefined;
+  /** The bell's first read, rendered by the gated layout (#41); null means "read on mount". */
+  initialNotifications?: BellRead | null;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -87,6 +91,7 @@ export function AiShell({
         <AiTopbar
           name={userName}
           email={userEmail}
+          initialNotifications={initialNotifications}
           onMenuClick={() => setMobileOpen(true)}
         />
         <main className="min-w-0 flex-1">{children}</main>

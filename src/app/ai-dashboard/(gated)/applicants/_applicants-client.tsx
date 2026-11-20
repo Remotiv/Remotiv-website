@@ -135,15 +135,12 @@ import {
   adjustScore,
   attachApplicationCv,
   clearScoreAdjustment,
-  countFlaggedApplicants,
   deleteApplication,
   deleteApplicationComment,
   dismissShortlistFlagAction,
-  fetchApplicantCounts,
+  fetchApplicantsView,
   fetchCompanyApplicant,
-  fetchCompanyApplicants,
   fetchScreeningAnswers,
-  fetchTopScoredApplicants,
   rescoreApplication,
   updateApplicationComment,
   updateApplicationStage,
@@ -195,6 +192,13 @@ import { splitReading, startHoldCap } from "./split-hold";
 import { autoSplitSelection, SPLIT_MIN_WIDTH_QUERY } from "./split-selection";
 import { splitUnscored } from "./split-unscored";
 import { TAB_FADE_PX, tabScrollLeft } from "./tab-scroll";
+import { createViewBatcher } from "./view-batch";
+
+/**
+ * The Applicants view's reads, gathered per commit into one server action
+ * call (#41, view-batch.ts). Module level: one queue for the page.
+ */
+const viewBatch = createViewBatcher(fetchApplicantsView);
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -3298,6 +3302,7 @@ export function ApplicantsClient({
   renderedAt,
   quotaBanner,
   landingJobId = null,
+  initialFlagged = null,
 }: {
   viewerRole: CompanyRole;
   /**
@@ -3375,6 +3380,11 @@ export function ApplicantsClient({
    * (commit 8). Null: all jobs. See splitJobFor in list-state.ts.
    */
   landingJobId?: string | null;
+  /**
+   * The flagged count the server read for the job it served (#41), or null
+   * when that read failed: then the client reads it, as before.
+   */
+  initialFlagged?: { job: string; count: number } | null;
 }) {
   // Same predicate the server action enforces (owner / admin / recruiter).
   // Hiring managers review candidates but do not spend the company's scoring
@@ -3552,7 +3562,7 @@ export function ApplicantsClient({
   const [topScored, setTopScored] = useState<CompanyApplicantRow[] | null>(initialTopScored);
 
   /** Server aggregate over the workspace — never a count of rendered rows. */
-  const [flaggedCount, setFlaggedCount] = useState<number | null>(null);
+  const [flaggedCount, setFlaggedCount] = useState<number | null>(initialFlagged?.count ?? null);
   /** The id mid-dismiss, so one chip disables without freezing the list. */
   const [dismissing, setDismissing] = useState<string | null>(null);
 
@@ -3586,7 +3596,8 @@ export function ApplicantsClient({
     const key = countsKey(jobId);
     const seq = ++countsSeq.current;
     setCounts((prev) => requestCounts(prev, key, seq));
-    fetchApplicantCounts(jobId ? { jobId } : {})
+    viewBatch
+      .counts(jobId ? { jobId } : {})
       .then((read) => {
         setCounts((prev) => settleCounts(prev, { key, seq, counts: read.ok ? read.value : null }));
       })
@@ -3612,7 +3623,8 @@ export function ApplicantsClient({
     const seq = ++companySeq.current;
     companyFresh.current = true;
     setCompanyCounts((prev) => requestCounts(prev, key, seq));
-    fetchApplicantCounts({})
+    viewBatch
+      .counts({})
       .then((read) => {
         setCompanyCounts((prev) =>
           settleCounts(prev, { key, seq, counts: read.ok ? read.value : null }),
@@ -3662,7 +3674,8 @@ export function ApplicantsClient({
   const flaggedSeq = useRef(0);
   const refreshFlaggedCount = useCallback((job: string) => {
     const seq = ++flaggedSeq.current;
-    countFlaggedApplicants(job === "all" ? {} : { jobId: job })
+    viewBatch
+      .flagged(job === "all" ? {} : { jobId: job })
       .then((read) => {
         // null is what this component already uses for "no number to show", and
         // it is what the .catch below has always set. A failed count now takes
@@ -3673,7 +3686,16 @@ export function ApplicantsClient({
         if (seq === flaggedSeq.current) setFlaggedCount(null);
       });
   }, []);
+  /*
+   * The job the count on screen was read for. The server renders the first
+   * one (#41), so the page no longer spends a round trip on it after
+   * hydration; a job switch reads it again. Keyed on the job rather than
+   * "first run", so a re-run of this effect for the same job reads nothing.
+   */
+  const flaggedReadFor = useRef<string | null>(initialFlagged ? initialFlagged.job : null);
   useEffect(() => {
+    if (flaggedReadFor.current === jobFilter) return;
+    flaggedReadFor.current = jobFilter;
     refreshFlaggedCount(jobFilter);
   }, [jobFilter, refreshFlaggedCount]);
 
@@ -4059,7 +4081,7 @@ export function ApplicantsClient({
     // on one). The list stays in its loading state across both attempts.
     readWithOneRetry(
       () =>
-        fetchCompanyApplicants(listQueryFor(r)).then(
+        viewBatch.list(listQueryFor(r)).then(
           (read) => (read.ok ? read.value : null),
           () => null,
         ),
@@ -4130,7 +4152,8 @@ export function ApplicantsClient({
     }
     let live = true;
     setTopScored(null);
-    fetchTopScoredApplicants(listQueryFor(request))
+    viewBatch
+      .top(listQueryFor(request))
       .then((read) => {
         if (live) setTopScored(read.ok ? read.value : null);
       })

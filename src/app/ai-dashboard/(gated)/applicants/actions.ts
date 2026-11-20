@@ -2,6 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { CSV_EXPORT_MAX } from "@/app/ai-dashboard/(gated)/applicants/csv-export";
+import {
+  type ApplicantsViewRequest,
+  type ApplicantsViewResult,
+  VIEW_COUNTS_MAX,
+  type ViewPart,
+} from "@/app/ai-dashboard/(gated)/applicants/view-batch";
 import { actionFailed, actionIncomplete, queueFailed } from "@/app/ai-dashboard/lib/action-errors";
 import {
   type AddApplicantDuplicate,
@@ -1160,6 +1166,46 @@ export async function fetchScreeningAnswers(
  * boundary as the list — a client-supplied id proves nothing about who owns
  * the row.
  */
+/**
+ * One part of fetchApplicantsView: its own Read, or `{ threw: true }`, so a
+ * part that throws fails alone. A function declaration rather than a generic
+ * arrow: `<T>(...) =>` parses as a JSX tag in a .tsx reading of this file,
+ * which is how the tenant-isolation scanner reads every file.
+ */
+function viewPart<T>(run: (() => Promise<Read<T>>) | null): Promise<ViewPart<T>> {
+  if (!run) return Promise.resolve(null);
+  return run().then(
+    (read) => ({ threw: false as const, read }),
+    (err) => {
+      console.error("[applicants] view part failed:", err);
+      return { threw: true as const };
+    },
+  );
+}
+
+/**
+ * The Applicants view's reads in ONE call (#41, view-batch.ts): whichever of
+ * the list, the top scored, the counts (at most two) and the flagged count the
+ * client's batcher gathered, run together in one Promise.all. Each part is the
+ * unchanged action above, with its own sign-in, job-scope and company checks;
+ * inside this one request they share one getCompanyContext and one
+ * readJobScope (both cache()d), instead of each paying for its own in a queue.
+ * A part that throws is reported as such and fails alone.
+ */
+export async function fetchApplicantsView(
+  request: ApplicantsViewRequest,
+): Promise<ApplicantsViewResult> {
+  const { list, top, flagged } = request ?? {};
+  const counts = Array.isArray(request?.counts) ? request.counts.slice(0, VIEW_COUNTS_MAX) : [];
+  const [listPart, topPart, countParts, flaggedPart] = await Promise.all([
+    viewPart(list ? () => fetchCompanyApplicants(list) : null),
+    viewPart(top ? () => fetchTopScoredApplicants(top) : null),
+    Promise.all(counts.map((q) => viewPart(() => fetchApplicantCounts(q)))),
+    viewPart(flagged ? () => countFlaggedApplicants(flagged) : null),
+  ]);
+  return { list: listPart, top: topPart, counts: countParts, flagged: flaggedPart };
+}
+
 export async function fetchCompanyApplicant(
   applicationId: string,
 ): Promise<Read<CompanyApplicantDetail | null>> {
@@ -1188,67 +1234,76 @@ export async function fetchCompanyApplicant(
   // Checked here against the job they applied to.
   if (!(await roleAllowsJobAction(ctx, row.job_id ?? ""))) return answered(null);
 
-  // History is scoped by company_id too, not just application_id — the tenant
-  // boundary shouldn't rest on the id lookup alone.
-  const { data: histData, error: histErr } = await service
-    .from("application_stage_history")
-    .select("id, from_stage, to_stage, changed_by_name, note, created_at")
-    .eq("application_id", applicationId)
-    .eq("company_id", ctx.companyId)
-    .order("created_at", { ascending: false });
+  /*
+   * The follow-up reads in ONE wave (#41): history, the scorecard, the job and
+   * the comments each need only the row read above (and its role check), not
+   * each other, so they no longer wait in turn. Every one is scoped on the
+   * company as before.
+   */
+  const [
+    { data: histData, error: histErr },
+    { data: scoreData, error: scoreErr },
+    { data: jobRow },
+    comments,
+  ] = await Promise.all([
+    // History is scoped by company_id too, not just application_id — the
+    // tenant boundary shouldn't rest on the id lookup alone.
+    service
+      .from("application_stage_history")
+      .select("id, from_stage, to_stage, changed_by_name, note, created_at")
+      .eq("application_id", applicationId)
+      .eq("company_id", ctx.companyId)
+      .order("created_at", { ascending: false }),
+    // Full scorecard — the jsonb columns are drawer-only, never in the list.
+    service
+      .from("application_scores")
+      .select(
+        `${SCORE_SUMMARY_COLUMNS}, dimension_scores, evidence, strengths, missing_requirements, must_haves, concerns, summary, screening_score, ai_model, scored_at, human_feedback, adjusted_by_name, adjusted_at, job_criteria_version`,
+      )
+      .eq("application_id", applicationId)
+      .eq("company_id", ctx.companyId)
+      .maybeSingle(),
+    // Staleness: compare the criteria version stamped on the card against the
+    // job's CURRENT one. Scoped by company like everything else — a job id
+    // alone proves nothing, and this read must not become a way to probe
+    // another tenant's jobs. The same read carries the job's CURRENT must-have
+    // count, which tells an empty must_haves array on the card ("this job asks
+    // for none") apart from a card written before the job named any.
+    row.job_id
+      ? service
+          .from("jobs")
+          .select("criteria_version, scoring_must_haves, ai_cv_scoring_enabled")
+          .eq("id", row.job_id)
+          .eq("company_id", ctx.companyId)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    readComments(service, ctx.companyId, applicationId),
+  ]);
 
   if (histErr) {
     // A missing audit trail shouldn't blank the drawer.
     console.error("[applicants] stage history query failed:", histErr);
   }
-
-  // Full scorecard — the jsonb columns are drawer-only, never in the list.
-  const { data: scoreData, error: scoreErr } = await service
-    .from("application_scores")
-    .select(
-      `${SCORE_SUMMARY_COLUMNS}, dimension_scores, evidence, strengths, missing_requirements, must_haves, concerns, summary, screening_score, ai_model, scored_at, human_feedback, adjusted_by_name, adjusted_at, job_criteria_version`,
-    )
-    .eq("application_id", applicationId)
-    .eq("company_id", ctx.companyId)
-    .maybeSingle();
-
   if (scoreErr) {
     console.error("[applicants] score detail query failed:", scoreErr);
   }
 
   const sRow = scoreData as (ScoreSummaryRow & Record<string, unknown>) | null;
 
-  // Staleness: compare the criteria version stamped on the card against the
-  // job's CURRENT one. Scoped by company like everything else — a job id alone
-  // proves nothing, and this read must not become a way to probe another
-  // tenant's jobs.
-  //
-  // The same read carries the job's CURRENT must-have count, which is what
-  // tells an empty must_haves array on the card ("this job asks for none")
-  // apart from a card written before the job named any. Same row, same scope,
-  // no extra round-trip.
-  let jobCriteriaVersion: number | null = null;
-  let jobMustHaveCount = 0;
+  const job = jobRow as {
+    criteria_version?: number | null;
+    scoring_must_haves?: unknown;
+    ai_cv_scoring_enabled?: boolean | null;
+  } | null;
+  const jobCriteriaVersion =
+    typeof job?.criteria_version === "number" ? job.criteria_version : null;
+  const jobMustHaveCount = Array.isArray(job?.scoring_must_haves)
+    ? job.scoring_must_haves.length
+    : 0;
   // Null until a job row is found: the card reads null as "the job is gone",
   // which is also what the scorer does (it skips with "no longer exists").
-  let jobScoringEnabled: boolean | null = null;
-  if (row.job_id) {
-    const { data: jobRow } = await service
-      .from("jobs")
-      .select("criteria_version, scoring_must_haves, ai_cv_scoring_enabled")
-      .eq("id", row.job_id)
-      .eq("company_id", ctx.companyId)
-      .maybeSingle();
-    const job = jobRow as {
-      criteria_version?: number | null;
-      scoring_must_haves?: unknown;
-      ai_cv_scoring_enabled?: boolean | null;
-    } | null;
-    jobCriteriaVersion = typeof job?.criteria_version === "number" ? job.criteria_version : null;
-    jobMustHaveCount = Array.isArray(job?.scoring_must_haves) ? job.scoring_must_haves.length : 0;
-    // `!== false`, the scorer's own polarity: a row predating the column still scores.
-    if (job) jobScoringEnabled = job.ai_cv_scoring_enabled !== false;
-  }
+  // `!== false`, the scorer's own polarity: a row predating the column still scores.
+  const jobScoringEnabled: boolean | null = job ? job.ai_cv_scoring_enabled !== false : null;
   // Both sides must be known before claiming staleness. A missing version on
   // either end means "we can't tell", and an unprovable warning beside a
   // money-costing button is worse than no warning.
@@ -1290,7 +1345,7 @@ export async function fetchCompanyApplicant(
       jobScoringEnabled,
       scored: sRow?.status === "scored",
     }),
-    comments: await readComments(service, ctx.companyId, applicationId),
+    comments,
   });
 }
 

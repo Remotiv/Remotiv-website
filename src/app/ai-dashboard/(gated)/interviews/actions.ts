@@ -16,6 +16,7 @@ import {
   deleteInterviewSessions,
   type InterviewSessionRef,
 } from "@/lib/interviews/application-deletion";
+import { retentionPassed } from "@/lib/interviews/async-score-purge";
 import { removeSessionObjects } from "@/lib/interviews/purge";
 import { listInterviewSessions, readNotes } from "@/lib/interviews/review";
 import {
@@ -244,6 +245,26 @@ export async function addInterviewNote(
   }
 
   const service = createServiceClient();
+  /*
+   * #21: the retention purge deletes an interview's notes with its recordings.
+   * A note added after the retention date would outlive that promise, so none
+   * is accepted once it has passed, and a failed read refuses rather than
+   * guessing.
+   */
+  const { data: kept, error: keptError } = await service
+    .from("interview_sessions")
+    .select("delete_after, purged_at")
+    .eq("id", session.id)
+    .eq("company_id", ctx.companyId)
+    .maybeSingle();
+  if (keptError || !kept) {
+    return { ok: false, error: "Couldn't save that note. Please try again." };
+  }
+  const retention = kept as { delete_after: string | null; purged_at: string | null };
+  if (retention.purged_at || retentionPassed(retention.delete_after, Date.now())) {
+    return { ok: false, error: NOTES_CLOSED };
+  }
+
   const { error } = await service.from("interview_notes").insert({
     session_id: session.id,
     company_id: ctx.companyId,
@@ -461,6 +482,10 @@ export async function scoreInterview(sessionId: string): Promise<ScoreRequestRes
   revalidatePath(`/ai-dashboard/interviews/${session.id}`);
   return { ok: true, outcome: requested.outcome };
 }
+
+/** Past the retention date the recordings and their notes are deleted, so none is added. */
+const NOTES_CLOSED =
+  "This interview has passed its six-month retention date, so new notes can't be added.";
 
 /** A read the request depends on failed: nothing was queued, and nothing is assumed. */
 const SCORE_CHECK_FAILED =

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { LogOut, Menu } from "lucide-react";
-import { NotificationBell } from "./notification-bell";
+import { type BellRead, NotificationBell } from "./notification-bell";
 import { TopbarSearch } from "./topbar-search";
 
 // Breadcrumb tail per route. Keys are exact pathnames; the /ai-dashboard root
@@ -28,10 +28,12 @@ export function AiTopbar({
   name,
   email,
   onMenuClick,
+  initialNotifications = null,
 }: {
   name: string;
   email: string;
   onMenuClick: () => void;
+  initialNotifications?: BellRead | null;
 }) {
   const pathname = usePathname();
   const crumb = CRUMBS[pathname] ?? { section: "Workspace", page: "" };
@@ -79,7 +81,7 @@ export function AiTopbar({
 
       <TopbarSearch />
 
-      <NotificationBell />
+      <NotificationBell initial={initialNotifications} />
 
       <div ref={menuRef} className="relative shrink-0">
         <button

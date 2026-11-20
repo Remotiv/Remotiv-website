@@ -13,9 +13,11 @@ import type { CompanyNotification } from "@/app/ai-dashboard/(gated)/notificatio
 /**
  * The topbar bell.
  *
- * Loads on mount so the unread badge is right before anyone clicks, and again
- * on open so a panel left closed for an hour is not stale. No polling — this
- * is in-app only and a hiring workspace is not a chat client.
+ * Rendered with its first read by the gated layout, so the unread badge is
+ * right before anyone clicks (#41; it loads on mount only when that read
+ * failed), and read again on open so a panel left closed for an hour is not
+ * stale. No polling — this is in-app only and a hiring workspace is not a
+ * chat client.
  */
 
 function relative(iso: string): string {
@@ -31,12 +33,15 @@ function relative(iso: string): string {
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
-export function NotificationBell() {
+/** What fetchNotifications answers: the bell's first read, when the layout rendered it (#41). */
+export type BellRead = { items: CompanyNotification[]; unread: number };
+
+export function NotificationBell({ initial = null }: { initial?: BellRead | null }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [items, setItems] = useState<CompanyNotification[]>([]);
-  const [unread, setUnread] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState<CompanyNotification[]>(initial?.items ?? []);
+  const [unread, setUnread] = useState(initial?.unread ?? 0);
+  const [loading, setLoading] = useState(initial === null);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -52,9 +57,13 @@ export function NotificationBell() {
     }
   }, []);
 
+  // On mount only when the layout could not render the first read (#41); the
+  // panel still reads again every time it opens, as before.
+  const renderedFirst = initial !== null;
   useEffect(() => {
+    if (renderedFirst) return;
     void load();
-  }, [load]);
+  }, [load, renderedFirst]);
 
   useEffect(() => {
     if (!open) return;

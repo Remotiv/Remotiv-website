@@ -53,7 +53,11 @@ test("#24 FAILED scope read: no badge on any of the four; genuinely empty: four 
 
 test("#24 the layout reads the scope with readJobScope and decides through scopeBadges", () => {
   const layout = readFileSync(new URL("./layout.tsx", import.meta.url), "utf8");
-  assert.ok(/await readJobScope\(ctx\)/.test(layout), "the layout keeps the failure");
+  // Awaited inside one Promise.all with the bell's first read (#41).
+  assert.ok(
+    /const \[scopeRead, bellRead\] = await Promise\.all\(\[\s*readJobScope\(ctx\),/.test(layout),
+    "the layout keeps the failure",
+  );
   assert.ok(
     !/getJobScope\(|import \{[^}]*\bgetJobScope\b/.test(layout),
     "and no longer collapses it with getJobScope",

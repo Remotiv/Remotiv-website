@@ -69,6 +69,17 @@ import { INTERVIEW_BUCKET } from "./session";
  * counts, the verdict, each criterion and its outcome, and every human
  * adjustment with its note. See async-score-purge.ts.
  *
+ * ── Reviewers' interview notes (#21) ─────────────────────────
+ *
+ * Same schedule. REMOVED: every interview_notes row of the session. A note is
+ * free text a recruiter wrote while watching, so it can name the candidate or
+ * quote what they said, and it should not outlive the recording it was written
+ * about. A failed delete THROWS: the job fails as retryable and the chunk is
+ * not stamped, so the next run tries again. Notes can no longer be added once
+ * the retention date has passed (addInterviewNote). Score-adjustment notes
+ * (human_feedback) are a different thing and are kept with the score, as the
+ * privacy notice says.
+ *
  * ── Live interview camera video (migration 044) ──────────────
  *
  * Same schedule. Every piece's object is in the session's folder, so the same
@@ -339,6 +350,7 @@ export type InterviewPurgeResult =
       piecesPurged: number;
       liveScoresCleared: number;
       asyncScoresCleared: number;
+      notesDeleted: number;
       objectsRemoved: number;
       orphansRemoved: number;
       elapsedMs: number;
@@ -355,6 +367,7 @@ export type InterviewPurgeResult =
       piecesPurgedSoFar: number;
       liveScoresClearedSoFar: number;
       asyncScoresClearedSoFar: number;
+      notesDeletedSoFar: number;
       objectsRemovedSoFar: number;
       orphansRemovedSoFar: number;
       elapsedMs: number;
@@ -379,7 +392,8 @@ export function describeInterviewPurge(jobId: string, r: InterviewPurgeResult): 
       `[purge] job ${jobId}: COMPLETE in ${r.elapsedMs} ms: sessions examined=${r.sessionsExamined} ` +
       `marked=${r.sessionsMarked} retrying=${r.sessionsRetrying} answers=${r.answersCleared} ` +
       `turns=${r.turnsPurged} video_pieces=${r.piecesPurged} live_scores=${r.liveScoresCleared} ` +
-      `async_scores=${r.asyncScoresCleared} objects=${r.objectsRemoved} orphans=${r.orphansRemoved}`
+      `async_scores=${r.asyncScoresCleared} notes=${r.notesDeleted} objects=${r.objectsRemoved} ` +
+      `orphans=${r.orphansRemoved}`
     );
   }
   return (
@@ -388,7 +402,8 @@ export function describeInterviewPurge(jobId: string, r: InterviewPurgeResult): 
     `marked so far=${r.sessionsMarkedSoFar} retrying so far=${r.sessionsRetryingSoFar} ` +
     `answers so far=${r.answersClearedSoFar} turns so far=${r.turnsPurgedSoFar} ` +
     `video_pieces so far=${r.piecesPurgedSoFar} live_scores so far=${r.liveScoresClearedSoFar} ` +
-    `async_scores so far=${r.asyncScoresClearedSoFar} objects so far=${r.objectsRemovedSoFar} ` +
+    `async_scores so far=${r.asyncScoresClearedSoFar} notes so far=${r.notesDeletedSoFar} ` +
+    `objects so far=${r.objectsRemovedSoFar} ` +
     `orphans so far=${r.orphansRemovedSoFar}. The rest of the due set was NOT examined; ` +
     `the next run starts again from the current state.`
   );
@@ -444,6 +459,7 @@ export async function runInterviewPurge(
   let piecesPurged = 0;
   let scoresCleared = 0;
   let asyncScoresCleared = 0;
+  let notesDeleted = 0;
   const retrying = new Set<string>();
   let stoppedDuring: "sessions" | "late words" | "orphans" | null = null;
 
@@ -623,6 +639,7 @@ export async function runInterviewPurge(
         scoresCleared += await purgeLiveScoreWords(service, ids);
         const asyncScores = await purgeAsyncScoreWords(service, ids);
         asyncScoresCleared += asyncScores.answers + asyncScores.sessions;
+        notesDeleted += await purgeInterviewNotes(service, ids);
         const video = await purgeDueVideoPieces(service, ids, now);
         piecesPurged += video.purged;
         objectsRemoved += video.objectsRemoved;
@@ -764,6 +781,7 @@ export async function runInterviewPurge(
         piecesPurgedSoFar: piecesPurged,
         liveScoresClearedSoFar: scoresCleared,
         asyncScoresClearedSoFar: asyncScoresCleared,
+        notesDeletedSoFar: notesDeleted,
         objectsRemovedSoFar: objectsRemoved,
         orphansRemovedSoFar: orphansRemoved,
         elapsedMs,
@@ -778,12 +796,31 @@ export async function runInterviewPurge(
         piecesPurged,
         liveScoresCleared: scoresCleared,
         asyncScoresCleared,
+        notesDeleted,
         objectsRemoved,
         orphansRemoved,
         elapsedMs,
       };
   console.log(describeInterviewPurge(job.id, result));
   return result;
+}
+
+/**
+ * Delete every reviewer note of these due sessions (#21). Throws on a refused
+ * delete, so the job fails as retryable and the chunk is not stamped: a note
+ * the purge could not remove is reported, never passed over.
+ */
+async function purgeInterviewNotes(
+  service: ReturnType<typeof createServiceClient>,
+  sessionIds: string[],
+): Promise<number> {
+  const { data, error } = await service
+    .from("interview_notes")
+    .delete()
+    .in("session_id", sessionIds)
+    .select("id");
+  if (error) throw new Error(`purge: interview notes: ${error.message}`);
+  return (data ?? []).length;
 }
 
 /**
