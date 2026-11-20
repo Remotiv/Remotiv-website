@@ -28,7 +28,7 @@ const TRUST_AVATARS = [
 ] as const;
 
 const INPUT_CLASS =
-  "w-full rounded-lg border-none bg-[#f5f5f5] px-3 py-2.5 font-sans text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef]";
+  "w-full rounded-lg border-none bg-[#f5f5f5] px-3 py-2.5 font-sans text-xs text-[#333] transition-colors focus:bg-[#efefef]";
 
 const LABEL_CLASS =
   "mb-1 block font-sans text-[10px] font-semibold uppercase tracking-[0.06em] text-[#666]";

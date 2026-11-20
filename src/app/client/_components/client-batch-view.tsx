@@ -239,7 +239,7 @@ function StageDropdown({
         value={value}
         onChange={handleChange}
         disabled={busy || disabled}
-        className={`appearance-none rounded-full border-0 px-3 py-1 text-[10px] font-semibold outline-none transition-opacity ${
+        className={`appearance-none rounded-full border-0 px-3 py-1 text-[10px] font-semibold transition-opacity ${
           disabled
             ? "cursor-not-allowed opacity-60"
             : "cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"

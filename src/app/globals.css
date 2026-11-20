@@ -296,15 +296,23 @@ body:has([data-wl-canvas]) {
 }
 
 /* Visible focus indicator for keyboard navigation (WCAG 2.4.7).
-   Only shown for keyboard focus, not mouse clicks. */
-*:focus-visible {
-  outline: 2px solid var(--color-remotiv-purple);
-  outline-offset: 2px;
-  border-radius: 2px;
-}
+   Only shown for keyboard focus, not mouse clicks.
 
-*:focus:not(:focus-visible) {
-  outline: none;
+   In the base layer (#46), so a component's own focus utilities win over it:
+   outside a layer it beat every utility, squared rounded buttons with a 2px
+   radius on focus, and overrode focus-visible:-outline-offset-2 on list rows.
+   The outline now follows the element's own corners. A field with
+   `outline-none` and no focus style of its own would lose its ring here, so
+   none is left: tests in src/app/focus-outline.test.ts keep it that way. */
+@layer base {
+  *:focus-visible {
+    outline: 2px solid var(--color-remotiv-purple);
+    outline-offset: 2px;
+  }
+
+  *:focus:not(:focus-visible) {
+    outline: none;
+  }
 }
 
 /* Skip-to-content link — visible only on focus.

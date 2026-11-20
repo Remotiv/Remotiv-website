@@ -824,7 +824,7 @@ function FilterSelect({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="w-full cursor-pointer appearance-none rounded-[10px] border border-black/10 bg-[#FAFAFA] py-3 pl-3.5 pr-8 text-base sm:py-2.5 sm:text-[0.85rem] text-[#555] outline-none"
+      className="w-full cursor-pointer appearance-none rounded-[10px] border border-black/10 bg-[#FAFAFA] py-3 pl-3.5 pr-8 text-base sm:py-2.5 sm:text-[0.85rem] text-[#555]"
       style={{
         backgroundImage: SELECT_CHEVRON,
         backgroundRepeat: "no-repeat",
@@ -896,7 +896,7 @@ function SearchField({
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="min-w-0 flex-1 border-0 bg-transparent text-base sm:text-[0.75rem] text-remotiv-text-dark outline-none placeholder:text-[#bbb]"
+        className="min-w-0 flex-1 border-0 bg-transparent text-base sm:text-[0.75rem] text-remotiv-text-dark placeholder:text-[#bbb]"
       />
     </div>
   );

@@ -105,7 +105,7 @@ export default function AIMatchingPage() {
             rows={4}
             maxLength={MAX_QUERY_LEN}
             placeholder="e.g. Senior React developer, 5+ years, AWS knowledge preferred, Lahore based, US timezone comfortable…"
-            className="min-h-[100px] w-full resize-y border-none bg-transparent py-2.5 text-left font-sans text-base leading-[1.7] text-[#111] outline-none placeholder:text-[#bbb] sm:text-[0.95rem]"
+            className="min-h-[100px] w-full resize-y border-none bg-transparent py-2.5 text-left font-sans text-base leading-[1.7] text-[#111] placeholder:text-[#bbb] sm:text-[0.95rem]"
           />
           <div className="mb-2 text-right font-sans text-[0.7rem] text-[#aaa]">
             {query.length}/{MAX_QUERY_LEN}

@@ -1468,7 +1468,7 @@ function InquiryForm() {
             aria-invalid={errors.name ? true : undefined}
             aria-describedby={errorMessage ? "dt-form-error" : undefined}
             placeholder="Your name"
-            className={`w-full rounded-lg border ${errors.name ? "border-red-500" : "border-transparent"} bg-[#f5f5f5] px-3 py-[9px] text-base sm:text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef]`}
+            className={`w-full rounded-lg border ${errors.name ? "border-red-500" : "border-transparent"} bg-[#f5f5f5] px-3 py-[9px] text-base sm:text-xs text-[#333] transition-colors focus:bg-[#efefef]`}
           />
         </div>
         <div>
@@ -1485,7 +1485,7 @@ function InquiryForm() {
             onChange={(e) => setForm({ ...form, company: e.target.value })}
             maxLength={80}
             placeholder="Company name"
-            className="w-full rounded-lg border border-transparent bg-[#f5f5f5] px-3 py-[9px] text-base sm:text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef]"
+            className="w-full rounded-lg border border-transparent bg-[#f5f5f5] px-3 py-[9px] text-base sm:text-xs text-[#333] transition-colors focus:bg-[#efefef]"
           />
         </div>
       </div>
@@ -1505,7 +1505,7 @@ function InquiryForm() {
           aria-invalid={errors.email ? true : undefined}
           aria-describedby={errorMessage ? "dt-form-error" : undefined}
           placeholder="you@company.com"
-          className={`w-full rounded-lg border ${errors.email ? "border-red-500" : "border-transparent"} bg-[#f5f5f5] px-3 py-[9px] text-base sm:text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef]`}
+          className={`w-full rounded-lg border ${errors.email ? "border-red-500" : "border-transparent"} bg-[#f5f5f5] px-3 py-[9px] text-base sm:text-xs text-[#333] transition-colors focus:bg-[#efefef]`}
         />
       </div>
       <div className="mb-2.5">
@@ -1519,7 +1519,7 @@ function InquiryForm() {
           id="dt-inq-size"
           value={form.size}
           onChange={(e) => setForm({ ...form, size: e.target.value })}
-          className="w-full rounded-lg border border-transparent bg-[#f5f5f5] px-3 py-[9px] text-base sm:text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef]"
+          className="w-full rounded-lg border border-transparent bg-[#f5f5f5] px-3 py-[9px] text-base sm:text-xs text-[#333] transition-colors focus:bg-[#efefef]"
         >
           <option>1-2 people</option>
           <option>3-5 people</option>
@@ -1541,7 +1541,7 @@ function InquiryForm() {
           maxLength={2000}
           placeholder="Tell us about the roles, skills needed, and timeline..."
           aria-describedby={errorMessage ? "dt-form-error" : undefined}
-          className="w-full rounded-lg border border-transparent bg-[#f5f5f5] px-3 py-[9px] text-base sm:text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef] min-h-[68px] resize-none"
+          className="w-full rounded-lg border border-transparent bg-[#f5f5f5] px-3 py-[9px] text-base sm:text-xs text-[#333] transition-colors focus:bg-[#efefef] min-h-[68px] resize-none"
         />
       </div>
 

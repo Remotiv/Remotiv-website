@@ -684,7 +684,7 @@ function FilterBar({
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search…"
             aria-label="Search candidates"
-            className="h-11 flex-1 bg-transparent text-sm outline-none placeholder:text-[#bbb]"
+            className="h-11 flex-1 bg-transparent text-sm placeholder:text-[#bbb]"
           />
         </div>
       </div>
@@ -782,7 +782,7 @@ function FilterBar({
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search by role, skill, or keyword…"
             aria-label="Search candidates"
-            className="h-11 flex-1 min-w-0 bg-transparent text-sm outline-none placeholder:text-[#bbb]"
+            className="h-11 flex-1 min-w-0 bg-transparent text-sm placeholder:text-[#bbb]"
           />
         </div>
       </div>

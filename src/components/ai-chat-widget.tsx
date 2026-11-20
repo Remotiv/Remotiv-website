@@ -229,7 +229,7 @@ export function AIChatWidget() {
               onChange={(e) => setInputText(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Tell me about the role you're hiring for..."
-              className="min-h-[110px] w-full resize-none border-none bg-transparent px-6 py-4 text-[15px] font-normal leading-[1.65] text-zinc-100 outline-none placeholder:text-zinc-600"
+              className="min-h-[110px] w-full resize-none border-none bg-transparent px-6 py-4 text-[15px] font-normal leading-[1.65] text-zinc-100 placeholder:text-zinc-600"
               style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
             />
           </div>

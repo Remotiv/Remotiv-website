@@ -1714,7 +1714,7 @@ function NotesCard({
                     <textarea
                       value={editDraft}
                       onChange={(e) => setEditDraft(e.target.value)}
-                      className="min-h-[80px] w-full resize-y rounded-xl border border-remotiv-purple bg-[var(--ai-surface)] px-3 py-2.5 text-[12.5px] leading-relaxed text-[var(--ai-t1)] outline-none ring-[3px] ring-remotiv-purple/[0.16]"
+                      className="min-h-[80px] w-full resize-y rounded-xl border border-remotiv-purple bg-[var(--ai-surface)] px-3 py-2.5 text-[12.5px] leading-relaxed text-[var(--ai-t1)] outline-none ring-[3px] ring-remotiv-purple/[0.16] focus-visible:ring-remotiv-purple/45"
                     />
                     <div className="flex justify-end gap-2">
                       <button

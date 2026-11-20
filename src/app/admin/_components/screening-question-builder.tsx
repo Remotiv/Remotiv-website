@@ -236,7 +236,7 @@ function MultipleChoice({
                 }`}
               />
               <input
-                className={`flex-1 border-none bg-transparent py-[5px] text-[13px] outline-none ${
+                className={`flex-1 border-none bg-transparent py-[5px] text-[13px] ${
                   isIdeal ? "font-semibold text-[#0a4a3a]" : "text-[#3a3550]"
                 }`}
                 value={opt}

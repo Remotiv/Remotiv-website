@@ -1291,7 +1291,7 @@ function InquiryForm() {
           Message
         </span>
         <textarea
-          className="box-border min-h-[68px] w-full resize-none rounded-lg border-none bg-[#f5f5f5] px-3 py-2.5 text-base sm:text-xs text-[#333] outline-none focus:bg-[#efefef]"
+          className="box-border min-h-[68px] w-full resize-none rounded-lg border-none bg-[#f5f5f5] px-3 py-2.5 text-base sm:text-xs text-[#333] focus:bg-[#efefef]"
           name="message"
           maxLength={2000}
           aria-describedby={errorMessage ? "rec-form-error" : undefined}
@@ -1343,7 +1343,7 @@ function FormField({
       </span>
       <input
         className={cn(
-          "box-border w-full rounded-lg border bg-[#f5f5f5] px-3 py-2.5 text-base sm:text-xs text-[#333] outline-none focus:bg-[#efefef]",
+          "box-border w-full rounded-lg border bg-[#f5f5f5] px-3 py-2.5 text-base sm:text-xs text-[#333] focus:bg-[#efefef]",
           error ? "border-red-500" : "border-transparent",
         )}
         name={name}

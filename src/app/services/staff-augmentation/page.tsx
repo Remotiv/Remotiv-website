@@ -1179,7 +1179,7 @@ function CtaInquiry() {
                   maxLength={2000}
                   aria-describedby={errorMessage ? "sa-form-error" : undefined}
                   placeholder="Tell us about the role, skills needed, and timeline..."
-                  className="box-border min-h-[68px] w-full resize-none rounded-lg bg-[#f5f5f5] px-3 py-2.5 text-base sm:text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef]"
+                  className="box-border min-h-[68px] w-full resize-none rounded-lg bg-[#f5f5f5] px-3 py-2.5 text-base sm:text-xs text-[#333] transition-colors focus:bg-[#efefef]"
                   value={form.message}
                   onChange={(e) => update("message", e.target.value)}
                 />

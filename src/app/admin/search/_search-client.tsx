@@ -300,7 +300,7 @@ export function SearchClient({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={`Search candidates… e.g. ${PLACEHOLDER}`}
-              className="h-12 min-w-0 flex-1 bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-400"
+              className="h-12 min-w-0 flex-1 bg-transparent text-sm text-gray-800 placeholder:text-gray-400"
             />
           </div>
           <button

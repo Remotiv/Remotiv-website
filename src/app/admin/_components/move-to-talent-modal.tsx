@@ -216,7 +216,7 @@ function SkillsInput({
           if (draft.trim()) add(draft);
         }}
         placeholder={skills.length === 0 ? "Type a skill and press Enter…" : ""}
-        className="min-w-[120px] flex-1 bg-transparent px-1 py-0.5 text-sm text-gray-800 outline-none placeholder:text-gray-400"
+        className="min-w-[120px] flex-1 bg-transparent px-1 py-0.5 text-sm text-gray-800 placeholder:text-gray-400"
       />
     </div>
   );

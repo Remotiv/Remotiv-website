@@ -905,7 +905,7 @@ function AddCandidatePicker({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search by name, email, or position…"
-              className="h-8 flex-1 bg-transparent text-sm outline-none placeholder:text-gray-400"
+              className="h-8 flex-1 bg-transparent text-sm placeholder:text-gray-400"
             />
           </div>
           <div className="mt-2 flex gap-1">

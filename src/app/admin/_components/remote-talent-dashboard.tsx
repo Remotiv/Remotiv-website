@@ -1409,7 +1409,7 @@ export function RemoteTalentDashboard({
               placeholder="Search by name, skill, location…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="h-10 flex-1 bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-400"
+              className="h-10 flex-1 bg-transparent text-sm text-gray-800 placeholder:text-gray-400"
             />
           </div>
         </div>

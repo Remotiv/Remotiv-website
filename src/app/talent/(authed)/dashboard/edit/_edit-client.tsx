@@ -3630,7 +3630,7 @@ export function EditClient({
                                   : ""
                               }
                               maxLength={SKILL_CHAR_MAX}
-                              className="min-w-[120px] flex-1 border-0 bg-transparent text-sm outline-none"
+                              className="min-w-[120px] flex-1 border-0 bg-transparent text-sm"
                             />
                           </div>
                           <p className="mt-1 text-[11px] text-gray-400">
@@ -3700,7 +3700,7 @@ export function EditClient({
                                 : ""
                             }
                             maxLength={SKILL_CHAR_MAX}
-                            className="min-w-[120px] flex-1 border-0 bg-transparent text-sm outline-none"
+                            className="min-w-[120px] flex-1 border-0 bg-transparent text-sm"
                           />
                         </div>
                         <p className="mt-1 text-[11px] text-gray-400">

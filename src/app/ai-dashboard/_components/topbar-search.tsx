@@ -232,7 +232,7 @@ export function TopbarSearch() {
             }}
             onFocus={() => setOpen(true)}
             onKeyDown={onKeyDown}
-            className="w-full min-w-0 bg-transparent text-[13px] text-[var(--ai-t1)] outline-none placeholder:text-[var(--ai-t3)]"
+            className="w-full min-w-0 bg-transparent text-[13px] text-[var(--ai-t1)] placeholder:text-[var(--ai-t3)]"
           />
           {query && (
             <button
@@ -284,7 +284,7 @@ export function TopbarSearch() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={onKeyDown}
-              className="w-full min-w-0 bg-transparent text-[15px] text-[var(--ai-t1)] outline-none placeholder:text-[var(--ai-t3)]"
+              className="w-full min-w-0 bg-transparent text-[15px] text-[var(--ai-t1)] placeholder:text-[var(--ai-t3)]"
             />
             <button
               type="button"

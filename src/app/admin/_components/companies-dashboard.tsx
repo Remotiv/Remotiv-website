@@ -1368,7 +1368,7 @@ export function CompaniesDashboard({
                 placeholder="Search by company name or email…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="h-10 min-w-0 flex-1 bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-400"
+                className="h-10 min-w-0 flex-1 bg-transparent text-sm text-gray-800 placeholder:text-gray-400"
               />
             </div>
             {/* Mobile filters trigger — desktop uses the inline pill row */}
