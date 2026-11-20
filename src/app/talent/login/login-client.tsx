@@ -266,10 +266,7 @@ export function TalentLoginClient({
     <main className="flex min-h-screen flex-col bg-white md:flex-row">
       <aside className="hidden flex-col justify-between bg-gradient-to-br from-remotiv-purple to-remotiv-purple-light p-10 md:flex md:w-5/12 lg:w-1/2 lg:p-14">
         <div>
-          <Link
-            href="/"
-            className="font-heading text-2xl font-bold text-white"
-          >
+          <Link href="/" prefetch={false} className="font-heading text-2xl font-bold text-white">
             Remotiv.
           </Link>
           <h1 className="mt-12 font-heading text-4xl font-bold leading-tight text-white lg:text-5xl">
@@ -326,7 +323,7 @@ export function TalentLoginClient({
       </aside>
 
       <div className="flex items-center justify-between bg-gradient-to-br from-remotiv-purple to-remotiv-purple-light px-6 py-4 md:hidden">
-        <Link href="/" className="font-heading text-lg font-bold text-white">
+        <Link href="/" prefetch={false} className="font-heading text-lg font-bold text-white">
           Remotiv.
         </Link>
         <p className="text-xs text-white/80">

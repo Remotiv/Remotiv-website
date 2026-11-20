@@ -109,6 +109,7 @@ export function ClientLoginClient({ reason }: { reason: string | null }) {
         />
         <Link
           href="/"
+          prefetch={false}
           className="relative font-heading text-2xl font-bold tracking-tight text-remotiv-purple"
         >
           Remotiv<span className="font-extrabold">.</span>
@@ -142,6 +143,7 @@ export function ClientLoginClient({ reason }: { reason: string | null }) {
         <div className="w-full max-w-md">
           <Link
             href="/"
+            prefetch={false}
             className="mb-8 inline-block font-heading text-xl font-bold text-remotiv-purple lg:hidden"
           >
             Remotiv.
