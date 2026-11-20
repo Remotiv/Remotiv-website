@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { DashboardHero } from "@/app/ai-dashboard/_components/dashboard-hero";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import { Toast, useToast } from "@/app/ai-dashboard/_components/toast";
@@ -127,20 +127,48 @@ function getTint(key: string) {
   return ICON_TINTS[hash % ICON_TINTS.length];
 }
 
-/** "6d ago" + the absolute date beneath. Drafts read "Not posted". */
-function fmtPosted(iso: string, status: JobStatus): { main: string; sub: string } {
+/**
+ * "6d ago" + the absolute date beneath. Drafts read "Not posted".
+ *
+ * In UTC, and with the date in place of "6d ago", until hydration (#65): the
+ * server (Vercel) runs in UTC and the browser does not, so a late-evening date
+ * is the next day in Karachi, and "6d ago" needs a clock the two renders read
+ * at different moments. Text that differs between the two renders is React's
+ * #418 hydration error. After hydration, the reader's own zone and the live
+ * count. Same rule as the Interviews list (#64).
+ */
+export function fmtPosted(
+  iso: string,
+  status: JobStatus,
+  local: boolean,
+): { main: string; sub: string } {
   const date = new Date(iso);
   const abs = Number.isNaN(date.getTime())
     ? "-"
-    : date.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+    : date.toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        ...(local ? {} : { timeZone: "UTC" }),
+      });
 
   if (status === "on_hold") return { main: "Not posted", sub: `Edited ${abs}` };
+  if (!local) return { main: abs, sub: abs };
 
   const days = Math.floor((Date.now() - date.getTime()) / 86_400_000);
   if (Number.isNaN(days)) return { main: "-", sub: abs };
   if (days < 1) return { main: "Today", sub: abs };
   if (days === 1) return { main: "1d ago", sub: abs };
   return { main: `${days}d ago`, sub: abs };
+}
+
+const NEVER_CHANGES = () => () => {};
+/** False on the server and during hydration, true after: the same in both renders. */
+function useIsHydrated(): boolean {
+  return useSyncExternalStore(
+    NEVER_CHANGES,
+    () => true,
+    () => false,
+  );
 }
 
 /**
@@ -313,7 +341,8 @@ function JobCard({
   // which is a per-job accent and deliberately varied, not a category signal.
   const tint = getTint(job.id);
   const badge = STATUS_BADGE[job.status];
-  const posted = fmtPosted(job.created_at, job.status);
+  const hydrated = useIsHydrated();
+  const posted = fmtPosted(job.created_at, job.status, hydrated);
   const notPosted = job.status === "on_hold" && job.applicant_count === 0;
 
   const body = (
@@ -467,7 +496,8 @@ function JobDrawer({
 }) {
   const drawerVisual = jobVisual(job.title, job.category);
   const badge = STATUS_BADGE[job.status];
-  const posted = fmtPosted(job.created_at, job.status);
+  const hydrated = useIsHydrated();
+  const posted = fmtPosted(job.created_at, job.status, hydrated);
   const publicUrl = job.slug ? `/jobs/${job.slug}` : null;
 
   // Escape closes; body scroll locks while open — the same pattern the
@@ -678,6 +708,7 @@ export function JobsClient({
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useToast();
+  const hydrated = useIsHydrated();
 
   // The confirm dialog (archive / close / re-score all). Stacks over the job
   // drawer when opened from it; Escape closes the dialog only.
@@ -1320,7 +1351,7 @@ export function JobsClient({
               const rowVisual = jobVisual(job.title, job.category);
               const tint = getTint(job.id);
               const badge = STATUS_BADGE[job.status];
-              const posted = fmtPosted(job.created_at, job.status);
+              const posted = fmtPosted(job.created_at, job.status, hydrated);
 
               return (
                 <div
