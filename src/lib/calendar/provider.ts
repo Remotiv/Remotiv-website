@@ -48,6 +48,13 @@ export type ProviderAccount = {
   /** The account's email address. Shown in the UI so a recruiter with two
    *  Google accounts can tell which one they connected. */
   email: string;
+  /**
+   * The provider's stable id for the account (Google's userinfo `id`, the
+   * OpenID `sub`). Never shown and never stored in the clear: only as an HMAC
+   * (account-key.ts), to tell one account from another (#56). Null when the
+   * provider did not report it.
+   */
+  accountId?: string | null;
   /** Provider's id for the primary calendar. */
   calendarId: string;
   /**
@@ -171,6 +178,8 @@ export interface CalendarProvider {
        * candidate's cancel tells everyone, as before.
        */
       silent?: boolean;
+      /** Cuts the call off (the #56 sweep's time limit): reported as false. */
+      signal?: AbortSignal;
     },
   ): Promise<boolean>;
 

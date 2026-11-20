@@ -16,3 +16,19 @@ export type CompanyNotification = {
   read: boolean;
   createdAt: string;
 };
+
+/**
+ * A lasting alert: a calendar event a deleted applicant may have left in a
+ * host's Google Calendar (#56, lib/calendar/cleanups.ts). Pinned in the bell
+ * until it is marked removed or cleared automatically; "Mark all as read"
+ * does not touch it. No candidate data.
+ */
+export type CalendarCleanupAlert = {
+  id: string;
+  /** The viewer is the host: the copy says "your Google Calendar". */
+  mine: boolean;
+  /** The host's display name when the alert was raised; null if none was known. */
+  hostName: string | null;
+  /** ISO. The event's start, shown in the reader's own zone. */
+  eventStart: string | null;
+};

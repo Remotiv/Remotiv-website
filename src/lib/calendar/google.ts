@@ -192,13 +192,17 @@ const google: CalendarProvider = {
     // The address is a nicety; the calendar is not. A userinfo failure must
     // not sink an otherwise working connection.
     let email = "";
+    let accountId: string | null = null;
     if (meRes.ok) {
-      const me = (await meRes.json()) as { email?: string };
+      const me = (await meRes.json()) as { email?: string; id?: string };
       email = me?.email ?? "";
+      // The stable account id (#56): kept only as an HMAC, never in the clear.
+      accountId = me?.id ?? null;
     }
 
     return {
       email: email || (cal.id ?? ""),
+      accountId,
       calendarId: cal.id ?? "primary",
       // Null, never a substituted "UTC" — the caller decides the fallback and
       // a wrong zone silently shifts every future booking by hours.
@@ -372,21 +376,21 @@ const google: CalendarProvider = {
    * (calendars.get, under the calendar.readonly scope we hold): the calendar
    * answers 200, so the event is really gone; anything else, the calendar is
    * out of reach and nothing was deleted, so this reports false. Anything else
-   * from the delete is "could not tell" (false), and so is a network failure.
+   * from the delete is "could not tell" (false), and so is a network failure or a call cut off by `signal`.
    */
-  async deleteEvent(accessToken, { calendarId, eventId, silent = false }) {
+  async deleteEvent(accessToken, { calendarId, eventId, silent = false, signal }) {
     try {
       const headers = { authorization: `Bearer ${accessToken}` };
       const res = await fetch(
         `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}?sendUpdates=${silent ? "none" : "all"}`,
-        { method: "DELETE", headers, cache: "no-store" },
+        { method: "DELETE", headers, cache: "no-store", signal },
       );
       if (res.ok || res.status === 410) return true;
       if (res.status !== 404) return false;
       // The calendar's id only: no event is listed or read.
       const calendar = await fetch(
         `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}?fields=id`,
-        { headers, cache: "no-store" },
+        { headers, cache: "no-store", signal },
       );
       return calendar.ok;
     } catch {

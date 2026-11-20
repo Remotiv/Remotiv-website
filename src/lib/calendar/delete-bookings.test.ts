@@ -24,7 +24,8 @@ const STUBS = {
   "./connections": "export async function getAccessToken(memberId) { globalThis.__delCalls.push(['token', memberId]); return globalThis.__delToken ?? null; }",
 };
 export async function resolve(specifier, context, next) {
-  if (specifier in STUBS && String(context.parentURL ?? "").includes("/lib/calendar/bookings.ts")) {
+  const parent = String(context.parentURL ?? "");
+  if (specifier in STUBS && (parent.includes("/lib/calendar/bookings.ts") || parent.includes("/lib/calendar/cleanups.ts"))) {
     return { url: "data:text/javascript," + encodeURIComponent(STUBS[specifier]), shortCircuit: true };
   }
   return next(specifier, context);
@@ -34,7 +35,8 @@ export async function resolve(specifier, context, next) {
 const { CO, APP, JOB, finalInterviewWorld, makeDb } = await import(
   "../../test-support/final-interview-world.mjs"
 );
-const { cancelScreeningBookingsForDeletion } = await import("./bookings.ts");
+const { cancelBooking, cancelScreeningBookingsForDeletion, findBookingByToken, hashBookingToken } =
+  await import("./bookings.ts");
 
 const FUTURE = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 const PAST = new Date(Date.now() - 60 * 60 * 1000).toISOString();
@@ -75,6 +77,7 @@ function world(
 ) {
   const db = makeDb();
   db.interview_bookings.push(...rows);
+  db.calendar_cleanups = [];
   db.calendar_connections = connected
     ? [{ member_id: "m-host", status: "active", provider: "google", calendar_id: "cal-1" }]
     : [];
@@ -182,21 +185,30 @@ test("61-e. nothing reachable to remove (no event id, or no connected calendar):
   assert.deepEqual(await cancelScreeningBookingsForDeletion(CO, APP), { ok: true, cancelled: 1 });
   assert.ok(!noEvent.calls.some((c) => c[0] === "delete" || c[0] === "token"));
   const disconnected = world([booking({})], { connected: false });
-  assert.deepEqual(await cancelScreeningBookingsForDeletion(CO, APP), { ok: true, cancelled: 1 });
+  // Counted (#56): the event may still be in the host's calendar.
+  assert.deepEqual(await cancelScreeningBookingsForDeletion(CO, APP), {
+    ok: true,
+    cancelled: 1,
+    eventsLeft: 1,
+  });
   assert.ok(!disconnected.calls.some((c) => c[0] === "delete"));
 });
 
-test("61-f. a call already started or past, a final round, another applicant's or company's: left alone", async () => {
+test("61-f. a call already started or past, a final round, another applicant's or company's, expired or completed: left alone", async () => {
+  // An invited row is no longer left alone: #56 C-2 cancels it (56-a).
   const w = world([
     booking({ id: "b-past", scheduled_start: PAST }),
     booking({ id: "b-final", purpose: "final", final_interview_id: "fi-1" }),
     booking({ id: "b-other-app", application_id: "a-other" }),
     booking({ id: "b-other-co", company_id: "other-co" }),
-    booking({ id: "b-invited", status: "invited", scheduled_start: null }),
+    booking({ id: "b-expired", status: "expired", provider_event_id: null }),
+    booking({ id: "b-completed", status: "completed", scheduled_start: PAST }),
+    booking({ id: "b-other-cancelled", status: "cancelled", application_id: "a-other" }),
   ]);
+  const before = structuredClone(w.db.interview_bookings);
   assert.deepEqual(await cancelScreeningBookingsForDeletion(CO, APP), { ok: true, cancelled: 0 });
   assert.ok(!w.calls.some((c) => c[0] === "delete"));
-  assert.ok(w.db.interview_bookings.every((b) => b.status !== "cancelled"));
+  assert.deepEqual(w.db.interview_bookings, before, "no row changed at all");
 });
 
 test("61-g. the bookings read fails: refused as a database failure, nothing touched", async () => {
@@ -247,7 +259,7 @@ test("61-h. Google's delete is silent only when asked: the provider sends sendUp
   const google = readFileSync(new URL("./google.ts", import.meta.url), "utf8");
   assert.match(
     google,
-    /async deleteEvent\(accessToken, \{ calendarId, eventId, silent = false \}\)/,
+    /async deleteEvent\(accessToken, \{ calendarId, eventId, silent = false, signal \}\)/,
   );
   assert.match(google, /\?sendUpdates=\$\{silent \? "none" : "all"\}/);
   const bookings = readFileSync(new URL("./bookings.ts", import.meta.url), "utf8");
@@ -256,4 +268,158 @@ test("61-h. Google's delete is silent only when asked: the provider sends sendUp
     1,
     "only the applicant delete is silent",
   );
+});
+
+/* ── #56: invited links and events a recruiter's cancel left behind ── */
+
+const invited = (over) =>
+  booking({
+    status: "invited",
+    scheduled_start: null,
+    scheduled_end: null,
+    provider_event_id: null,
+    ...over,
+  });
+const leftover = (over) =>
+  booking({
+    id: "b-left",
+    status: "cancelled",
+    cancelled_at: PAST,
+    cancelled_by: "recruiter",
+    ...over,
+  });
+
+test("56-a. an invited, never-booked link is cancelled with the applicant: no calendar call, no email", async () => {
+  const w = world([invited({ id: "b-inv" })]);
+  assert.deepEqual(await cancelScreeningBookingsForDeletion(CO, APP), { ok: true, cancelled: 1 });
+  assert.equal(w.db.interview_bookings[0].status, "cancelled");
+  assert.ok(!w.calls.some((c) => c[0] === "delete" || c[0] === "token"));
+});
+
+test("56-b. a cancelled row still holding an event id: removed SILENTLY now, and the id cleared", async () => {
+  const w = world([leftover({ provider_event_id: "evt-left" })]);
+  assert.deepEqual(await cancelScreeningBookingsForDeletion(CO, APP), { ok: true, cancelled: 0 });
+  const del = w.calls.find((c) => c[0] === "delete");
+  assert.deepEqual(del[1], { calendarId: "cal-1", eventId: "evt-left", silent: true });
+  assert.equal(w.db.interview_bookings[0].provider_event_id, null);
+  assert.equal(
+    w.db.interview_bookings[0].status,
+    "cancelled",
+    "still cancelled, nothing else changed",
+  );
+  assert.equal(w.db.interview_bookings[0].cancelled_at, PAST);
+});
+
+test("56-c. that event cannot be removed (Google says no, or no token): the delete STOPS, the id is kept; retry finishes", async () => {
+  for (const opts of [{ removes: [false, true] }, { token: null }]) {
+    const w = world([leftover({ provider_event_id: "evt-left" }), invited({ id: "b-inv" })], opts);
+    assert.deepEqual(await quiet(() => cancelScreeningBookingsForDeletion(CO, APP)), {
+      ok: false,
+      failure: "calendar",
+    });
+    assert.equal(w.db.interview_bookings[0].provider_event_id, "evt-left", "kept for the retry");
+    if (opts.token === null) continue;
+    assert.deepEqual(await cancelScreeningBookingsForDeletion(CO, APP), { ok: true, cancelled: 1 });
+    assert.equal(w.db.interview_bookings[0].provider_event_id, null);
+    assert.equal(w.db.interview_bookings[1].status, "cancelled");
+    // Done: a third call removes nothing and calls Google no more.
+    const before = w.calls.filter((c) => c[0] === "delete").length;
+    assert.deepEqual(await cancelScreeningBookingsForDeletion(CO, APP), { ok: true, cancelled: 0 });
+    assert.equal(w.calls.filter((c) => c[0] === "delete").length, before);
+  }
+});
+
+test("56-d. a leftover event on a calendar that is no longer connected: nothing we can reach, left as it is, the delete goes on", async () => {
+  const w = world([leftover({ provider_event_id: "evt-left" })], { connected: false });
+  assert.deepEqual(await cancelScreeningBookingsForDeletion(CO, APP), {
+    ok: true,
+    cancelled: 0,
+    eventsLeft: 1,
+  });
+  assert.equal(w.db.interview_bookings[0].provider_event_id, "evt-left");
+  assert.ok(!w.calls.some((c) => c[0] === "delete"));
+});
+
+test("56-e. an upcoming booking's confirmed delete clears its event id in the cancel write", async () => {
+  const w = world([booking({})]);
+  await cancelScreeningBookingsForDeletion(CO, APP);
+  assert.equal(w.db.interview_bookings[0].status, "cancelled");
+  assert.equal(w.db.interview_bookings[0].provider_event_id, null);
+});
+
+test("56-f. a recruiter's cancel: the id is cleared only when Google confirmed; otherwise kept for the applicant delete", async () => {
+  let w = world([booking({})]);
+  let out = await cancelBooking({
+    row: { ...w.db.interview_bookings[0] },
+    cancelledBy: "recruiter",
+  });
+  assert.equal(out.ok && out.removedFromCalendar, true);
+  assert.equal(w.db.interview_bookings[0].provider_event_id, null);
+
+  w = world([booking({})], { removes: [false] });
+  out = await quiet(() =>
+    cancelBooking({ row: { ...w.db.interview_bookings[0] }, cancelledBy: "recruiter" }),
+  );
+  assert.equal(out.ok && out.removedFromCalendar, false);
+  assert.equal(w.db.interview_bookings[0].status, "cancelled");
+  assert.equal(w.db.interview_bookings[0].provider_event_id, "evt-1", "kept");
+  // ... and the applicant's delete later removes it.
+  assert.deepEqual(await cancelScreeningBookingsForDeletion(CO, APP), {
+    ok: false,
+    failure: "calendar",
+  });
+  w.calls.length = 0;
+});
+
+test("56-g. /book refuses a link whose applicant is gone, on every method (findBookingByToken reads it as no such link)", async () => {
+  const w = world([
+    invited({ id: "b-orphan", application_id: null, token_hash: hashBookingToken("tok-orphan") }),
+    invited({ id: "b-live", token_hash: hashBookingToken("tok-live") }),
+  ]);
+  assert.deepEqual(await findBookingByToken("tok-orphan"), { ok: true, value: null });
+  const live = await findBookingByToken("tok-live");
+  assert.equal(live.ok && live.value?.id, "b-live");
+  const route = (await import("node:fs")).readFileSync(
+    new URL("../../app/api/book/[token]/route.ts", import.meta.url),
+    "utf8",
+  );
+  // All four methods resolve the link through findBookingByToken and 404 on null.
+  assert.equal((route.match(/const read = await findBookingByToken\(token\);/g) ?? []).length, 4);
+  assert.equal((route.match(/if \(!row\) return fail\(404, "not_found"\);/g) ?? []).length, 4);
+  assert.ok(w);
+});
+
+test("56-h. the deletion step sends no email of its own and reads only this applicant's screening rows", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("./bookings.ts", import.meta.url), "utf8");
+  const body = src.slice(
+    src.indexOf("export async function cancelScreeningBookingsForDeletion("),
+    src.indexOf("/**\n * Resolve everything needed to act on a booking's provider event"),
+  );
+  assert.doesNotMatch(body, /Notices|sendEmail|deliverEmail|notifyCompany|resend/i);
+  assert.match(
+    body,
+    /\.eq\("company_id", companyId\)\s*\.eq\("application_id", applicationId\)\s*\.eq\("purpose", "interview"\)\s*\.in\("status", \["booked", "invited", "cancelled"\]\);/,
+  );
+});
+
+test("56-i. disconnected: an event id is counted (the recruiter is told); no event id is a plain delete; connected-but-failing still blocks", async () => {
+  // Disconnected, with event ids on a booked and a cancelled row: both counted, nothing refused.
+  world([booking({ id: "b-up" }), leftover({ id: "b-old", provider_event_id: "evt-old" })], {
+    connected: false,
+  });
+  assert.deepEqual(await cancelScreeningBookingsForDeletion(CO, APP), {
+    ok: true,
+    cancelled: 1,
+    eventsLeft: 2,
+  });
+  // Disconnected, no event ids: a plain delete, no count at all.
+  world([booking({ provider_event_id: null }), invited({ id: "b-inv" })], { connected: false });
+  assert.deepEqual(await cancelScreeningBookingsForDeletion(CO, APP), { ok: true, cancelled: 2 });
+  // Connected but Google does not confirm: refused, as #61.
+  world([booking({})], { removes: [false] });
+  assert.deepEqual(await quiet(() => cancelScreeningBookingsForDeletion(CO, APP)), {
+    ok: false,
+    failure: "calendar",
+  });
 });

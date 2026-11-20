@@ -58,6 +58,7 @@ import {
 } from "@/lib/ai/rescore-collect";
 import { removeApplicationFiles } from "@/lib/application-files";
 import { cancelScreeningBookingsForDeletion } from "@/lib/calendar/bookings";
+import { activateCalendarCleanups } from "@/lib/calendar/cleanups";
 import {
   RESCORE_NO_ALLOWANCE_MESSAGE,
   readCvCapacity,
@@ -2686,6 +2687,14 @@ const CALENDAR_NOT_CLEARED =
   "We couldn't remove this applicant's booked interview from Google Calendar, so nothing was deleted. Try again in a moment.";
 
 /**
+ * After a delete that went ahead with a calendar event it could not reach
+ * (#56): the host's Google Calendar is no longer connected, so the event, if
+ * it is still there, is the recruiter's to remove.
+ */
+const CALENDAR_EVENT_LEFT =
+  "This applicant is deleted. A calendar event for them may still be in the host's Google Calendar, because it is no longer connected to Remotiv. Please remove it there.";
+
+/**
  * Permanently delete one application.
  *
  * HARD delete, not soft, for three reasons:
@@ -2730,7 +2739,9 @@ const CALENDAR_NOT_CLEARED =
  *     applicant is already gone, so the delete is still reported done and the
  *     failure is logged by code; that bell is left for the manual sweep.
  */
-export async function deleteApplication(applicationId: string): Promise<MutationResult<undefined>> {
+export async function deleteApplication(
+  applicationId: string,
+): Promise<MutationResult<{ calendarNote: string } | undefined>> {
   const ctx = await requireCompanyRole("owner", "admin", "recruiter");
   const service = createServiceClient();
   // The interview-page link interview_expired writes. lib/interviews/expiry.ts
@@ -2881,6 +2892,14 @@ export async function deleteApplication(applicationId: string): Promise<Mutation
   });
 
   revalidatePath("/ai-dashboard/applicants");
+  // The delete went ahead; an event on a calendar that is no longer
+  // connected is the recruiter's to remove (#56). Its record, pending until
+  // now, becomes the bell's lasting alert only here, once everything above has
+  // succeeded. A failed activation is caught up by the worker's sweep.
+  if (bookings.eventsLeft) {
+    await activateCalendarCleanups(ctx.companyId);
+    return { success: true, data: { calendarNote: CALENDAR_EVENT_LEFT } };
+  }
   return { success: true, data: undefined };
 }
 

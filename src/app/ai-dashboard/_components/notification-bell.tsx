@@ -6,9 +6,14 @@ import { Bell, Check } from "lucide-react";
 import {
   fetchNotifications,
   markAllNotificationsRead,
+  markCalendarCleanupRemoved,
   markNotificationRead,
 } from "@/app/ai-dashboard/(gated)/notification-actions";
-import type { CompanyNotification } from "@/app/ai-dashboard/(gated)/notification-types";
+import type {
+  CalendarCleanupAlert,
+  CompanyNotification,
+} from "@/app/ai-dashboard/(gated)/notification-types";
+import { cleanupAlertText } from "./cleanup-copy";
 
 /**
  * The topbar bell.
@@ -34,13 +39,22 @@ function relative(iso: string): string {
 }
 
 /** What fetchNotifications answers: the bell's first read, when the layout rendered it (#41). */
-export type BellRead = { items: CompanyNotification[]; unread: number };
+export type BellRead = {
+  items: CompanyNotification[];
+  unread: number;
+  /** Lasting calendar-cleanup alerts (#56): pinned until resolved, never "read". */
+  cleanups?: CalendarCleanupAlert[];
+};
 
 export function NotificationBell({ initial = null }: { initial?: BellRead | null }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<CompanyNotification[]>(initial?.items ?? []);
   const [unread, setUnread] = useState(initial?.unread ?? 0);
+  const [cleanups, setCleanups] = useState<CalendarCleanupAlert[]>(initial?.cleanups ?? []);
+  const [clearing, setClearing] = useState<string | null>(null);
+  /** The badge counts unread notifications and every open cleanup alert. */
+  const badge = unread + cleanups.length;
   const [loading, setLoading] = useState(initial === null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -49,6 +63,7 @@ export function NotificationBell({ initial = null }: { initial?: BellRead | null
       const result = await fetchNotifications();
       setItems(result.items);
       setUnread(result.unread);
+      setCleanups(result.cleanups ?? []);
     } catch {
       // A failed read leaves the badge as it was rather than blanking the
       // topbar — the bell is not worth an error state.
@@ -84,6 +99,14 @@ export function NotificationBell({ initial = null }: { initial?: BellRead | null
     };
   }, [open, load]);
 
+  /** "Mark as removed": the row leaves only once the server has cleared it. */
+  async function handleClearCleanup(id: string) {
+    setClearing(id);
+    const done = await markCalendarCleanupRemoved(id).catch(() => false);
+    setClearing(null);
+    if (done) setCleanups((prev) => prev.filter((c) => c.id !== id));
+  }
+
   async function handleOpenItem(item: CompanyNotification) {
     // Optimistic: the row dims immediately, then the write follows. A failed
     // write leaves a read-looking row that reverts on the next load, which is
@@ -112,17 +135,15 @@ export function NotificationBell({ initial = null }: { initial?: BellRead | null
       <button
         type="button"
         onClick={() => setOpen((p) => !p)}
-        aria-label={
-          unread > 0 ? `Notifications, ${unread} unread` : "Notifications"
-        }
+        aria-label={badge > 0 ? `Notifications, ${badge} unread` : "Notifications"}
         aria-expanded={open}
         aria-haspopup="menu"
         className="relative flex size-[34px] items-center justify-center rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] text-[var(--ai-t2)] transition-colors hover:border-[var(--ai-line-strong)] hover:text-[var(--ai-t1)]"
       >
         <Bell className="size-[18px]" strokeWidth={1.7} />
-        {unread > 0 && (
+        {badge > 0 && (
           <span className="absolute -right-1 -top-1 flex h-[17px] min-w-[17px] items-center justify-center rounded-full bg-remotiv-purple px-1 text-[10px] font-bold tabular-nums text-white ring-2 ring-[var(--ai-page)]">
-            {unread > 9 ? "9+" : unread}
+            {badge > 9 ? "9+" : badge}
           </span>
         )}
       </button>
@@ -153,13 +174,37 @@ export function NotificationBell({ initial = null }: { initial?: BellRead | null
           </div>
 
           <div className="max-h-[min(420px,calc(var(--vh-full)*0.6))] overflow-y-auto">
+            {/* Lasting alerts (#56): pinned first, cleared only by "Mark as
+                removed" or by the host reconnecting the same account. */}
+            {cleanups.map((alert) => (
+              <div
+                key={alert.id}
+                data-calendar-cleanup
+                className="border-b border-[var(--ai-line-soft)] bg-[var(--ai-amber-tint)] px-4 py-3"
+              >
+                <p className="m-0 text-[12.5px] font-semibold leading-snug text-[var(--ai-amber-ink)]">
+                  {cleanupAlertText(alert)}
+                </p>
+                <button
+                  type="button"
+                  disabled={clearing === alert.id}
+                  onClick={() => {
+                    void handleClearCleanup(alert.id);
+                  }}
+                  className="mt-2 rounded-lg border border-[var(--ai-amber-dot)] bg-white/70 px-2.5 py-1 text-[11.5px] font-bold text-[var(--ai-amber-ink)] transition-colors hover:bg-white disabled:opacity-60"
+                >
+                  {clearing === alert.id ? "Marking…" : "Mark as removed"}
+                </button>
+              </div>
+            ))}
+
             {loading && items.length === 0 && (
               <div className="px-4 py-6">
                 <div className="h-3 w-2/3 animate-pulse rounded-full bg-[var(--ai-inset)]" />
               </div>
             )}
 
-            {!loading && items.length === 0 && (
+            {!loading && items.length === 0 && cleanups.length === 0 && (
               <div className="px-4 py-8 text-center">
                 <p className="m-0 text-[13px] font-semibold text-[var(--ai-t2)]">
                   Nothing yet

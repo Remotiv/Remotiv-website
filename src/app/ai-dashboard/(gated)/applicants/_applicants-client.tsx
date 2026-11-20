@@ -4190,6 +4190,8 @@ export function ApplicantsClient({
   const [addError, setAddError] = useState<string | null>(null);
   const [addDuplicate, setAddDuplicate] = useState<AddApplicantDuplicate | null>(null);
   const [toast, setToast] = useToast();
+  /** After a delete that left a Google event behind (#56): on screen until dismissed. */
+  const [calendarNote, setCalendarNote] = useState<string | null>(null);
 
   // The two page-level dialogs. Each stacks over the drawer when opened from
   // it; Escape closes the top one only, and focus returns into the drawer.
@@ -4739,7 +4741,12 @@ export function ApplicantsClient({
     // Not setOpenId(null): the id has to leave the URL too, or the dead-link
     // guard below reports the applicant we just deleted as a broken link.
     closePanel();
-    setToast(`${fullName(target)} deleted`);
+    // A calendar event the delete could not reach (the host's calendar is no
+    // longer connected) is the recruiter's to remove (#56). So it is a notice
+    // that stays until they dismiss it, in place of the "deleted" toast.
+    const calendarNote = result.data?.calendarNote;
+    if (calendarNote) setCalendarNote(calendarNote);
+    else setToast(`${fullName(target)} deleted`);
     // The population changed, and neither the rows nor the counts are props
     // any more, so both have to be re-asked explicitly.
     refreshCounts(jobFilter === "all" ? null : jobFilter);
@@ -5547,6 +5554,25 @@ export function ApplicantsClient({
         </div>
 
         {quotaBanner}
+
+        {calendarNote && (
+          <div
+            role="status"
+            data-calendar-note
+            className="mb-5 flex items-start gap-3 rounded-[14px] border border-[var(--ai-amber-dot)] bg-[var(--ai-amber-tint)] px-4 py-3 text-[13.5px] leading-relaxed text-[var(--ai-amber-ink)]"
+          >
+            <p className="m-0 flex-1">{calendarNote}</p>
+            <button
+              type="button"
+              aria-label="Dismiss"
+              data-calendar-note-dismiss
+              onClick={() => setCalendarNote(null)}
+              className="grid size-7 shrink-0 place-items-center rounded-lg transition-colors hover:bg-white/50"
+            >
+              <X className="size-[14px]" strokeWidth={1.8} />
+            </button>
+          </div>
+        )}
 
         {/* Dark hero strip. Every figure in it is a server count, so every one
             can be unknown: `countLabel` draws a hyphen rather than a 0, and

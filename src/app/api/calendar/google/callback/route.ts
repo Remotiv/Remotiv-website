@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import { storeTokens } from "@/lib/calendar/connections";
 import "@/lib/calendar/google";
+import { accountKeysOf } from "@/lib/calendar/account-key";
+import { resolveCleanupsOnReconnect } from "@/lib/calendar/cleanups";
 import { getProvider } from "@/lib/calendar/provider";
 import { calendarRedirectUri, settingsReturnUrl } from "@/lib/calendar/redirect-uri";
 import { STATE_COOKIE, verifyState } from "@/lib/calendar/state";
@@ -148,6 +150,16 @@ export async function GET(request: Request) {
       account,
     });
     if (!stored.ok) return finish("store_failed");
+
+    // The host is connected again: leftover events from deleted applicants on
+    // THIS account are removed silently and their alerts cleared (#56). Never
+    // throws, and a different account matches nothing.
+    await resolveCleanupsOnReconnect({
+      companyId: ctx.companyId,
+      memberId: ctx.memberId,
+      provider: "google",
+      accountKeys: accountKeysOf("google", account),
+    });
 
     return finish(account.timezone ? "connected" : "connected_no_timezone");
   } catch (err) {

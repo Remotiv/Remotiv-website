@@ -189,6 +189,9 @@ function applyFilters(rows, calls) {
     if (c[0] === "eq") out = out.filter((r) => r[c[1]] === c[2]);
     if (c[0] === "neq") out = out.filter((r) => r[c[1]] !== c[2]);
     if (c[0] === "in") out = out.filter((r) => c[2].includes(r[c[1]]));
+    if (c[0] === "lt") out = out.filter((r) => r[c[1]] != null && r[c[1]] < c[2]);
+    if (c[0] === "is")
+      out = out.filter((r) => (c[2] === null ? r[c[1]] == null : r[c[1]] === c[2]));
     if (c[0] === "order") {
       const desc = c[2]?.ascending === false;
       out = [...out].sort((a, b) =>
@@ -229,6 +232,29 @@ export function finalInterviewWorld(db, { failing } = {}) {
       }));
       rows.push(...items);
       return { data: single ? items[0] : items, error: null };
+    }
+    // upsert(row, { onConflict, ignoreDuplicates }) as PostgREST: a row whose
+    // onConflict columns match an existing one is skipped (ignoreDuplicates)
+    // or merged into it; otherwise inserted (#56, calendar_cleanups).
+    const upsert = calls.find((c) => c[0] === "upsert");
+    if (upsert) {
+      const keys = String(upsert[2]?.onConflict ?? "id").split(",");
+      const out = [];
+      for (const r of Array.isArray(upsert[1]) ? upsert[1] : [upsert[1]]) {
+        const hit = rows.find((x) => keys.every((k) => x[k] === r[k]));
+        if (hit) {
+          if (!upsert[2]?.ignoreDuplicates) Object.assign(hit, r);
+          continue;
+        }
+        const row = {
+          id: r.id ?? nextId(table.slice(0, 4)),
+          created_at: new Date(Date.now() + seq).toISOString(),
+          ...r,
+        };
+        rows.push(row);
+        out.push(row);
+      }
+      return { data: single ? (out[0] ?? null) : out, error: null };
     }
     const update = calls.find((c) => c[0] === "update");
     if (update) {

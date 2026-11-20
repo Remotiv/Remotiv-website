@@ -37,6 +37,7 @@ const STUBS = {
   "@/lib/application-files": "export async function removeApplicationFiles() { globalThis.__delEvents.push('files'); return { ok: true }; }",
   "@/lib/interviews/application-deletion": "export async function deleteApplicationInterviews() { globalThis.__delEvents.push('interviews'); return { ok: true, sessions: 0 }; }",
   "@/lib/calendar/bookings": "export async function cancelScreeningBookingsForDeletion(companyId, applicationId) { globalThis.__delEvents.push('bookings'); const next = globalThis.__delBookings?.shift(); return next ?? { ok: true, cancelled: 0 }; }",
+  "@/lib/calendar/cleanups": "export async function activateCalendarCleanups(companyId, applicationId) { globalThis.__delEvents.push('cleanups:activate'); return true; }",
 };
 export async function resolve(specifier, context, next) {
   if (specifier in STUBS) return { url: "data:text/javascript," + encodeURIComponent(STUBS[specifier]), shortCircuit: true };
@@ -475,4 +476,95 @@ test("60/61 copy: no dashes", () => {
   }
   const src = readFileSync(new URL("./actions.ts", import.meta.url), "utf8");
   assert.ok(src.includes(PARTLY_DELETED) && src.includes(CALENDAR_NOT_CLEARED));
+});
+
+/* ── #56: a calendar event left on a calendar that is no longer connected ── */
+
+const EVENT_LEFT =
+  "This applicant is deleted. A calendar event for them may still be in the host's Google Calendar, because it is no longer connected to Remotiv. Please remove it there.";
+
+test("56-1. the booking step went ahead but could not reach an event: deleted, and the recruiter gets the note", async () => {
+  const w = world({ bookings: [{ ok: true, cancelled: 1, eventsLeft: 1 }] });
+  const res = await w.run();
+  assert.deepEqual(res, { success: true, data: { calendarNote: EVENT_LEFT } });
+  assert.equal(w.events.filter((e) => e === "row:delete").length, 1, "the applicant is deleted");
+});
+
+test("56-2. nothing left anywhere: a plain delete, exactly as before", async () => {
+  const w = world({ bookings: [{ ok: true, cancelled: 0 }] });
+  assert.deepEqual(await w.run(), { success: true, data: undefined });
+});
+
+test("56-3. connected but Google does not confirm: still blocked with #61's message, nothing deleted", async () => {
+  const w = world({ bookings: [{ ok: false, failure: "calendar" }] });
+  const res = await w.run();
+  assert.equal(res.success, false);
+  assert.match(res.error, /couldn't remove this applicant's booked interview from Google Calendar/);
+  assert.ok(!w.events.includes("row:delete"), "nothing deleted");
+});
+
+test("56-4. the note: no dashes, and the delete sends no candidate email; the client shows it in place of 'deleted'", async () => {
+  const { readFileSync } = await import("node:fs");
+  assert.doesNotMatch(EVENT_LEFT, /[\u2013\u2014]| - /);
+  const actions = readFileSync(new URL("./actions.ts", import.meta.url), "utf8");
+  assert.ok(
+    actions.includes(`const CALENDAR_EVENT_LEFT =\n  "${EVENT_LEFT}";`),
+    "the copy as given",
+  );
+  const body = actions.slice(
+    actions.indexOf("export async function deleteApplication("),
+    actions.indexOf(
+      "export async function",
+      actions.indexOf("export async function deleteApplication(") + 10,
+    ),
+  );
+  assert.doesNotMatch(
+    body,
+    /deliverEmail|sendEmail|queueStageChange|cancelPendingRejection|Notices/,
+  );
+  const client = readFileSync(new URL("./_applicants-client.tsx", import.meta.url), "utf8");
+  assert.match(client, /const calendarNote = result\.data\?\.calendarNote;/);
+  // A notice, not a toast: it stays until the recruiter dismisses it.
+  assert.match(
+    client,
+    /if \(calendarNote\) setCalendarNote\(calendarNote\);\s*else setToast\(`\$\{fullName\(target\)\} deleted`\);/,
+  );
+  assert.doesNotMatch(client, /setToast\(\s*\{?\s*(message: )?calendarNote/, "never a timed toast");
+  const notice = client.slice(
+    client.indexOf("{calendarNote && ("),
+    client.indexOf("{calendarNote && (") + 1200,
+  );
+  assert.match(notice, /role="status"/);
+  assert.match(notice, /<p className="m-0 flex-1">\{calendarNote\}<\/p>/);
+  assert.match(notice, /aria-label="Dismiss"[\s\S]*onClick=\{\(\) => setCalendarNote\(null\)\}/);
+  // Only the Dismiss button clears it: no timer anywhere sets it back to null.
+  assert.equal((client.match(/setCalendarNote\(null\)/g) ?? []).length, 1);
+  assert.doesNotMatch(client, /setTimeout\([^)]*setCalendarNote/);
+});
+
+test("56-5. the cleanup alert is activated only once the applicant row is really deleted", async () => {
+  const w = world({ bookings: [{ ok: true, cancelled: 1, eventsLeft: 1 }] });
+  await w.run();
+  const at = (e) => w.events.indexOf(e);
+  assert.ok(
+    at("cleanups:activate") > at("row:delete") && at("row:delete") > -1,
+    "after the row delete",
+  );
+  assert.equal(w.events.filter((e) => e === "cleanups:activate").length, 1);
+});
+
+test("56-6. a delete that fails after the booking step activates nothing (no alert about someone still there); the retry that finishes does", async () => {
+  const w = world({
+    bookings: [
+      { ok: true, cancelled: 1, eventsLeft: 1 },
+      { ok: true, cancelled: 0, eventsLeft: 1 },
+    ],
+    rowFailures: 1,
+  });
+  const failed = await w.run();
+  assert.equal(failed.success, false);
+  assert.ok(!w.events.includes("cleanups:activate"), "a failed delete activates nothing");
+  const retry = await w.run();
+  assert.equal(retry.success, true);
+  assert.equal(w.events.filter((e) => e === "cleanups:activate").length, 1);
 });

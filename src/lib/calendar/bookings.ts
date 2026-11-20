@@ -2,6 +2,8 @@ import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
+import { accountKeyFromEmail } from "./account-key";
+import { recordPendingCleanup } from "./cleanups";
 import { getAccessToken } from "./connections";
 import { getProvider } from "./provider";
 import { isValidTimeZone } from "./timezone";
@@ -257,7 +259,15 @@ export async function findBookingByToken(rawToken: string): Promise<Read<Booking
     console.error("[booking] lookup failed:", error.message);
     return unavailable();
   }
-  return answered((data as BookingRow | null) ?? null);
+  const row = (data as BookingRow | null) ?? null;
+  /*
+   * No applicant, no booking (#56 C-2, #96). The row outlives a deleted
+   * applicant (application_id is ON DELETE SET NULL), and its link used to
+   * keep working: GET, booking, rescheduling and cancelling all ran for
+   * nobody. It now reads as no such link, on every method.
+   */
+  if (row && row.application_id === null) return answered(null);
+  return answered(row);
 }
 
 /** Has this link run out, regardless of what the status column says? */
@@ -480,12 +490,16 @@ export async function attachCalendarEvent(args: {
 
   const { data: connRow } = await service
     .from("calendar_connections")
-    .select("provider, calendar_id")
+    .select("provider, calendar_id, provider_account")
     .eq("member_id", args.row.host_member_id)
     .eq("status", "active")
     .maybeSingle();
 
-  const conn = connRow as { provider: string; calendar_id: string | null } | null;
+  const conn = connRow as {
+    provider: string;
+    calendar_id: string | null;
+    provider_account: string | null;
+  } | null;
   if (!conn) throw new Error("The interviewer's calendar is no longer connected.");
 
   const accessToken = await getAccessToken(args.row.host_member_id, conn.provider as "google");
@@ -532,6 +546,31 @@ export async function attachCalendarEvent(args: {
       eventId: created.eventId,
       error: error.message,
     });
+  }
+
+  /*
+   * Which account holds the event, as an HMAC (#56): a leftover event is
+   * cleared automatically only when this same account reconnects. Its own
+   * write: without the column (070 not applied) only the key is lost.
+   */
+  if (created.eventId) {
+    const { data: keyRow } = await service
+      .from("calendar_connections")
+      .select("provider_account_key")
+      .eq("member_id", args.row.host_member_id)
+      .eq("status", "active")
+      .maybeSingle();
+    const storedKey = (keyRow as { provider_account_key: string | null } | null)
+      ?.provider_account_key;
+    const { error: keyError } = await service
+      .from("interview_bookings")
+      .update({
+        provider_account_key:
+          storedKey || accountKeyFromEmail(conn.provider, conn.provider_account) || "",
+      })
+      .eq("id", args.row.id)
+      .eq("company_id", args.row.company_id);
+    if (keyError) console.error(`[booking] account key not stored: ${keyError.code ?? "error"}`);
   }
 
   return {
@@ -830,6 +869,10 @@ export async function cancelBooking(args: {
       cancelled_at: new Date().toISOString(),
       cancelled_by: args.cancelledBy,
       cancel_reason: (args.reason ?? "").trim().slice(0, CANCEL_REASON_MAX) || null,
+      // An event Google confirmed gone has nothing left to point at (#56). One
+      // that did not confirm keeps its id, so the applicant's delete can still
+      // remove it (cancelScreeningBookingsForDeletion).
+      ...(event && removedFromCalendar ? { provider_event_id: null } : {}),
     })
     .eq("id", args.row.id)
     // Same single-winner gate. Two cancels race safely; one wins, one is told
@@ -848,31 +891,60 @@ export async function cancelBooking(args: {
 }
 
 export type DeletionBookingsOutcome =
-  | { ok: true; cancelled: number }
+  /**
+   * `eventsLeft`, only when above 0: rows that still name a Google event this
+   * delete could not reach, because the host's calendar is no longer
+   * connected. The delete goes ahead; the recruiter is told to remove it.
+   */
+  | { ok: true; cancelled: number; eventsLeft?: number }
   /** Google did not confirm the event was removed, or could not be reached: nothing changed. */
   | { ok: false; failure: "calendar" }
   /** The bookings could not be read or marked: nothing changed that a retry would not redo. */
   | { ok: false; failure: "database" };
 
+/** What the delete must do about one booking row; null when it should not touch it. */
+function deletionStepFor(row: BookingRow): "cancel" | "clear-event" | null {
+  if (row.status === "booked") return canCancel(row) ? "cancel" : null;
+  if (row.status === "invited") return "cancel";
+  if (row.status === "cancelled" && row.provider_event_id) return "clear-event";
+  return null;
+}
+
 /**
- * Before an applicant is deleted (#61): cancel their upcoming SCREENING calls,
- * calendar first, the way cancelBooking does, and with no email to anyone.
+ * Before an applicant is deleted (#61, #56): nothing of theirs may be left on a
+ * host's Google Calendar, and no booking link of theirs may keep working. With
+ * no email to anyone.
  *
- * Unlike cancelBooking, a calendar that does not confirm STOPS here: the
- * applicant is about to vanish, and an interview left in the host's diary
- * would point at nobody, with no row left to cancel it from. So:
- *   - no event id, no active calendar connection, or no provider: nothing we
- *     can remove, the booking is just marked cancelled;
+ * The rows, all screening (purpose 'interview') bookings of this applicant:
+ *   - booked, still ahead (canCancel): the event is removed, then the row is
+ *     cancelled;
+ *   - invited, never booked (#56 C-2, #96): cancelled, so its link dies with
+ *     the applicant (findBookingByToken also refuses a row whose applicant is
+ *     gone);
+ *   - cancelled but still holding an event id: a recruiter's cancel whose
+ *     Google delete did not confirm (cancelBooking keeps the id for exactly
+ *     this). The event is removed now and the id cleared.
+ * A call already started or past, an expired or completed row, and final-round
+ * bookings are left as they are.
+ *
+ * The calendar goes first and a calendar that does not confirm STOPS the
+ * delete: the applicant is about to vanish, and an event left in the host's
+ * diary would point at nobody, with no row left to cancel it from. So:
+ *   - no event id: nothing to remove; the row is just written;
+ *   - an event id but no active calendar connection (or no provider): nothing
+ *     we can reach. The delete goes ahead and the row is written, and the
+ *     outcome counts it in `eventsLeft`, so the recruiter is told to remove
+ *     the event from the host's calendar themselves;
  *   - a connected calendar whose token cannot be had, or whose delete does not
- *     confirm (Google treats an already-gone event as success): refused, with
- *     nothing marked, so a retry starts over;
+ *     confirm (google.ts deleteEvent: 410, or a 404 on a calendar it can read,
+ *     is gone; a 404 on one it cannot read is not): refused there; that row
+ *     and the ones after it are untouched, and a retry finishes them;
  *   - the event deleted SILENTLY (sendUpdates=none): no Google email to the
  *     candidate either.
- * A booking already started or past (canCancel) is left as it is: there is no
- * upcoming meeting to remove. Final-round bookings are not touched here.
+ * Every confirmed delete clears provider_event_id in the same write.
  *
  * Retry-safe in every order: an event already deleted reads as success, and
- * the status write is the same single-winner `status = 'booked'` gate.
+ * each write is gated on the status it read.
  */
 export async function cancelScreeningBookingsForDeletion(
   companyId: string,
@@ -885,16 +957,19 @@ export async function cancelScreeningBookingsForDeletion(
     .eq("company_id", companyId)
     .eq("application_id", applicationId)
     .eq("purpose", "interview")
-    .eq("status", "booked");
+    .in("status", ["booked", "invited", "cancelled"]);
   if (error) {
     console.error(`[booking] applicant delete: bookings read failed: ${error.code ?? "error"}`);
     return { ok: false, failure: "database" };
   }
 
   let cancelled = 0;
+  let eventsLeft = 0;
   for (const row of (data ?? []) as BookingRow[]) {
-    if (!canCancel(row)) continue;
+    const step = deletionStepFor(row);
+    if (!step) continue;
 
+    let eventGone = false;
     if (row.provider_event_id) {
       const { data: connRow, error: connErr } = await service
         .from("calendar_connections")
@@ -925,27 +1000,61 @@ export async function cancelScreeningBookingsForDeletion(
           });
           return { ok: false, failure: "calendar" };
         }
+        eventGone = true;
+        // Removed after all (e.g. reconnected before this retry): an earlier
+        // attempt's pending record of it is no longer true (#56).
+        const { error: dropErr } = await service
+          .from("calendar_cleanups")
+          .delete()
+          .eq("company_id", companyId)
+          .eq("provider_event_id", row.provider_event_id)
+          .eq("pending_application_id", applicationId)
+          .eq("status", "pending");
+        if (dropErr) return { ok: false, failure: "database" };
+      } else {
+        // Not connected any more: nothing to call, so the delete goes ahead and
+        // the event is recorded for the lasting alert (#56, cleanups.ts):
+        // PENDING until the whole delete has succeeded. If it cannot be
+        // recorded the delete stops, so the event never ends up with nothing
+        // pointing at it; a retry records nothing twice.
+        const recorded = await recordPendingCleanup(service, companyId, applicationId, {
+          bookingId: row.id,
+          hostMemberId: row.host_member_id,
+          provider: row.provider ?? conn?.provider ?? "google",
+          eventId: row.provider_event_id,
+          eventStart: row.scheduled_start,
+        });
+        if (!recorded) return { ok: false, failure: "database" };
+        eventsLeft += 1;
       }
     }
 
+    // A cancelled row whose event could not be reached (no connection): left as it is.
+    if (step === "clear-event" && !eventGone) continue;
+
+    const write =
+      step === "cancel"
+        ? {
+            status: "cancelled",
+            cancelled_at: new Date().toISOString(),
+            cancelled_by: "recruiter",
+            cancel_reason: null,
+            ...(eventGone ? { provider_event_id: null } : {}),
+          }
+        : { provider_event_id: null };
     const { error: writeErr } = await service
       .from("interview_bookings")
-      .update({
-        status: "cancelled",
-        cancelled_at: new Date().toISOString(),
-        cancelled_by: "recruiter",
-        cancel_reason: null,
-      })
+      .update(write)
       .eq("id", row.id)
       .eq("company_id", companyId)
-      .eq("status", "booked");
+      .eq("status", row.status);
     if (writeErr) {
-      console.error(`[booking] applicant delete: cancel write failed: ${writeErr.code ?? "error"}`);
+      console.error(`[booking] applicant delete: write failed: ${writeErr.code ?? "error"}`);
       return { ok: false, failure: "database" };
     }
-    cancelled += 1;
+    if (step === "cancel") cancelled += 1;
   }
-  return { ok: true, cancelled };
+  return eventsLeft > 0 ? { ok: true, cancelled, eventsLeft } : { ok: true, cancelled };
 }
 
 /**

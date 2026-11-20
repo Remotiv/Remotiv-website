@@ -3,7 +3,8 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import { roleAllowsJobAction } from "@/app/ai-dashboard/lib/job-scope";
-import type { CompanyNotification } from "./notification-types";
+import { listOpenCleanups, markCleanupRemoved } from "@/lib/calendar/cleanups";
+import type { CalendarCleanupAlert, CompanyNotification } from "./notification-types";
 
 // NB: a "use server" module may only export async functions — every export is
 // compiled into a server action. Shapes live in ./notification-types.ts.
@@ -45,13 +46,15 @@ type Row = {
 export async function fetchNotifications(): Promise<{
   items: CompanyNotification[];
   unread: number;
+  /** Lasting calendar-cleanup alerts this viewer may see (#56); pinned, not in `unread`. */
+  cleanups: CalendarCleanupAlert[];
 }> {
   const ctx = await getCompanyContext();
-  if (!ctx.memberId) return { items: [], unread: 0 };
+  if (!ctx.memberId) return { items: [], unread: 0, cleanups: [] };
 
   const service = createServiceClient();
 
-  const [{ data }, { count }] = await Promise.all([
+  const [{ data }, { count }, cleanups] = await Promise.all([
     service
       .from("notifications_company")
       .select("id, type, title, body, job_id, application_id, href, read_at, created_at")
@@ -65,6 +68,7 @@ export async function fetchNotifications(): Promise<{
       .eq("company_id", ctx.companyId)
       .eq("member_id", ctx.memberId)
       .is("read_at", null),
+    listOpenCleanups(ctx),
   ]);
 
   const rows = (data ?? []) as Row[];
@@ -90,7 +94,21 @@ export async function fetchNotifications(): Promise<{
     };
   });
 
-  return { items, unread: count ?? 0 };
+  return { items, unread: count ?? 0, cleanups };
+}
+
+/**
+ * "Mark as removed" on a calendar-cleanup alert (#56). An owner or admin may
+ * clear any of their company's; any other member only one for their own
+ * calendar. Checked again on the server, on the company, in the write itself.
+ */
+export async function markCalendarCleanupRemoved(id: string): Promise<boolean> {
+  try {
+    const ctx = await getCompanyContext();
+    return await markCleanupRemoved(ctx, id);
+  } catch {
+    return false;
+  }
 }
 
 /** Mark one notification read. Own rows only. */

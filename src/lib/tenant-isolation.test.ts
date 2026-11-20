@@ -2831,8 +2831,14 @@ test("#27 a projection the resolver cannot read fails closed and says so", () =>
 
 /* ── #65: the table inventory ──────────────────────────────────── */
 
-/** The tables this file actually checks. Everything else read on the surface is in UNSCANNED_TABLES. */
-const SCANNED_TABLES = new Set([TABLE]);
+/**
+ * The tables that are actually checked. Everything else read on the surface is
+ * in UNSCANNED_TABLES. job_applications is checked by this file;
+ * calendar_cleanups (#56, migration 070) by lib/calendar/cleanups-isolation.test.ts,
+ * which requires a traced company filter on every read and a company in every
+ * write's payload, with no chain excused.
+ */
+const SCANNED_TABLES = new Set([TABLE, "calendar_cleanups"]);
 const UNSCANNED_REASONS = new Set([
   "pending-classification",
   "company-data-only",

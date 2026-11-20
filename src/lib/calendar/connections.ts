@@ -1,5 +1,6 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
+import { accountKeyFor } from "./account-key";
 import { EXPIRY_SKEW_MS } from "./google";
 import {
   type CalendarProviderId,
@@ -222,6 +223,21 @@ export async function storeTokens(args: {
     console.error("[calendar] storeTokens failed:", error.message);
     return { ok: false, error: error.message };
   }
+  /*
+   * Which account, as an HMAC (#56, account-key.ts): copied onto every event
+   * this connection creates, so a leftover event is cleared automatically only
+   * when this SAME account reconnects. Its own write, so a database without
+   * the column (migration 070 not yet applied) loses only the key, never the
+   * connection: cleanups are then resolved by hand.
+   */
+  const { error: keyError } = await service
+    .from("calendar_connections")
+    .update({ provider_account_key: accountKeyFor(args.provider, args.account) ?? "" })
+    .eq("member_id", args.memberId)
+    .eq("provider", args.provider)
+    .eq("company_id", args.companyId);
+  if (keyError) console.error(`[calendar] account key not stored: ${keyError.code ?? "error"}`);
+
   return { ok: true };
 }
 

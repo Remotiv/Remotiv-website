@@ -21,6 +21,7 @@ import { JobYield, TerminalJobError } from "@/lib/queue/failure-class";
 import { createJobContext } from "@/lib/queue/job-context";
 import { WORKER_TICK_STALE_MS } from "@/lib/queue-health-types";
 import { createServiceClient } from "@/lib/supabase/server";
+import { sweepCalendarCleanups } from "@/lib/calendar/cleanups";
 
 /**
  * Background job worker.
@@ -320,6 +321,23 @@ async function drain(startedAt: number) {
   // After the pool has drained, so the heartbeat records what THIS tick did
   // and a tick that died mid-batch leaves no heartbeat - which is the truth.
   await recordHeartbeatAndAlerts(summary, startedAt);
+
+  /*
+   * Calendar events deleted applicants left behind (#56): activate, retry on
+   * the same account (at most 50), purge after 30 days. Last, after the jobs
+   * and the heartbeat, so it can never delay either; bounded by this tick's
+   * deadline and its own limits (cleanups.ts); non-fatal like the others.
+   */
+  try {
+    const cleanups = await sweepCalendarCleanups({ deadlineAt });
+    if (cleanups.activated || cleanups.resolved || cleanups.purged || cleanups.failed) {
+      console.info(
+        `[worker] calendar cleanups: activated=${cleanups.activated} resolved=${cleanups.resolved} purged=${cleanups.purged} failed=${cleanups.failed}`,
+      );
+    }
+  } catch (err) {
+    console.error("[worker] calendar cleanup sweep failed (non-fatal):", err);
+  }
 
   const { deadJobs: _internalOnly, ...publicSummary } = summary;
   return { ...publicSummary, concurrency: WORKER_CONCURRENCY, durationMs: Date.now() - startedAt };
