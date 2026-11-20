@@ -301,6 +301,103 @@ function resendRequest(input: {
   };
 }
 
+/**
+ * The queue's retry of an automatic email whose first attempt FAILED (#56,
+ * QA #40 M-3).
+ *
+ * The retry used to insert into the same unique key (application, event,
+ * channel), get `duplicate`, and complete: one transient Resend error and the
+ * candidate never got the message, while the job reported success. Now the
+ * failed row itself is retried, through resendFailedEmail, the #59 path:
+ *   - claimed first (claim_failed_email_log, 067): only a 'failed' row from
+ *     the last 24 hours, one claimer at a time; a row left 'queued' by a send
+ *     that never answered is never retried, since its email may have arrived;
+ *   - sent with the FIRST attempt's idempotency key (candidateEmailKey of the
+ *     same row), and with the message the sender rebuilds from the same job
+ *     payload and the same facts, so it is the same request. A first attempt
+ *     that did reach Resend is answered from Resend's own record and is not
+ *     delivered again; a message that changed meanwhile is refused by Resend
+ *     and not sent (`mismatch`).
+ * Never twice. Returns null when there is no failed row to retry (it was sent,
+ * is still queued, or is too old): the caller's `duplicate` stands.
+ */
+async function retryFailedAutomatic(
+  service: Service,
+  input: {
+    companyId: string;
+    applicationId: string;
+    event: LoggedEvent;
+    to: string;
+    subject: string;
+    html: string;
+    companyName: string;
+    replyTo: string | null;
+  },
+): Promise<DeliveryOutcome | null> {
+  const { data: failedRow, error } = await service
+    .from("communication_logs")
+    .select("id")
+    .eq("company_id", input.companyId)
+    .eq("application_id", input.applicationId)
+    .eq("event", input.event)
+    .eq("channel", "email")
+    .is("sent_by_name", null)
+    .eq("status", "failed")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    // The retry cannot see the row: refuse like a fault, so the queue tries again.
+    return {
+      ok: false,
+      kind: "log",
+      message: "The earlier attempt couldn't be read, so it wasn't retried.",
+      logId: null,
+    };
+  }
+  const logId = (failedRow as { id: string } | null)?.id;
+  if (!logId) return null;
+
+  const outcome = await resendFailedEmail(service, {
+    logId,
+    companyId: input.companyId,
+    to: input.to,
+    subject: input.subject,
+    html: input.html,
+    companyName: input.companyName,
+    replyTo: input.replyTo,
+  });
+  switch (outcome.kind) {
+    case "sent":
+      return { ok: true, logId, providerId: null };
+    case "not_retried":
+      return null;
+    case "mismatch":
+      return {
+        ok: false,
+        kind: "duplicate",
+        message: "Not sent again: this message no longer matches the first one.",
+        logId,
+      };
+    case "failed":
+      return { ok: false, kind: "provider", message: outcome.message, logId };
+    case "not_configured":
+      return {
+        ok: false,
+        kind: "not_configured",
+        message: "Email isn't configured on this environment.",
+        logId,
+      };
+    case "cap":
+      return {
+        ok: false,
+        kind: "cap",
+        message: "Remotiv's daily email limit has been reached. This message hasn't been sent.",
+        logId,
+      };
+  }
+}
+
 export async function deliverEmail(
   service: Service,
   input: {
@@ -380,6 +477,10 @@ export async function deliverEmail(
 
   if (!written.ok) {
     if (written.duplicate) {
+      // An automatic message whose earlier attempt FAILED is retried on that
+      // same row (#56 M-3); see retryFailedAutomatic.
+      const retried = input.sentByName ? null : await retryFailedAutomatic(service, input);
+      if (retried) return retried;
       /*
        * This application already has a row for this event and channel. Nothing
        * is sent, deliberately: the constraint exists so one candidate cannot
