@@ -82,7 +82,13 @@ function mmss(total: number | null): string {
   return `${m}:${s < 10 ? "0" : ""}${s}`;
 }
 
-function fmtDate(iso: string | null): string {
+/**
+ * A date, in UTC until hydration and then in the reader's own zone (#63): a
+ * local date can be a different day on the UTC server than in the browser
+ * near midnight, and text that differs between the two renders is a
+ * hydration error. Same rule as fmtWhen below.
+ */
+export function fmtDate(iso: string | null, local: boolean): string {
   if (!iso) return "";
   const d = new Date(iso);
   return Number.isNaN(d.getTime())
@@ -91,6 +97,7 @@ function fmtDate(iso: string | null): string {
         day: "numeric",
         month: "long",
         year: "numeric",
+        ...(local ? {} : { timeZone: "UTC" }),
       });
 }
 
@@ -147,6 +154,7 @@ export function ReviewClient({
   const [stage, setStage] = useState(session.stage);
   const [toast, setToast] = useToast();
   const [archivedAt, setArchivedAt] = useState(session.archivedAt);
+  const hydrated = useIsHydrated();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [busy, setBusy] = useState(false);
   const router = useRouter();
@@ -250,7 +258,7 @@ export function ReviewClient({
                   looks first — never to be mistaken for the other kind. */}
               <span>{INTERVIEW_KIND_LABELS[session.kind]}</span>
               <span className="size-[3px] shrink-0 rounded-full bg-[var(--ai-t4)]" />
-              <span>{headerWhen(session)}</span>
+              <span>{headerWhen(session, hydrated)}</span>
               {session.candidateLink !== "linked" && (
                 <>
                   <span className="size-[3px] shrink-0 rounded-full bg-[var(--ai-t4)]" />
@@ -510,7 +518,7 @@ export function ReviewClient({
 
             <p className="m-0 mt-[18px] flex items-start gap-2.5 px-0.5 text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
               <Lock className="mt-px size-[15px] shrink-0 text-[var(--ai-t4)]" strokeWidth={1.9} />
-              <span>{retentionLine(session)}</span>
+              <span>{retentionLine(session, hydrated)}</span>
             </p>
           </div>
         </div>
@@ -786,7 +794,7 @@ function VerdictStrip({
             <p className="m-0 mt-2 text-[11.5px] leading-relaxed text-remotiv-lime">
               {adj.by} changed this from{" "}
               <span className="line-through opacity-70">{adj.aiScore ?? "-"}</span> to{" "}
-              <b className="font-bold">{shown}</b> · {fmtDate(adj.at)}
+              <b className="font-bold">{shown}</b> · {fmtDate(adj.at, hydrated)}
               {adj.feedback ? ` - “${adj.feedback}”` : ""}
             </p>
           )}
@@ -983,6 +991,7 @@ function Scorecard({
   onChanged: () => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const hydrated = useIsHydrated();
   const score: AnswerScoreView | null = answer.score;
   const status = score?.status ?? "pending";
 
@@ -1095,7 +1104,7 @@ function Scorecard({
           <p className="m-0 text-xs leading-relaxed text-[var(--ai-purple-ink)]">
             <b className="font-bold">{adj.by} changed this score</b> from{" "}
             <span className="line-through opacity-65">{adj.aiScore ?? "-"}</span> to{" "}
-            <b className="font-bold">{shown}</b> · {fmtDate(adj.at)}
+            <b className="font-bold">{shown}</b> · {fmtDate(adj.at, hydrated)}
             {adj.feedback ? (
               <>
                 <br />
@@ -1324,17 +1333,17 @@ function AdjustForm({
   );
 }
 
-function headerWhen(s: InterviewSessionDetail): string {
-  if (s.status === "submitted") return `Submitted ${fmtDate(s.submittedAt)}`;
+function headerWhen(s: InterviewSessionDetail, local: boolean): string {
+  if (s.status === "submitted") return `Submitted ${fmtDate(s.submittedAt, local)}`;
   if (s.status === "started") return "Started · not submitted";
-  if (s.status === "expired") return `Expired ${fmtDate(s.expiresAt)}`;
+  if (s.status === "expired") return `Expired ${fmtDate(s.expiresAt, local)}`;
   if (s.status === "cancelled") return "Invitation cancelled";
   // #47: a status this page does not recognise is never shown as an invite.
   if (s.status === "unknown") return "Needs check";
-  return `Invited ${fmtDate(s.sentAt)} · due ${fmtDate(s.expiresAt)}`;
+  return `Invited ${fmtDate(s.sentAt, local)} · due ${fmtDate(s.expiresAt, local)}`;
 }
 
-function retentionLine(s: InterviewSessionDetail): string {
+function retentionLine(s: InterviewSessionDetail, local: boolean): string {
   if (s.purged) {
     return "The recordings were deleted six months after the invitation was sent, as scheduled. The questions, the answer record and the scores are kept with the application; the transcripts, the AI's explanations and the quotes went with the recordings.";
   }
@@ -1342,7 +1351,7 @@ function retentionLine(s: InterviewSessionDetail): string {
     return "Retention started when the invitation was sent - recordings are kept for 6 months from that date.";
   }
   return s.deleteAfter
-    ? `Recordings are deleted automatically on ${fmtDate(s.deleteAfter)}, six months after the invitation was sent.`
+    ? `Recordings are deleted automatically on ${fmtDate(s.deleteAfter, local)}, six months after the invitation was sent.`
     : "No deletion date is recorded for this interview, so the automatic six-month deletion will not reach it.";
 }
 
@@ -1565,6 +1574,7 @@ function Transcript({ answer }: { answer: InterviewAnswerView }) {
 
 /** Invited or expired with nothing recorded — there is no review to show. */
 function NothingRecorded({ session }: { session: InterviewSessionDetail }) {
+  const hydrated = useIsHydrated();
   const expired = session.status === "expired";
   return (
     <div className="rounded-[18px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-8 pb-14 pt-[52px] text-center shadow-[0_6px_30px_rgba(20,16,32,0.06)]">
@@ -1578,8 +1588,8 @@ function NothingRecorded({ session }: { session: InterviewSessionDetail }) {
       </h3>
       <p className="m-0 mx-auto mb-5 max-w-[430px] text-sm leading-relaxed text-[var(--ai-t3)]">
         {expired
-          ? `The invitation expired on ${fmtDate(session.expiresAt)} with nothing recorded. Send a new one from their applicant record if you'd still like to hear from them.`
-          : `The invitation went out on ${fmtDate(session.sentAt)} and the link is open until ${fmtDate(session.expiresAt)}. You'll see answers here as they come in - there's nothing to do until then.`}
+          ? `The invitation expired on ${fmtDate(session.expiresAt, hydrated)} with nothing recorded. Send a new one from their applicant record if you'd still like to hear from them.`
+          : `The invitation went out on ${fmtDate(session.sentAt, hydrated)} and the link is open until ${fmtDate(session.expiresAt, hydrated)}. You'll see answers here as they come in - there's nothing to do until then.`}
       </p>
       {session.applicationId && (
         <Link
@@ -1620,6 +1630,7 @@ function NotesCard({
   const [draft, setDraft] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
+  const hydrated = useIsHydrated();
   const [busy, setBusy] = useState(false);
 
   async function run(
@@ -1744,7 +1755,7 @@ function NotesCard({
                     </p>
                     <div className="mt-[3px] flex flex-wrap items-center gap-x-2 gap-y-1">
                       <small className="text-[11px] text-[var(--ai-t4)]">
-                        {n.authorName} · {noteWhen(n.createdAt)}
+                        {n.authorName} · {noteWhen(n.createdAt, hydrated)}
                         {/* An edit is disclosed rather than silent — a note
                             that changed after a colleague read it should say so. */}
                         {edited ? " · edited" : ""}
@@ -1785,9 +1796,21 @@ function NotesCard({
   );
 }
 
-function noteWhen(iso: string): string {
+/**
+ * When a note was written. Until hydration, the exact stamp in UTC, labelled:
+ * "5m ago" needs a clock, and the server's and the browser's read at different
+ * moments, so a relative time can differ between the two renders (#63). After
+ * hydration, the live relative time, or the reader's local date for old notes.
+ */
+export function noteWhen(iso: string, local: boolean): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
+  if (!local) {
+    const utc = { timeZone: "UTC" } as const;
+    const day = d.toLocaleDateString("en-GB", { day: "numeric", month: "short", ...utc });
+    const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", ...utc });
+    return `${day}, ${time} UTC`;
+  }
   const mins = Math.floor((Date.now() - d.getTime()) / 60_000);
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
