@@ -971,7 +971,7 @@ async function fetchSessionScores(
     const { data, error } = await service
       .from("interview_session_scores")
       .select(
-        "session_id, status, overall_score, human_adjusted_score, human_feedback, adjusted_by_name, adjusted_at, verdict, summary, confidence, criteria, error, scored_at",
+        "session_id, status, overall_score, human_adjusted_score, human_feedback, adjusted_by_name, adjusted_at, verdict, summary, confidence, criteria, error, scored_at, created_at",
       )
       .eq("company_id", companyId)
       .in("session_id", sessionIds.slice(i, i + 100));
@@ -994,6 +994,7 @@ async function fetchSessionScores(
       criteria: unknown;
       error: string | null;
       scored_at: string | null;
+      created_at: string | null;
     }[]) {
       const status =
         r.status === "scored" || r.status === "failed" || r.status === "skipped"
@@ -1010,6 +1011,7 @@ async function fetchSessionScores(
         criteria: normaliseCriteria(r.criteria).map((c) => (deleted ? { ...c, quote: "" } : c)),
         error: r.error,
         scoredAt: r.scored_at,
+        firstWrittenAt: r.created_at,
         adjustment: toAdjustment(
           r.human_adjusted_score,
           r.adjusted_by_name,

@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import { Toast, useToast } from "@/app/ai-dashboard/_components/toast";
 import { updateApplicationStage } from "@/app/ai-dashboard/(gated)/applicants/actions";
@@ -39,7 +39,7 @@ import type {
   ScoredEvidence,
   SessionCriterion,
 } from "@/lib/interviews/review-types";
-import { answersShownNote } from "@/lib/interviews/review-types";
+import { answersShownNote, scoreUpdatedAfterFirst } from "@/lib/interviews/review-types";
 import { scorecardIsPartial } from "@/lib/interviews/scorecard-partial";
 import { INTERVIEW_KIND_LABELS } from "@/lib/interviews/types";
 import { isSafeFailureSentence } from "@/lib/queue/failure-class";
@@ -92,6 +92,37 @@ function fmtDate(iso: string | null): string {
         month: "long",
         year: "numeric",
       });
+}
+
+const NEVER_CHANGES = () => () => {};
+/** False on the server and during hydration, true after: the same in both renders. */
+function useIsHydrated(): boolean {
+  return useSyncExternalStore(
+    NEVER_CHANGES,
+    () => true,
+    () => false,
+  );
+}
+
+/**
+ * Date and time, for a moment a reviewer may need to place against others.
+ *
+ * In UTC, labelled, until hydration, then in the reader's own zone: the server
+ * (Vercel) runs in UTC and the browser does not, and text that differs between
+ * the two renders is a hydration error (the Messages page's rule, #36).
+ */
+export function fmtWhen(iso: string, local: boolean): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const text = d.toLocaleString("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    ...(local ? {} : { timeZone: "UTC" }),
+  });
+  return local ? text : `${text} UTC`;
 }
 
 function initials(name: string): string {
@@ -670,6 +701,7 @@ function VerdictStrip({
 }) {
   const [editing, setEditing] = useState(false);
   const [requesting, setRequesting] = useState(false);
+  const hydrated = useIsHydrated();
   if (status !== "submitted" && status !== "cancelled") return null;
 
   const shown = score?.humanScore ?? score?.overall ?? null;
@@ -677,6 +709,7 @@ function VerdictStrip({
   const notScoredLabel = score?.status === "skipped" ? "Not scored" : "Not scored yet";
   const band = scored ? BAND_PANEL[scoreBand(shown)] : null;
   const adj = score?.adjustment ?? null;
+  const updated = scoreUpdatedAfterFirst(score);
 
   /*
    * One click, one request. `requesting` stops a double-tap before the
@@ -755,6 +788,12 @@ function VerdictStrip({
               <span className="line-through opacity-70">{adj.aiScore ?? "-"}</span> to{" "}
               <b className="font-bold">{shown}</b> · {fmtDate(adj.at)}
               {adj.feedback ? ` - “${adj.feedback}”` : ""}
+            </p>
+          )}
+          {updated && (
+            <p className="m-0 mt-2 text-[11.5px] leading-relaxed text-white/60" data-score-updated>
+              Re-scored {fmtWhen(updated.updatedAt, hydrated)}, after a transcript finished late.
+              First scorecard written {fmtWhen(updated.firstAt, hydrated)}.
             </p>
           )}
           {evidenceDeleted && scored && (

@@ -256,6 +256,8 @@ export type InterviewScore = {
   confidence: string | null;
   error: string | null;
   scoredAt: string | null;
+  /** When this session's scorecard row was first written (its created_at). */
+  firstWrittenAt: string | null;
   adjustment: ScoreAdjustment | null;
   /**
    * The job's behavioural criteria, one entry each, in the order the employer
@@ -351,6 +353,43 @@ export const ANSWERS_SHOWN = 50;
  * Without a total, a full list cannot be told from a cut one, so it says only
  * "Showing the first 50 answers".
  */
+/**
+ * Further apart than any one scoring run's two clocks: see scoreUpdatedAfterFirst.
+ *
+ * On a first write the two timestamps differ only by the app and database
+ * clocks, seconds at most. A re-score needs at least a transcribe run and a
+ * scoring run, two worker ticks of about a minute each, so a minute separates
+ * the two cases. Five minutes (the first value) could hide a re-score an admin
+ * set off quickly, such as "Retry all" just after fixing a missing API key.
+ */
+export const SCORE_UPDATED_GAP_MS = 60_000;
+
+/**
+ * Was this scorecard rewritten after it was first written, and when (#28)?
+ *
+ * Only the scoring rollup writes `scored_at`, and on a first write it lands
+ * within seconds of the row's `created_at`. A later rewrite of an existing
+ * scorecard needs a new scoring request, and with a row present the only
+ * askers left are the transcribe handler and the recovery sweep, both fired by
+ * a transcript settling: a replay, or a late recovery. So a gap means a
+ * transcript finished after the first scorecard and the score was redone with
+ * it. Null for anything else, including a scorecard written once.
+ *
+ * `firstAt` is when the row was first WRITTEN, not first scored: that first
+ * row may have been `skipped` (scoring was off, say) and only this run scored
+ * it. The status it had is not stored, so the copy names the write.
+ */
+export function scoreUpdatedAfterFirst(
+  score: Pick<InterviewScore, "status" | "scoredAt" | "firstWrittenAt"> | null,
+): { updatedAt: string; firstAt: string } | null {
+  if (score?.status !== "scored" || !score.scoredAt || !score.firstWrittenAt) return null;
+  const updated = Date.parse(score.scoredAt);
+  const first = Date.parse(score.firstWrittenAt);
+  if (!Number.isFinite(updated) || !Number.isFinite(first)) return null;
+  if (updated - first <= SCORE_UPDATED_GAP_MS) return null;
+  return { updatedAt: score.scoredAt, firstAt: score.firstWrittenAt };
+}
+
 export function answersShownNote(shown: number, total: number | null): string | null {
   if (total !== null) return total > shown ? `Showing ${shown} of ${total} answers` : null;
   return shown >= ANSWERS_SHOWN ? `Showing the first ${shown} answers` : null;
