@@ -77,16 +77,16 @@ const EMPTY_KEYS = [
 ].map((m) => m[1]);
 
 /**
- * The computations themselves (#41 part 2: there are two). Without a search
- * the list counts in SQL, one head count per status through `statusFilter`;
- * a search counts the rows it read, in JavaScript. Both must chart every
- * member and define each bucket by its own status.
+ * The computation itself. The list counts in SQL, one head count per status
+ * through `statusFilter` (#41 part 2), with or without a search (#41
+ * follow-up: the search used to count the rows it read, in JavaScript; that
+ * path is gone). It must chart every member and define each bucket by its own
+ * status.
  */
 const COUNT_BLOCKS = [...REVIEW.matchAll(/\n {2}const counts = \{([\s\S]*?)\n {2}\};/g)].map(
   (m) => m[1],
 );
-const [SQL_COMPUTED, COMPUTED] = COUNT_BLOCKS;
-const COMPUTED_KEYS = [...COMPUTED.matchAll(/^\s*(\w+):/gm)].map((m) => m[1]);
+const [SQL_COMPUTED] = COUNT_BLOCKS;
 const SQL_COMPUTED_KEYS = [...(SQL_COMPUTED ?? "").matchAll(/^\s*(\w+):/gm)].map((m) => m[1]);
 /** One `case` of statusFilter, the SQL definition of a bucket. */
 const sqlCase = (status: string) =>
@@ -146,13 +146,9 @@ describe("Interviews counts reconcile", () => {
     });
 
     test(`the ${status} bucket filters on ${status}`, () => {
-      assert.match(
-        COMPUTED,
-        new RegExp(`r\\.status === "${status}"`),
-        `the ${status} bucket must be defined by that status and nothing else — the buckets ` +
-          "summing to 'all' is an identity only while each one filters on its own member",
-      );
-      // The SQL path: the key is read through that status's own filter...
+      // The buckets summing to 'all' is an identity only while each one
+      // filters on its own member: the key is read through that status's own
+      // filter...
       assert.match(SQL_COMPUTED, new RegExp(`\\b${status}: countOf\\("${status}"\\),`));
       // ...and the filter names that status (unknown: everything that is not a stored status).
       const body = sqlCase(status);
@@ -174,8 +170,7 @@ describe("Interviews counts reconcile", () => {
   });
 
   test("the computation charts the same keys as the type", () => {
-    assert.equal(COUNT_BLOCKS.length, 2, "the SQL path and the search path");
-    assert.deepEqual([...COMPUTED_KEYS].sort(), [...COUNT_KEYS].sort());
+    assert.equal(COUNT_BLOCKS.length, 1, "one computation, with or without a search");
     assert.deepEqual([...SQL_COMPUTED_KEYS].sort(), [...COUNT_KEYS].sort());
   });
 

@@ -92,6 +92,7 @@ function install({
   failSessionFrom = null,
   failAnswerChunk = null,
   failSubmittedCount = false,
+  failSearch = false,
 }) {
   let answerChunk = 0;
   globalThis.__messagesServiceForTests = () =>
@@ -108,6 +109,11 @@ function install({
           call(calls, "select")?.[2]?.head &&
           calls.some((c) => c[0] === "eq" && c[1] === "status" && c[2] === "submitted")
         ) {
+          return { data: null, error: { message: "test: refused", code: "57014" } };
+        }
+        // #41 follow-up: the search's page read (it embeds the applications) fails
+        // while every count of the same wave succeeds.
+        if (failSearch && String(call(calls, "select")?.[1] ?? "").includes("job_applications!")) {
           return { data: null, error: { message: "test: refused", code: "57014" } };
         }
         // Filters, counts and paging applied as PostgREST would (#41 part 2).
@@ -151,11 +157,11 @@ function figures(value) {
 
 // ── 1 ──
 test("a failed second page is reported as a failure", async () => {
-  // The search path still reads every session in pages of 1,000; without a
-  // search the list reads in SQL (#41 part 2), where a partial read is one
-  // of its reads failing while the rest succeed. Both fail whole.
+  // The list reads in SQL (#41 part 2), with or without a search (#41
+  // follow-up), so a partial read is one of its reads failing while the rest
+  // succeed: a count, or the search's page. Both fail whole.
   for (const [path, setup, opts] of [
-    ["search", { sessions: seed(1000), failSessionFrom: 1000 }, { status: "all", query: "x" }],
+    ["search", { sessions: seed(1000), failSearch: true }, { status: "all", query: "x" }],
     ["sql", { sessions: seed(1000), failSubmittedCount: true }, { status: "all" }],
   ]) {
     install(setup);
@@ -172,7 +178,7 @@ test("a failed second page is reported as a failure", async () => {
 // ── 2 ──
 test("a failed read carries no figures at all", async () => {
   for (const [path, setup, opts] of [
-    ["search", { sessions: seed(1000), failSessionFrom: 1000 }, { status: "all", query: "x" }],
+    ["search", { sessions: seed(1000), failSearch: true }, { status: "all", query: "x" }],
     ["sql", { sessions: seed(1000), failSubmittedCount: true }, { status: "all" }],
   ]) {
     install(setup);

@@ -175,9 +175,19 @@ const TABS = [
 
 /** A database with hiring teams and applicant names, so scope and search run for real. */
 function richWorld(rows, { team = [] } = {}) {
+  // The applications the search's embed reads, each on its session's company.
+  const applications = rows.map((s) => ({
+    id: s.application_id,
+    company_id_snapshot: s.company_id,
+    first_name: "Cand",
+    last_name: s.application_id.slice(-4),
+    email: `${s.application_id.slice(-4)}@x.test`,
+  }));
   globalThis.__messagesServiceForTests = () =>
     fakeService((table, calls) => {
-      if (table === "interview_sessions") return answerSessions(rows, calls);
+      if (table === "interview_sessions") {
+        return answerSessions(rows, calls, { related: { job_applications: applications } });
+      }
       if (table === "job_hiring_team") {
         return {
           data: team.filter((t) =>

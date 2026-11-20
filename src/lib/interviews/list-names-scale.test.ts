@@ -60,6 +60,7 @@ function world(n, { failNames = false, missing = new Set(), delayMs = 0, flight 
         appId(i),
         {
           id: appId(i),
+          company_id_snapshot: CO,
           first_name: `First${i}`,
           last_name: `Last${i}`,
           email: `c${i}@example.invalid`,
@@ -67,11 +68,16 @@ function world(n, { failNames = false, missing = new Set(), delayMs = 0, flight 
       ]),
   );
   const nameReads = [];
+  sessionReads.length = 0;
   globalThis.__messagesServiceForTests = () =>
     fakeService((table, calls) => {
       if (table === "interview_sessions") {
         // Filters, counts and paging applied as PostgREST would (#41 part 2).
-        return answerSessions(withCompany, calls, { maxRows: MAX_ROWS });
+        sessionReads.push(calls);
+        return answerSessions(withCompany, calls, {
+          maxRows: MAX_ROWS,
+          related: { job_applications: [...apps.values()] },
+        });
       }
       if (table === "job_applications") {
         const ids = call(calls, "in")[2];
@@ -97,6 +103,8 @@ function world(n, { failNames = false, missing = new Set(), delayMs = 0, flight 
 }
 
 const list = (opts) => listInterviewSessions(ctx, { status: "all", ...opts });
+/** Every interview_sessions request of the last world, as its calls. */
+const sessionReads = [];
 
 // Negative control: read names for every session again (the old shape) and
 // the request count becomes 100 at 10,000 sessions instead of 1.
@@ -138,35 +146,51 @@ test("an application that is really gone still reads 'Applicant deleted'", async
   assert.equal(r.value.rows[1].candidateLink, "linked");
 });
 
-test("search still matches names across every page (it needs them all)", async () => {
+// #41 follow-up. Negative control: put back the old search (read every
+// session and every name, then match in JavaScript) and the name requests
+// become 100 at 10,000 sessions instead of 1.
+test("search at 10,000 interviews: the match is found in SQL; one name request, for the page", async () => {
   const reads = world(10_000);
   const r = await list({ query: "first9999 " });
   assert.equal(r.ok, true);
   assert.equal(r.value.total, 1);
   assert.equal(r.value.rows[0].candidateName, "First9999 Last9999");
-  assert.equal(reads.length, 100, "100 ids per request, every session");
-  assert.ok(
-    reads.every((len) => len === 100),
-    "no extra page read when the search already has the names",
-  );
+  assert.deepEqual(reads, [1], "the page's one name, nothing else");
+  assert.equal(r.value.counts.all, 10_000, "the counts are the whole list's, as before");
+  const selects = sessionReads.map((calls) => String(calls.find((c) => c[0] === "select")[1]));
+  const page = selects.filter((sel) => sel.includes("questions_snapshot"));
+  assert.equal(page.length, 1, "one page read");
+  assert.match(page[0], /who:job_applications!interview_sessions_application_id_fkey\(id\)/);
 });
 
-test("search with a failed name read: the list says unavailable, not 'no matches'", async () => {
+test("search with a failed name read: the match does not depend on it; the row says unavailable", async () => {
   world(10_000, { failNames: true });
   const r = await list({ query: "first1" });
-  assert.equal(r.ok, false);
+  assert.equal(r.ok, true);
+  assert.equal(r.value.total, 1111, "first1, first10..19, first100..199, first1000..1999");
+  assert.equal(r.value.rows.length, 20);
+  assert.ok(r.value.rows.every((row) => row.candidateName === "Name unavailable"));
 });
 
-// Negative controls: the old sequential loop gives max 1; Promise.all over every
-// chunk (this item's first version) gives max 100.
-test("search reads names in parallel, at most NAME_READ_CONCURRENCY requests at once", async () => {
-  const flight = { now: 0, max: 0 };
-  const reads = world(10_000, { delayMs: 5, flight });
-  const r = await list({ query: "first9999" });
-  assert.equal(r.ok, true);
+// Negative control: match each word on its own (drop the exact test) and
+// "last9999 first9999" finds a row it never did.
+test("a search with spaces spans first and last name as before, and only in the order shown", async () => {
+  let reads = world(10_000);
+  let r = await list({ query: "First9999 Last999" });
+  assert.equal(r.value.total, 1);
   assert.equal(r.value.rows[0].candidateName, "First9999 Last9999");
-  assert.equal(reads.length, 100, "every chunk read once");
-  assert.ok(flight.max > 1, `parallel: ${flight.max} in flight at most`);
-  assert.ok(flight.max <= 5, `bounded: ${flight.max} in flight at most`);
-  assert.equal(flight.now, 0, "nothing left open");
+  assert.deepEqual(reads, [1, 1], "the one candidate's name, then the page's");
+  reads = world(10_000);
+  r = await list({ query: "last9999 first9999" });
+  assert.equal(r.ok, true);
+  assert.equal(r.value.total, 0);
+  assert.deepEqual(reads, [1], "the one candidate's name; it does not match, so no page");
+  // Rows holding every word, but not as one run: read, then dropped exactly.
+  world(10_000);
+  r = await list({ query: "first99 last99" });
+  assert.equal(
+    r.value.total,
+    1,
+    "only First99 Last99; First990 Last990 holds both words but not the run",
+  );
 });

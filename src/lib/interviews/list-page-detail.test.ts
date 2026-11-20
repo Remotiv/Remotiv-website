@@ -72,13 +72,27 @@ function world(
     previous_attempt_id: null,
   }));
   const withCompany = sessions.map((s) => ({ company_id: CO, ...s }));
+  // The search's embed reads these (#41 follow-up); the name read below, the page's.
+  const applications = sessions
+    .map((_, i) => i)
+    .filter((i) => !missingApp(i))
+    .map((i) => ({
+      id: appId(i),
+      company_id_snapshot: CO,
+      first_name: `First${i}`,
+      last_name: `Last${i}`,
+      email: `c${i}@example.invalid`,
+    }));
   const index = new Map(sessions.map((s, i) => [s.id, i]));
   const reads = { answers: [], scores: [] };
   globalThis.__messagesServiceForTests = () =>
     fakeService((table, calls) => {
       if (table === "interview_sessions") {
         // Filters, counts and paging applied as PostgREST would (#41 part 2).
-        return answerSessions(withCompany, calls, { maxRows: MAX_ROWS });
+        return answerSessions(withCompany, calls, {
+          maxRows: MAX_ROWS,
+          related: { job_applications: applications },
+        });
       }
       if (table === "job_applications") {
         const ids = call(calls, "in")[2];

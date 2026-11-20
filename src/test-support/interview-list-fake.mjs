@@ -12,7 +12,12 @@
  *   order (several keys), range, limit, maybeSingle, count/head,
  *   the restart embed  first:interview_sessions!previous_attempt_id(...)
  *   and, on jobs, embedded counts  alias:interview_sessions(count)  with
- *   filters on `alias.column`.
+ *   filters on `alias.column`;
+ *   the search's embeds (#41 follow-up)  alias:job_applications!..._fkey(cols)
+ *   and alias:jobs!..._fkey(cols), each the session's own row when it passes
+ *   the filters on `alias.` (eq, or(..., { referencedTable: alias })), else
+ *   null, so a top-level  alias.not.is.null / alias.is.null  works as in
+ *   PostgREST; imatch / match (regex), and PostgREST-quoted values.
  *
  * An operator it does not know throws, so a new filter cannot silently pass.
  *
@@ -40,6 +45,10 @@ function test1(row, col, op, val) {
       return v != null && (Array.isArray(val) ? val : listOf(val)).map(String).includes(String(v));
     case "is":
       return val === null || val === "null" ? v == null : v === val;
+    case "imatch":
+      return v != null && new RegExp(val, "i").test(String(v));
+    case "match":
+      return v != null && new RegExp(val).test(String(v));
     default:
       throw new Error(`interview-list-fake: unsupported operator ${op} on ${col}`);
   }
@@ -51,12 +60,31 @@ const listOf = (s) =>
     .split(",")
     .filter(Boolean);
 
-/** Split on commas at depth 0. */
+/** A PostgREST value: "quoted" (backslash escapes) or bare. */
+const unquote = (v) =>
+  v.startsWith('"') && v.endsWith('"') ? v.slice(1, -1).replace(/\\(.)/g, "$1") : v;
+
+/** Split on commas at depth 0, outside quoted values. */
 function topLevel(expr) {
   const out = [];
   let depth = 0;
   let cur = "";
-  for (const ch of expr) {
+  let inQuote = false;
+  for (let i = 0; i < expr.length; i += 1) {
+    const ch = expr[i];
+    if (inQuote) {
+      cur += ch;
+      if (ch === "\\") {
+        cur += expr[i + 1];
+        i += 1;
+      } else if (ch === '"') inQuote = false;
+      continue;
+    }
+    if (ch === '"') {
+      inQuote = true;
+      cur += ch;
+      continue;
+    }
     if (ch === "(") depth += 1;
     if (ch === ")") depth -= 1;
     if (ch === "," && depth === 0) {
@@ -74,11 +102,11 @@ function orTerm(row, term) {
   const t = term.trim();
   if (t.startsWith("and(")) return topLevel(t.slice(4, -1)).every((x) => orTerm(row, x));
   if (t.startsWith("or(")) return topLevel(t.slice(3, -1)).some((x) => orTerm(row, x));
-  const m = /^([a-z_]+)\.(not\.)?(eq|neq|lt|gte|in|is)\.(.*)$/.exec(t);
+  const m = /^([a-z_][a-z_0-9]*)\.(not\.)?(eq|neq|lt|gte|in|is|imatch|match)\.(.*)$/s.exec(t);
   if (!m) throw new Error(`interview-list-fake: unsupported or() term ${t}`);
   // not.in on a NULL is NULL in SQL: false either way round.
   if (m[2] && row[m[1]] == null) return false;
-  const hit = test1(row, m[1], m[3], m[4]);
+  const hit = test1(row, m[1], m[3], unquote(m[4]));
   return m[2] ? !hit : hit;
 }
 
@@ -133,11 +161,36 @@ function ordered(rows, calls) {
  * Answer one interview_sessions request over `sessions`. `maxRows` mimics
  * PostgREST's response cap. Out-of-range pages answer PGRST103, as PostgREST does.
  */
-export function answerSessions(sessions, calls, { maxRows = 1000 } = {}) {
+export function answerSessions(sessions, calls, { maxRows = 1000, related = {} } = {}) {
   const select = calls.find((c) => c[0] === "select");
   const opts = select?.[2] ?? {};
+  const embeds = [
+    ...String(select?.[1] ?? "").matchAll(/(\w+):(job_applications|jobs)!(\w+)\(([^)]*)\)/g),
+  ].map(([, alias, table, fk, cols]) => {
+    const column = {
+      interview_sessions_application_id_fkey: "application_id",
+      interview_sessions_job_id_fkey: "job_id",
+    }[fk];
+    if (!column) throw new Error(`interview-list-fake: unknown foreign key ${fk}`);
+    return { alias, table, column, cols: cols.split(",").map((c) => c.trim()) };
+  });
+  const index = Object.fromEntries(
+    Object.entries(related).map(([table, rows]) => [table, new Map(rows.map((r) => [r.id, r]))]),
+  );
+  for (const e of embeds) index[e.table] ??= new Map();
+  const withEmbeds = embeds.length
+    ? sessions.map((s) => {
+        const out = { ...s };
+        for (const e of embeds) {
+          const found = s[e.column] == null ? null : index[e.table].get(s[e.column]);
+          const rel = found && passes(found, calls, e.alias) ? found : null;
+          out[e.alias] = rel ? Object.fromEntries(e.cols.map((c) => [c, rel[c] ?? null])) : null;
+        }
+        return out;
+      })
+    : sessions;
   let hit = ordered(
-    sessions.filter((s) => passes(s, calls)),
+    withEmbeds.filter((s) => passes(s, calls)),
     calls,
   );
   const total = hit.length;

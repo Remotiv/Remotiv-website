@@ -845,7 +845,39 @@ const isLit = (node, value) =>
  * matched here.
  */
 const COMPANY_KEYS = new Set([COMPANY_COLUMN, `${TABLE}.${COMPANY_COLUMN}`]);
-const isCompanyKey = (node) => isLit(node) && COMPANY_KEYS.has(node.text);
+/**
+ * An aliased embed (`who:job_applications(…)`) is filtered as `who.<col>`, so
+ * its key is only known once the projection is read: `extra` carries those.
+ */
+const isCompanyKey = (node, extra = new Set()) =>
+  isLit(node) && (COMPANY_KEYS.has(node.text) || extra.has(node.text));
+
+/**
+ * The parent's OWN tenant column, when it is not this table's. A read of
+ * interview_sessions filters `.eq("company_id", …)`. Never credited on its own:
+ * it only counts together with a company filter on EVERY embed of this table
+ * (see leaksAcrossLeftJoin), so a parent filter cannot stand in for an
+ * unfiltered embed, nor an embed filter for an unfiltered parent.
+ */
+const PARENT_TENANT_KEY = "company_id";
+
+/**
+ * Every OTHER table embedded beside this one in the same projection (#41):
+ * `role:jobs!fk(id)` in the Interviews search. The both-filters exemption
+ * below holds only when each of these is company-filtered too, on its own
+ * `<alias>.company_id`, so a read that joins this table can never attach
+ * another company's row of any table.
+ */
+const ANY_EMBED_RE = /(?:^|[,(\s])(?:([A-Za-z_]\w*)\s*:\s*)?([a-z_]+)((?:!\w+)*)\s*\(/g;
+function otherEmbedsIn(text) {
+  return [...text.matchAll(ANY_EMBED_RE)]
+    .filter((m) => m[2] !== TABLE)
+    .map((m) => ({
+      alias: m[1] ?? null,
+      table: m[2],
+      key: `${m[1] ?? m[2]}.${PARENT_TENANT_KEY}`,
+    }));
+}
 
 /**
  * This table appearing as an embedded resource inside a `select()` string.
@@ -862,7 +894,7 @@ const isCompanyKey = (node) => isLit(node) && COMPANY_KEYS.has(node.text);
  * attached, which is the one outcome this file exists to prevent.
  */
 const EMBED_RE = new RegExp(
-  `(?:^|[,(\\s])(?:[A-Za-z_]\\w*\\s*:\\s*)?${TABLE}((?:!\\w+)*)\\s*\\(`,
+  `(?:^|[,(\\s])(?:([A-Za-z_]\\w*)\\s*:\\s*)?${TABLE}((?:!\\w+)*)\\s*\\(`,
   "g",
 );
 
@@ -879,8 +911,11 @@ const EMBED_RE = new RegExp(
  */
 function embedsIn(text) {
   return [...text.matchAll(EMBED_RE)].map((m) => ({
-    hints: m[1],
-    join: /!inner\b/.test(m[1]) ? "INNER" : "LEFT",
+    alias: m[1] ?? null,
+    hints: m[2],
+    join: /!inner\b/.test(m[2]) ? "INNER" : "LEFT",
+    /** The key a company filter on THIS embed is spelled with. */
+    key: `${m[1] ?? TABLE}.${COMPANY_COLUMN}`,
   }));
 }
 
@@ -1021,14 +1056,14 @@ function functionName(node) {
  * `job_applications.company_id_snapshot` restricts an embedded resource, and
  * which one was written decides whether the join type matters.
  */
-function filtersOn(scope, name) {
+function filtersOn(scope, name, extra = new Set()) {
   const found = [];
   const visit = (n) => {
     if (
       ts.isCallExpression(n) &&
       ts.isPropertyAccessExpression(n.expression) &&
       n.expression.name.text === "eq" &&
-      isCompanyKey(n.arguments[0])
+      isCompanyKey(n.arguments[0], extra)
     ) {
       const root = chainRoot(n.expression.expression);
       if (ts.isIdentifier(root) && root.text === name) {
@@ -1671,11 +1706,33 @@ export function scanSource(fileName, text) {
           }
           const bound = boundName(outer);
           const scope = enclosingFunction(n) ?? sf;
+          const embedKeys = new Set(embeds.map((e) => e.key));
           const company = [
             ...methods
-              .filter((m) => m.name === "eq" && isCompanyKey(m.args[0]))
+              .filter((m) => m.name === "eq" && isCompanyKey(m.args[0], embedKeys))
               .map((m) => ({ key: m.args[0].text, value: m.args[1] })),
-            ...(bound ? filtersOn(scope, bound) : []),
+            ...(bound ? filtersOn(scope, bound, embedKeys) : []),
+          ];
+          const others = direct
+            ? []
+            : projections.flatMap((p) => (p.text === undefined ? [] : otherEmbedsIn(p.text)));
+          const otherKeys = new Set(others.map((e) => e.key));
+          const otherFilters = [
+            ...methods
+              .filter((m) => m.name === "eq" && isLit(m.args[0]) && otherKeys.has(m.args[0].text))
+              .map((m) => ({ key: m.args[0].text, value: m.args[1] })),
+            ...(bound
+              ? filtersOn(scope, bound, otherKeys).filter((f) => otherKeys.has(f.key))
+              : []),
+          ];
+          const parentTenant = new Set([PARENT_TENANT_KEY]);
+          const parentFilters = [
+            ...methods
+              .filter((m) => m.name === "eq" && isLit(m.args[0], PARENT_TENANT_KEY))
+              .map((m) => ({ key: PARENT_TENANT_KEY, value: m.args[1] })),
+            ...(bound
+              ? filtersOn(scope, bound, parentTenant).filter((f) => f.key === PARENT_TENANT_KEY)
+              : []),
           ];
           const values = company.map((f) => f.value);
           sites.push({
@@ -1687,8 +1744,18 @@ export function scanSource(fileName, text) {
             embedded,
             via: embedded ? resolved.table : null,
             embedJoin: embedded ? embedJoin : null,
-            filteredOnEmbed: company.some((f) => f.key === `${TABLE}.${COMPANY_COLUMN}`),
+            filteredOnEmbed: company.some((f) => f.key !== COMPANY_COLUMN),
             filteredOnParent: company.some((f) => f.key === COMPANY_COLUMN),
+            // Every embed of this table carries a company filter of its own.
+            everyEmbedFiltered: embeds.every((e) => company.some((f) => f.key === e.key)),
+            // The parent filtered on its own tenant column, with the values,
+            // so they are traced like every other company filter value.
+            parentTenantValues: parentFilters.map((f) => f.value.getText().replace(/\s+/g, " ")),
+            // Every other table embedded in the same read, company-filtered on
+            // its own alias (#41), with the values traced like the rest.
+            otherEmbeds: others.map((e) => e.alias ?? e.table),
+            otherEmbedsFiltered: others.every((e) => otherFilters.some((f) => f.key === e.key)),
+            otherEmbedValues: otherFilters.map((f) => f.value.getText().replace(/\s+/g, " ")),
             filtered: values.length > 0,
             values: values.map((v) => v.getText().replace(/\s+/g, " ")),
             chain: chainText(methods),
@@ -2091,9 +2158,23 @@ const reads = scan.onSurface.filter((s) => !s.write);
  *
  * `filteredOnParent` is the exemption: a query that also filters its own
  * `company_id_snapshot` is restricted whatever the embed does.
+ *
+ * The second exemption (#41 follow-up) needs BOTH company filters: the parent
+ * filtered on its own tenant column (`company_id`, as interview_sessions is
+ * keyed), so no other company's parent row comes back; and every embed of this
+ * table filtered on its own `company_id_snapshot` (by alias when it has one),
+ * so no other company's application is attached. A LEFT join is then what the
+ * read means: the embed is null when the application is not this company's,
+ * which the Interviews search relies on to tell "Applicant deleted".
  */
+const bothCompanyFilters = (s) =>
+  s.everyEmbedFiltered && s.otherEmbedsFiltered && s.parentTenantValues.length > 0;
 const leaksAcrossLeftJoin = (s) =>
-  s.embedded && s.embedJoin === "LEFT" && s.filteredOnEmbed && !s.filteredOnParent;
+  s.embedded &&
+  s.embedJoin === "LEFT" &&
+  s.filteredOnEmbed &&
+  !s.filteredOnParent &&
+  !bothCompanyFilters(s);
 
 /* ── the scanner discriminates ────────────────────────────────── */
 
@@ -2168,6 +2249,33 @@ test("the scanner refuses every unsafe shape and accepts the safe ones", () => {
     "a builder filtered on the embedded column across a plain embed": wrap(
       'let q = service.from("communication_logs").select("id, job_applications(email)"); q = q.eq("job_applications.company_id_snapshot", ctx.companyId); await q;',
     ),
+    // The #41 exemption needs both company filters; each of these lacks one.
+    "aliased LEFT embeds, each filtered, the parent not": wrap(
+      'await service.from("interview_sessions").select("id, who:job_applications!fk(id), present:job_applications!fk(id)").eq("who.company_id_snapshot", ctx.companyId).eq("present.company_id_snapshot", ctx.companyId);',
+    ),
+    "aliased LEFT embeds and the parent filtered, one embed not": wrap(
+      'await service.from("interview_sessions").select("id, who:job_applications!fk(id), present:job_applications!fk(id)").eq("company_id", ctx.companyId).eq("who.company_id_snapshot", ctx.companyId);',
+    ),
+    "an aliased LEFT embed filtered under the table name, the parent filtered": wrap(
+      'await service.from("interview_sessions").select("id, who:job_applications!fk(id)").eq("company_id", ctx.companyId).eq("job_applications.company_id_snapshot", ctx.companyId);',
+    ),
+    "the parent's company_id alone, the embed unfiltered": wrap(
+      'await service.from("interview_sessions").select("id, who:job_applications!fk(id)").eq("company_id", ctx.companyId);',
+    ),
+    // The other tables embedded beside job_applications must be company-filtered
+    // too: each of these lacks exactly one job embed's filter.
+    "both filters, but the role job embed unfiltered": wrap(
+      'await service.from("interview_sessions").select("id, who:job_applications!fk(id), role:jobs!fk(id), job:jobs!fk(id)").eq("company_id", ctx.companyId).eq("who.company_id_snapshot", ctx.companyId).eq("job.company_id", ctx.companyId);',
+    ),
+    "both filters, but the job job embed unfiltered": wrap(
+      'await service.from("interview_sessions").select("id, who:job_applications!fk(id), role:jobs!fk(id), job:jobs!fk(id)").eq("company_id", ctx.companyId).eq("who.company_id_snapshot", ctx.companyId).eq("role.company_id", ctx.companyId);',
+    ),
+    "both filters, the job embed filtered under the table name": wrap(
+      'await service.from("interview_sessions").select("id, who:job_applications!fk(id), role:jobs!fk(id)").eq("company_id", ctx.companyId).eq("who.company_id_snapshot", ctx.companyId).eq("jobs.company_id", ctx.companyId);',
+    ),
+    "the parent's company_id on another column name": wrap(
+      'await service.from("interview_sessions").select("id, who:job_applications!fk(id)").eq("job_id", ctx.companyId).eq("who.company_id_snapshot", ctx.companyId);',
+    ),
   };
   for (const [name, src] of Object.entries(refused)) {
     assert.ok(unfiltered(src).length > 0, `not refused: ${name}`);
@@ -2200,6 +2308,18 @@ test("the scanner refuses every unsafe shape and accepts the safe ones", () => {
     ),
     "a plain embed whose parent is filtered on its own column": wrap(
       'await service.from("communication_logs").select("id, job_applications(email)").eq("company_id_snapshot", ctx.companyId);',
+    ),
+    // #41: both company filters. The parent on its own company_id, every
+    // aliased LEFT embed on its own company_id_snapshot, on the chain or on
+    // the builder.
+    "aliased LEFT embeds, each filtered, and the parent on its own company_id": wrap(
+      'await service.from("interview_sessions").select("id, who:job_applications!fk(id), present:job_applications!fk(id)").eq("company_id", ctx.companyId).eq("who.company_id_snapshot", ctx.companyId).eq("present.company_id_snapshot", ctx.companyId);',
+    ),
+    "with job embeds, each filtered on its own alias": wrap(
+      'await service.from("interview_sessions").select("id, who:job_applications!fk(id), role:jobs!fk(id), job:jobs!fk(id)").eq("company_id", ctx.companyId).eq("who.company_id_snapshot", ctx.companyId).eq("role.company_id", ctx.companyId).eq("job.company_id", ctx.companyId);',
+    ),
+    "the same, filtered on the builder": wrap(
+      'let q = service.from("interview_sessions").select("id, who:job_applications!fk(id)"); q = q.eq("company_id", ctx.companyId).eq("who.company_id_snapshot", ctx.companyId); await q;',
     ),
   };
   for (const [name, src] of Object.entries(accepted)) {
@@ -2324,6 +2444,27 @@ company is STILL RETURNED, with the embed nulled out, so the read is not isolate
 even though it looks it. Fix by spelling the embed "${TABLE}!inner(…)", or by
 filtering the parent's own "${COMPANY_COLUMN}" as well.`,
   );
+});
+
+test("#41 the Interviews search's read is scanned, LEFT-joined, with both company filters", () => {
+  // Not vacuous: the exemption above must be exercised by the real read it
+  // was written for, and that read must carry exactly the filters it claims.
+  const search = scan.onSurface.filter(
+    (s) => s.file.endsWith("lib/interviews/review.ts") && s.fn === "searched",
+  );
+  assert.equal(search.length, 1, "the search's one read");
+  const [s] = search;
+  assert.equal(s.embedded, true);
+  assert.equal(s.embedJoin, "LEFT");
+  assert.equal(s.everyEmbedFiltered, true, "who, who2, present and unnamed each filtered");
+  assert.deepEqual(s.values, ["ctx.companyId", "ctx.companyId", "ctx.companyId", "ctx.companyId"]);
+  assert.deepEqual(s.parentTenantValues, ["ctx.companyId"]);
+  // The job embeds, each company-filtered on its own alias.
+  // Both branches of the select's ternary are read, so each embed is listed per branch.
+  assert.deepEqual([...new Set(s.otherEmbeds)].sort(), ["job", "role", "role2"]);
+  assert.equal(s.otherEmbedsFiltered, true);
+  assert.deepEqual(s.otherEmbedValues, ["ctx.companyId", "ctx.companyId", "ctx.companyId"]);
+  assert.equal(leaksAcrossLeftJoin(s), false);
 });
 
 test("a declared guard is checked, not taken on faith", () => {
@@ -2584,7 +2725,12 @@ test("no company filter value is client-supplied", () => {
   const seen = new Set();
   const usedSiteEntries = new Set();
   for (const site of reads) {
-    for (const v of site.values) {
+    // The parent's own tenant filter is a company filter value too (#41).
+    for (const v of [
+      ...site.values,
+      ...(site.parentTenantValues ?? []),
+      ...(site.otherEmbedValues ?? []),
+    ]) {
       const entry = SITE_FILTER_VALUES.find(
         (e) => e.value === v && e.file === site.file && e.fn === site.fn && e.query === site.chain,
       );

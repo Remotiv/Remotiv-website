@@ -171,8 +171,21 @@ function statusFilter(q: Builder, status: InterviewStatus, nowIso: string): Buil
  *   - the job filter's options and "open roles" are one read of the scoped
  *     jobs with their session counts embedded.
  * Every read is on the company and, for a scoped member, on their jobs, as
- * before. A search still reads the whole scoped set (listBySearch): it matches
- * on names, which live on the applications.
+ * before.
+ *
+ * A search (#41 follow-up) narrows the page and its total only; the tabs, the
+ * hero and the job filter count the whole scoped set with or without one, as
+ * they always have. It is the same SQL list with the match added as filters
+ * (wordFilters), so the restart rule and the scope apply unchanged. A row
+ * matches when the query is part of "name email job title" as the row shows
+ * them, as before. A query without spaces can only fall inside one of those,
+ * so SQL decides it exactly and pages it with a count. A query with spaces can
+ * span two, so SQL narrows to rows holding its two longest words and the exact
+ * test runs on those (exactSearchPage).
+ *
+ * Every figure a failed read would have produced is withheld: the result is a
+ * Read, and its failure arm carries no value, so a short read can never render
+ * as a small company.
  */
 export async function listInterviewSessions(
   ctx: CompanyContext,
@@ -183,8 +196,6 @@ export async function listInterviewSessions(
     page?: number;
   } = {},
 ): Promise<Read<InterviewListResult>> {
-  if ((opts.query ?? "").trim()) return listBySearch(ctx, opts);
-
   const applied = {
     status: opts.status ?? "all",
     jobId: opts.jobId ?? null,
@@ -300,6 +311,78 @@ export async function listInterviewSessions(
   const page = Math.max(1, opts.page ?? 1);
   const start = (page - 1) * PAGE_SIZE;
 
+  const query = (opts.query ?? "").trim().toLowerCase();
+  const words = query ? query.split(/\s+/) : [];
+  // One word decides in SQL. Several: the two longest narrow, the exact test decides.
+  const [word, second] = [...new Set(words)].sort((a, b) => b.length - a.length);
+
+  /**
+   * The search's read: the scoped list, the tab, and `word` as filters
+   * (wordFilters). Fixed text, so the tenant-isolation scan reads it: every
+   * embed of an application carries its own company filter, and so does the
+   * session row itself (#41 follow-up).
+   */
+  const searched = (light: boolean, options?: { count: "exact"; head?: boolean }): Builder => {
+    const f = wordFilters(word ?? "", "who", "role");
+    let q = service
+      .from("interview_sessions")
+      .select(
+        light ? `${CANDIDATE_COLUMNS}, ${SEARCH_EMBEDS}` : `${LIST_COLUMNS}, ${SEARCH_EMBEDS}`,
+        options,
+      )
+      .eq("company_id", ctx.companyId)
+      .eq("who.company_id_snapshot", ctx.companyId)
+      .eq("who2.company_id_snapshot", ctx.companyId)
+      .eq("present.company_id_snapshot", ctx.companyId)
+      .eq("unnamed.company_id_snapshot", ctx.companyId)
+      .eq("role.company_id", ctx.companyId)
+      .eq("role2.company_id", ctx.companyId)
+      .eq("job.company_id", ctx.companyId)
+      .or(f.who, { referencedTable: "who" })
+      .or(UNNAMED_FILTER, { referencedTable: "unnamed" })
+      .or(f.role, { referencedTable: "role" })
+      .or(f.any);
+    if (second) {
+      const g = wordFilters(second, "who2", "role2");
+      q = q
+        .or(g.who, { referencedTable: "who2" })
+        .or(g.role, { referencedTable: "role2" })
+        .or(g.any);
+    }
+    return tabFilter(scoped(q));
+  };
+
+  /** The visible page and the total the pager reads, or null when a read failed. */
+  const readPage = async (): Promise<{ sessions: SessionRow[]; total: number } | null> => {
+    if (words.length > 1) {
+      return exactSearchPage(service, ctx.companyId, searched, scoped, query, start);
+    }
+    const pageRead = await (word
+      ? searched(false, { count: "exact" })
+      : tabFilter(
+          scoped(service.from("interview_sessions").select(LIST_COLUMNS, { count: "exact" })),
+        )
+    )
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(start, start + PAGE_SIZE - 1);
+    if (!pageRead.error) {
+      return { sessions: (pageRead.data ?? []) as SessionRow[], total: pageRead.count ?? 0 };
+    }
+    if (pageRead.error.code !== RANGE_NOT_SATISFIABLE) {
+      console.error("[interviews] page read failed:", pageRead.error);
+      return null;
+    }
+    // A page past the end: no rows, and the true total for the pager.
+    const recount = await (word
+      ? searched(true, { count: "exact", head: true })
+      : tabFilter(
+          scoped(service.from("interview_sessions").select("id", { count: "exact", head: true })),
+        ));
+    if (recount.error) return null;
+    return { sessions: [], total: recount.count ?? 0 };
+  };
+
   const STATUSES = ["submitted", "started", "invited", "expired", "cancelled", "unknown"] as const;
   const [allCount, archivedCount, weekCount, statusCounts, pageRead, jobsRead] = await Promise.all([
     head(live),
@@ -307,10 +390,7 @@ export async function listInterviewSessions(
     // Sent this week, first attempts and plain sessions; restarts are added below.
     head((q) => live(q).is("previous_attempt_id", null).gte("created_at", weekAgoIso)),
     Promise.all(STATUSES.map((st) => head((q) => statusFilter(live(q), st, nowIso)))),
-    tabFilter(scoped(service.from("interview_sessions").select(LIST_COLUMNS, { count: "exact" })))
-      .order("created_at", { ascending: false })
-      .order("id", { ascending: false })
-      .range(start, start + PAGE_SIZE - 1),
+    readPage(),
     (() => {
       let q = service
         .from("jobs")
@@ -337,23 +417,8 @@ export async function listInterviewSessions(
     console.error("[interviews] list read failed:", failed.error);
     return unavailable();
   }
-  let pageSessions: SessionRow[] = [];
-  let total: number;
-  if (pageRead.error) {
-    if (pageRead.error.code !== RANGE_NOT_SATISFIABLE) {
-      console.error("[interviews] page read failed:", pageRead.error);
-      return unavailable();
-    }
-    // A page past the end: no rows, and the true total for the pager.
-    const recount = await tabFilter(
-      scoped(service.from("interview_sessions").select("id", { count: "exact", head: true })),
-    );
-    if (recount.error) return unavailable();
-    total = recount.count ?? 0;
-  } else {
-    pageSessions = (pageRead.data ?? []) as SessionRow[];
-    total = pageRead.count ?? 0;
-  }
+  if (!pageRead) return unavailable();
+  const { sessions: pageSessions, total } = pageRead;
 
   type JobCounts = {
     id: string;
@@ -364,7 +429,7 @@ export async function listInterviewSessions(
   const jobRows = ((jobsRead.data ?? []) as JobCounts[]).filter(
     (j) => (j.sessions?.[0]?.count ?? 0) > 0,
   );
-  const jobs = new Map(jobRows.map((j) => [j.id, (j.title ?? "").trim() || "Untitled role"]));
+  const jobs = new Map(jobRows.map((j) => [j.id, roleTitle(j.title)]));
 
   /** The head count read for one status, through statusFilter (above). */
   const countOf = (st: (typeof STATUSES)[number]) => statusCounts[STATUSES.indexOf(st)].count ?? 0;
@@ -390,7 +455,7 @@ export async function listInterviewSessions(
     ).length;
 
   const sliced = pageSessions.map((s) => toListRow(s, NAME_PENDING, jobs));
-  const rows = await withPageDetail(service, ctx.companyId, sliced, pageSessions, null);
+  const rows = await withPageDetail(service, ctx.companyId, sliced, pageSessions);
 
   return answered({
     applied,
@@ -407,252 +472,140 @@ export async function listInterviewSessions(
   });
 }
 
+/** What a row shows for its job when the job is not this company's, or has no title. */
+const THIS_ROLE = "This role";
+const UNTITLED_ROLE = "Untitled role";
+const roleTitle = (title: string | null) => (title ?? "").trim() || UNTITLED_ROLE;
+
 /**
- * One page of interviews, plus the aggregate counts the tabs and hero read.
- *
- * Aggregates are counted over the WHOLE scoped set, not the rendered page —
- * a tab that said "4" because four happened to be on screen would be wrong
- * the moment someone paged.
- *
- * ── Why this returns a Read ──────────────────────────────────
- *
- * Every figure here is `array.length` over a range-paged fetch. The loop used
- * to `break` on a failed page, so a failure after the first thousand rows
- * returned a SHORT array — and nothing downstream can tell a short read from a
- * small company. The page then rendered a smaller, entirely plausible,
- * internally consistent set of numbers with nothing to invite a second look.
- *
- * A partially populated result carrying an `incomplete` flag was the other
- * option and is worse: a flag is something the next person rendering this
- * object has to remember to check, and a failed read must not be renderable as
- * if it had worked. The failure arm of `Read` carries no value at all, so
- * there is nothing to render by mistake.
+ * The search's embeds (#41 follow-up), each read as `id` only, to test it is
+ * there; nothing about an applicant leaves the database through them. Each is
+ * filtered on this company where the search reads (`searched`):
+ *   who      the application, when its first name, last name or email matches;
+ *   who2     the same for a query's second word (role2 likewise), so a
+ *            multi-word query is narrowed by its two longest words;
+ *   present  the application, when it is this company's at all (a row without
+ *            one shows "Applicant deleted");
+ *   unnamed  the application, when it has no name and no email ("Unnamed
+ *            applicant");
+ *   role     the job, when its title matches ("Untitled role" for a blank one);
+ *   job      the job, when it is this company's at all (else "This role").
  */
-async function listBySearch(
-  ctx: CompanyContext,
-  opts: {
-    status?: InterviewTab;
-    jobId?: string | null;
-    query?: string;
-    page?: number;
-  } = {},
-): Promise<Read<InterviewListResult>> {
-  /*
-   * The filter, resolved once and sent back with the answer.
-   *
-   * Resolved HERE rather than read off `opts` by the client, so what travels
-   * back is what the rows and counts below were actually computed under — a
-   * default that changed on this side would otherwise relabel a result it no
-   * longer describes. See InterviewListResult.applied.
-   */
-  const applied = {
-    status: opts.status ?? "all",
-    jobId: opts.jobId ?? null,
-    query: opts.query ?? "",
-  } as const;
+const SEARCH_EMBEDS =
+  "who:job_applications!interview_sessions_application_id_fkey(id), who2:job_applications!interview_sessions_application_id_fkey(id), role2:jobs!interview_sessions_job_id_fkey(id), present:job_applications!interview_sessions_application_id_fkey(id), unnamed:job_applications!interview_sessions_application_id_fkey(id), role:jobs!interview_sessions_job_id_fkey(id), job:jobs!interview_sessions_job_id_fkey(id)";
+/** A multi-word search's candidates: enough to order them and look up their names. */
+const CANDIDATE_COLUMNS = "id, application_id, job_id, created_at";
 
-  const empty: InterviewListResult = {
-    applied,
-    rows: [],
-    total: 0,
-    page: 1,
-    pageSize: PAGE_SIZE,
-    counts: {
-      all: 0,
-      submitted: 0,
-      started: 0,
-      invited: 0,
-      expired: 0,
-      cancelled: 0,
-      unknown: 0,
-      archived: 0,
-    },
-    jobs: [],
-    sentThisWeek: 0,
-    openRoles: 0,
+/** A PostgREST-quoted value: commas, brackets and quotes inside stay part of it. */
+const quoted = (value: string) => `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+/** A word as a case-insensitive regex that matches it literally (imatch). */
+const literally = (word: string) => quoted(word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+const BLANK = quoted("^\\s*$");
+/** No name and no email: what resolveCandidate shows as "Unnamed applicant". */
+const UNNAMED_FILTER = `and(first_name.match.${BLANK},or(last_name.is.null,last_name.match.${BLANK}),or(email.is.null,email.eq.""))`;
+
+/** The words a row shows in place of a name, exactly as resolveCandidate produces them. */
+const NO_APPLICANT = resolveCandidate(null, undefined).name.toLowerCase();
+const DELETED = resolveCandidate("-", undefined).name.toLowerCase();
+const UNNAMED = resolveCandidate("-", {
+  first_name: "",
+  last_name: null,
+  email: null,
+}).name.toLowerCase();
+
+/**
+ * One word as the search's filters. A row passes when the word is part of
+ * something the row shows: the applicant's first name, last name or email;
+ * the job's title; or the words shown in their place ("No applicant linked",
+ * "Applicant deleted", "Unnamed applicant", "This role", "Untitled role").
+ * For a query of one word this IS the list's match: a word without spaces that
+ * is part of "name email title" lies inside one of them.
+ */
+function wordFilters(word: string, who: string, role: string) {
+  const p = literally(word);
+  const titles = [`title.imatch.${p}`];
+  if (UNTITLED_ROLE.toLowerCase().includes(word)) titles.push(`title.match.${BLANK}`);
+  const any = [`${who}.not.is.null`, `${role}.not.is.null`];
+  if (NO_APPLICANT.includes(word)) any.push("application_id.is.null");
+  if (DELETED.includes(word)) any.push("and(application_id.not.is.null,present.is.null)");
+  if (UNNAMED.includes(word)) any.push("unnamed.not.is.null");
+  if (THIS_ROLE.toLowerCase().includes(word)) any.push("job.is.null");
+  return {
+    who: `first_name.imatch.${p},last_name.imatch.${p},email.imatch.${p}`,
+    role: titles.join(","),
+    any: any.join(","),
   };
+}
 
-  const scope = await getJobScope(ctx);
-  if (isEmptyScope(scope)) return answered(empty);
-  const allowedJobIds = scopeJobIds(scope);
+type SearchCandidate = {
+  id: string;
+  application_id: string | null;
+  job_id: string | null;
+};
 
-  const service = createServiceClient();
-
-  /*
-   * Every session for the company, scoped. Read in full rather than paged in
-   * SQL because status is DERIVED (an unswept session past its deadline is
-   * expired) — filtering and counting on the stored column would put rows in
-   * the wrong tab. Bounded by range-paging; a company with more than a few
-   * thousand interviews would want a status-sweep job before this is the
-   * bottleneck.
-   *
-   * pageAll THROWS on a failed page, which is the behaviour this read wants and
-   * the reason the hand-rolled loop is gone. The throw is caught here, at the
-   * one frame that knows what failed and what the caller is owed.
-   */
-  let sessions: SessionRow[];
+/**
+ * A query with spaces can span two things a row shows ("ada lovelace" spans
+ * first and last name), which no single filter sees. SQL narrows the scoped
+ * list to rows holding its two longest words (`searched`); their names and job
+ * titles are read with the same company-gated reads the page uses; the exact
+ * test, the one the list has always used, runs on those, newest first; then
+ * the visible page's rows are read in full. Reads grow with the rows holding
+ * both words, not with the company's interviews.
+ */
+async function exactSearchPage(
+  service: ReturnType<typeof createServiceClient>,
+  companyId: string,
+  searched: (light: boolean) => Builder,
+  scoped: (q: Builder) => Builder,
+  query: string,
+  start: number,
+): Promise<{ sessions: SessionRow[]; total: number } | null> {
+  let candidates: SearchCandidate[];
   try {
-    sessions = await pageAll<SessionRow>(
-      (from, to) => {
-        let q = service
-          .from("interview_sessions")
-          .select(
-            "id, application_id, job_id, kind, status, started_at, submitted_at, expires_at, delete_after, invited_by_name, questions_snapshot, archived_at, created_at, previous_attempt_id",
-          )
-          .eq("company_id", ctx.companyId)
+    candidates = await pageAll<SearchCandidate>(
+      (from, to) =>
+        searched(true)
           .order("created_at", { ascending: false })
-          .range(from, to);
-        if (allowedJobIds) q = q.in("job_id", allowedJobIds);
-        return q;
-      },
-      { scope: "interviews", label: "sessions" },
+          .order("id", { ascending: false })
+          .range(from, to),
+      { scope: "interviews", label: "search" },
     );
   } catch (err) {
-    console.error("[interviews] session read failed:", err);
-    return unavailable();
+    console.error("[interviews] search read failed:", err);
+    return null;
   }
-
-  /*
-   * ── One interview per restart (F10 C6d) ──
-   *
-   * A restarted AI Video Interview is one interview: its restart (attempt 2)
-   * stands for it, and the first attempt it points back to is dropped here,
-   * from the whole scoped read, before any row, count, tab filter or page is
-   * built. So the first attempt stays hidden whichever tab or page its restart
-   * lands on; it is reached only from the review page's audit link. Grouped by
-   * the restart's own link, never by application: ordinary re-sends are
-   * separate first attempts and stay separate rows, as before. A restart keeps
-   * its first attempt's job (053), so this never reveals or hides another
-   * job's session; it only drops one that is in the scoped read already.
-   *
-   * The chain was sent when its first attempt was: a restart is not a new send.
-   */
-  const restarted = new Set(sessions.map((s) => s.previous_attempt_id).filter(Boolean));
-  const firstSentAt = new Map(
-    sessions.filter((s) => restarted.has(s.id)).map((s) => [s.id, s.created_at]),
-  );
-  sessions = sessions.filter((s) => !restarted.has(s.id));
-  const chainSentAt = new Map(
-    sessions.map((s) => [
-      s.id,
-      (s.previous_attempt_id && firstSentAt.get(s.previous_attempt_id)) || s.created_at,
+  const [apps, jobs] = await Promise.all([
+    fetchApplications(
+      service,
+      companyId,
+      applicationIdsOf(candidates.map((c) => c.application_id)),
+    ),
+    fetchJobs(service, companyId, [
+      ...new Set(candidates.map((c) => c.job_id).filter((id): id is string => !!id)),
     ]),
-  );
-  if (sessions.length === 0) return answered(empty);
-
-  /*
-   * ── Candidate names: the page's, unless a search needs them all ──
-   *
-   * Search matches on name and email, so a query reads every row's. Without
-   * one, nothing before the page slice looks at a name, so only the page's
-   * applications are read (below): one request whatever the company's size.
-   */
-  const q = (opts.query ?? "").trim().toLowerCase();
-  const jobIds = [...new Set(sessions.map((s) => s.job_id).filter(Boolean))] as string[];
-
-  const [searchApps, jobs] = await Promise.all([
-    q
-      ? fetchApplications(
-          service,
-          ctx.companyId,
-          applicationIdsOf(sessions.map((s) => s.application_id)),
-        )
-      : null,
-    fetchJobs(service, ctx.companyId, jobIds),
   ]);
-  // A search over names that could not be read would silently miss matches.
-  if (searchApps && !searchApps.ok) return unavailable();
-
-  /*
-   * Every scoped session becomes a row, for the counts, tabs, filters and
-   * search. Answer counts and scores are filled in after the page slice
-   * (withPageDetail): nothing before it reads them, so they are read for the
-   * visible rows only, one request each whatever the company's size.
-   */
-  const rows: InterviewRow[] = sessions.map((s) =>
-    // Without a search the name is filled in after the page slice.
-    toListRow(s, searchApps ? candidateOf(s.application_id, searchApps) : NAME_PENDING, jobs),
+  // Names that could not be read cannot be matched: unavailable, not "no match".
+  if (!apps.ok) return null;
+  const hits = candidates.filter((c) => {
+    const who = candidateOf(c.application_id, apps);
+    const title = (c.job_id ? jobs.get(c.job_id) : null) ?? THIS_ROLE;
+    return `${who.name} ${who.email} ${title}`.toLowerCase().includes(query);
+  });
+  const ids = hits.slice(start, start + PAGE_SIZE).map((c) => c.id);
+  if (ids.length === 0) return { sessions: [], total: hits.length };
+  const { data, error } = await scoped(service.from("interview_sessions").select(LIST_COLUMNS)).in(
+    "id",
+    ids,
   );
-
-  /*
-   * ── Aggregates over the whole scoped set, ARCHIVE EXCLUDED ──
-   *
-   * Archiving hides a row from the working list, so it has to hide it from the
-   * numbers too — a tab reading 4 above a list of 3 is the bug this project has
-   * already had once. `archived` is counted separately and is the only tab that
-   * shows those rows.
-   *
-   * The five status buckets below are EXHAUSTIVE over `deriveStatus`, which is
-   * total over the five InterviewStatus values. So they sum to `all` as an
-   * identity, not as a property of today's data — and that is the point of
-   * charting `cancelled` rather than dropping it: while it was missing, the sum
-   * was short by exactly the cancelled count and nothing said so.
-   */
-  const live = rows.filter((r) => r.archivedAt === null);
-  const counts = {
-    all: live.length,
-    submitted: live.filter((r) => r.status === "submitted").length,
-    started: live.filter((r) => r.status === "started").length,
-    invited: live.filter((r) => r.status === "invited").length,
-    expired: live.filter((r) => r.status === "expired").length,
-    cancelled: live.filter((r) => r.status === "cancelled").length,
-    unknown: live.filter((r) => r.status === "unknown").length,
-    archived: rows.length - live.length,
+  if (error) {
+    console.error("[interviews] search page read failed:", error);
+    return null;
+  }
+  const byId = new Map(((data ?? []) as SessionRow[]).map((s) => [s.id, s]));
+  return {
+    sessions: ids.map((id) => byId.get(id)).filter((s): s is SessionRow => !!s),
+    total: hits.length,
   };
-
-  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const sentThisWeek = live.filter(
-    (r) => new Date(chainSentAt.get(r.id) ?? r.sentAt).getTime() >= weekAgo,
-  ).length;
-
-  const jobList = [...jobs.entries()]
-    .map(([id, title]) => ({ id, title }))
-    .sort((a, b) => a.title.localeCompare(b.title));
-
-  // ── Filter, then page ──
-  const wantArchived = opts.status === "archived";
-  const filtered = rows.filter((r) => {
-    // Archived rows appear ONLY under their own tab, never in All or a status
-    // tab — that is what "hidden from the list" has to mean to be useful.
-    if (wantArchived !== (r.archivedAt !== null)) return false;
-    if (
-      opts.status &&
-      opts.status !== "all" &&
-      opts.status !== "archived" &&
-      r.status !== opts.status
-    ) {
-      return false;
-    }
-    if (opts.jobId && r.jobId !== opts.jobId) return false;
-    if (q && !`${r.candidateName} ${r.candidateEmail} ${r.jobTitle}`.toLowerCase().includes(q)) {
-      return false;
-    }
-    return true;
-  });
-
-  const page = Math.max(1, opts.page ?? 1);
-  const start = (page - 1) * PAGE_SIZE;
-  const sliced = filtered.slice(start, start + PAGE_SIZE);
-  const pageIds = new Set(sliced.map((r) => r.id));
-  const pageRows = await withPageDetail(
-    service,
-    ctx.companyId,
-    sliced,
-    sessions.filter((s) => pageIds.has(s.id)),
-    searchApps,
-  );
-
-  return answered({
-    applied,
-    rows: pageRows,
-    total: filtered.length,
-    page,
-    pageSize: PAGE_SIZE,
-    counts,
-    jobs: jobList,
-    sentThisWeek,
-    openRoles: new Set(live.map((r) => r.jobId).filter(Boolean)).size,
-  });
 }
 
 /** One list row from a session, before the page's detail is filled in. */
@@ -668,7 +621,7 @@ function toListRow(
     candidateName: who.name,
     candidateEmail: who.email,
     candidateLink: who.link,
-    jobTitle: (s.job_id ? jobs.get(s.job_id) : null) ?? "This role",
+    jobTitle: (s.job_id ? jobs.get(s.job_id) : null) ?? THIS_ROLE,
     kind: readInterviewKind(s.kind, s.id),
     status: deriveStatus(s.status, s.expires_at),
     // Filled in for the visible rows by withPageDetail; never returned as is.
@@ -686,23 +639,20 @@ function toListRow(
 }
 
 /**
- * The visible rows' detail: names (unless a search already read them), answer
- * counts and scores, each ONE request for the page whatever the company's
- * size (#20). `pageSessions` carries each row's questions snapshot.
+ * The visible rows' detail: names, answer counts and scores, each ONE request
+ * for the page whatever the company's size (#20), with or without a search.
+ * `pageSessions` carries each row's questions snapshot.
  */
 async function withPageDetail(
   service: ReturnType<typeof createServiceClient>,
   companyId: string,
   sliced: InterviewRow[],
   pageSessions: SessionRow[],
-  searchApps: Read<AppNames> | null,
 ): Promise<InterviewRow[]> {
   const pageIds = sliced.map((r) => r.id);
   const nowMs = Date.now();
   const [pageApps, answers, scores] = await Promise.all([
-    searchApps
-      ? null
-      : fetchApplications(service, companyId, applicationIdsOf(sliced.map((r) => r.applicationId))),
+    fetchApplications(service, companyId, applicationIdsOf(sliced.map((r) => r.applicationId))),
     fetchAnswerStats(service, pageIds),
     fetchSessionScores(
       service,
@@ -714,7 +664,7 @@ async function withPageDetail(
   const snapshotOf = new Map(pageSessions.map((s) => [s.id, s.questions_snapshot]));
 
   return sliced.map((r) => {
-    const named = pageApps ? candidateOf(r.applicationId, pageApps) : null;
+    const named = candidateOf(r.applicationId, pageApps);
     const stats = answers.ok ? answers.value.get(r.id) : undefined;
     /* The snapshot is the better denominator and does not depend on the answer
        read, so it survives that read failing. Only when there is no snapshot
@@ -722,9 +672,9 @@ async function withPageDetail(
     const total = snapshotLength(snapshotOf.get(r.id)) ?? (answers.ok ? (stats?.total ?? 0) : null);
     return {
       ...r,
-      ...(named
-        ? { candidateName: named.name, candidateEmail: named.email, candidateLink: named.link }
-        : {}),
+      candidateName: named.name,
+      candidateEmail: named.email,
+      candidateLink: named.link,
       /* Null when the answer read failed — see InterviewRow.progress. Purged
          is a PRESENTATION state, not a status: the interview is still
          submitted, its media has simply passed the retention date. Derived
@@ -833,7 +783,7 @@ async function fetchJobs(
       .eq("company_id", companyId)
       .in("id", ids.slice(i, i + 100));
     for (const r of (data ?? []) as { id: string; title: string | null }[]) {
-      out.set(r.id, (r.title ?? "").trim() || "Untitled role");
+      out.set(r.id, roleTitle(r.title));
     }
   }
   return out;
