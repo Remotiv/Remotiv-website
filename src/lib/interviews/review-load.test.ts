@@ -46,6 +46,7 @@ register(new URL("../../test-support/node-resolve.mjs", import.meta.url));
 register(new URL("../../test-support/messages-test-hook.mjs", import.meta.url));
 
 const { call, fakeService } = await import("../../test-support/fake-postgrest.mjs");
+const { answerSessions } = await import("../../test-support/interview-list-fake.mjs");
 const { listInterviewSessions } = await import("./review.ts");
 
 const CO = "c0000000-0000-0000-0000-0000000000c1";
@@ -86,16 +87,34 @@ function seed(n) {
  * page it wants to fail rather than counting calls. `failAnswerChunk` counts,
  * because the answer read chunks by id list and has no range to name.
  */
-function install({ sessions, failSessionFrom = null, failAnswerChunk = null }) {
+function install({
+  sessions,
+  failSessionFrom = null,
+  failAnswerChunk = null,
+  failSubmittedCount = false,
+}) {
   let answerChunk = 0;
   globalThis.__messagesServiceForTests = () =>
     fakeService((table, calls) => {
       if (table === "interview_sessions") {
-        const [, from, to] = call(calls, "range");
+        const [, from] = call(calls, "range") ?? [];
         if (from === failSessionFrom) {
           return { data: null, error: { message: "test: refused", code: "57014" } };
         }
-        return { data: sessions.slice(from, to + 1), error: null };
+        // #41 part 2: one of the SQL path's reads fails (the Submitted tab's
+        // head count) while every other read of the same wave succeeds.
+        if (
+          failSubmittedCount &&
+          call(calls, "select")?.[2]?.head &&
+          calls.some((c) => c[0] === "eq" && c[1] === "status" && c[2] === "submitted")
+        ) {
+          return { data: null, error: { message: "test: refused", code: "57014" } };
+        }
+        // Filters, counts and paging applied as PostgREST would (#41 part 2).
+        return answerSessions(
+          sessions.map((s) => ({ company_id: CO, ...s })),
+          calls,
+        );
       }
       if (table === "interview_answers") {
         answerChunk += 1;
@@ -132,30 +151,41 @@ function figures(value) {
 
 // ── 1 ──
 test("a failed second page is reported as a failure", async () => {
-  install({ sessions: seed(1000), failSessionFrom: 1000 });
-  const result = await quiet(() => listInterviewSessions(ctx, { status: "all" }));
-
-  assert.equal(result.ok, false, "the read failed and must say so");
-  assert.ok(
-    !("counts" in result),
-    "a failure must not arrive carrying counts: the page renders whatever counts it is " +
-      "given, and 1,000 of 1,500 rows is a complete-looking set of wrong numbers",
-  );
+  // The search path still reads every session in pages of 1,000; without a
+  // search the list reads in SQL (#41 part 2), where a partial read is one
+  // of its reads failing while the rest succeed. Both fail whole.
+  for (const [path, setup, opts] of [
+    ["search", { sessions: seed(1000), failSessionFrom: 1000 }, { status: "all", query: "x" }],
+    ["sql", { sessions: seed(1000), failSubmittedCount: true }, { status: "all" }],
+  ]) {
+    install(setup);
+    const result = await quiet(() => listInterviewSessions(ctx, opts));
+    assert.equal(result.ok, false, `${path}: the read failed and must say so`);
+    assert.ok(
+      !("counts" in result),
+      `${path}: a failure must not arrive carrying counts: the page renders whatever counts ` +
+        "it is given, and 1,000 of 1,500 rows is a complete-looking set of wrong numbers",
+    );
+  }
 });
 
 // ── 2 ──
 test("a failed read carries no figures at all", async () => {
-  install({ sessions: seed(1000), failSessionFrom: 1000 });
-  const result = await quiet(() => listInterviewSessions(ctx, { status: "all" }));
-
-  assert.deepEqual(Object.keys(result), ["ok"]);
-  assert.deepEqual(
-    figures(result),
-    [],
-    "the 1,000 rows that WERE read must not survive anywhere in the result — a partial " +
-      "value plus a flag is the shape this fix exists to avoid, because the next person " +
-      "rendering the object has to remember the flag and eventually will not",
-  );
+  for (const [path, setup, opts] of [
+    ["search", { sessions: seed(1000), failSessionFrom: 1000 }, { status: "all", query: "x" }],
+    ["sql", { sessions: seed(1000), failSubmittedCount: true }, { status: "all" }],
+  ]) {
+    install(setup);
+    const result = await quiet(() => listInterviewSessions(ctx, opts));
+    assert.deepEqual(Object.keys(result), ["ok"], path);
+    assert.deepEqual(
+      figures(result),
+      [],
+      `${path}: the rows and counts that WERE read must not survive anywhere in the result — ` +
+        "a partial value plus a flag is the shape this fix exists to avoid, because the next " +
+        "person rendering the object has to remember the flag and eventually will not",
+    );
+  }
 });
 
 // ── 3 ──

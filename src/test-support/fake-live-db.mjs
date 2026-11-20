@@ -22,6 +22,7 @@
  * Test-only. Nothing in the application imports this.
  */
 import { fakeService } from "./fake-postgrest.mjs";
+import { answerJobsWithCounts, answerSessions, isJobsWithCounts } from "./interview-list-fake.mjs";
 
 const isUuid = (v) => typeof v === "string" && /^[0-9a-f-]{36}$/.test(v);
 
@@ -446,6 +447,20 @@ const DUPLICATE_KEY = {
 };
 
 /** Apply one `.or("a.is.null,b.not.is.null")` clause. Only the forms the code uses. */
+/**
+ * An interview_sessions read the Interviews list's SQL path sends (#41 part
+ * 2): its scope (`abandoned` out) or its restart embed. Nothing else this fake
+ * answers changes.
+ */
+function usesListOperators(calls) {
+  return calls.some(
+    (c) =>
+      (c[0] === "or" && String(c[1]).includes("status.neq.abandoned")) ||
+      (c[0] === "eq" && c[1] === "status" && c[2] === "abandoned") ||
+      (c[0] === "select" && String(c[1]).includes("first:interview_sessions!")),
+  );
+}
+
 function orMatches(row, clause) {
   return clause.split(",").some((part) => {
     const m = part.match(/^([a-z_]+)\.(not\.)?is\.null$/);
@@ -716,6 +731,15 @@ export function fakeLiveDb(initial = {}, options = {}) {
       }
       if (takeFault(table, "select"))
         return { data: null, error: { code: "XX000", message: "fault" } };
+      // The Interviews list's SQL reads (#41 part 2) use operators this fake
+      // never modelled; interview-list-fake.mjs applies them. Only those reads
+      // go there: everything this fake already answered is answered as before.
+      if (isJobsWithCounts(table, calls)) {
+        return answerJobsWithCounts(tables.jobs ?? [], tables.interview_sessions ?? [], calls);
+      }
+      if (table === "interview_sessions" && usesListOperators(calls)) {
+        return answerSessions(rows, calls);
+      }
       const hit = rows.filter(match);
       // select(cols, { count: "exact", head }), order(col, { ascending }) and limit(n), as PostgREST.
       const counted = calls.find((c) => c[0] === "select")?.[2]?.count === "exact";

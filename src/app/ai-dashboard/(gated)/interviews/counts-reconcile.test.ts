@@ -76,13 +76,25 @@ const EMPTY_KEYS = [
   ).matchAll(/(\w+): 0/g),
 ].map((m) => m[1]);
 
-/** The computation itself. */
-const COMPUTED = block(
-  REVIEW,
-  /\n {2}const counts = \{([\s\S]*?)\n {2}\};/,
-  "the counts computation",
+/**
+ * The computations themselves (#41 part 2: there are two). Without a search
+ * the list counts in SQL, one head count per status through `statusFilter`;
+ * a search counts the rows it read, in JavaScript. Both must chart every
+ * member and define each bucket by its own status.
+ */
+const COUNT_BLOCKS = [...REVIEW.matchAll(/\n {2}const counts = \{([\s\S]*?)\n {2}\};/g)].map(
+  (m) => m[1],
 );
+const [SQL_COMPUTED, COMPUTED] = COUNT_BLOCKS;
 const COMPUTED_KEYS = [...COMPUTED.matchAll(/^\s*(\w+):/gm)].map((m) => m[1]);
+const SQL_COMPUTED_KEYS = [...(SQL_COMPUTED ?? "").matchAll(/^\s*(\w+):/gm)].map((m) => m[1]);
+/** One `case` of statusFilter, the SQL definition of a bucket. */
+const sqlCase = (status: string) =>
+  block(
+    REVIEW,
+    new RegExp(`\\n {4}case "${status}":([\\s\\S]*?);\\n`),
+    `statusFilter's ${status} case`,
+  );
 
 /** Chip keys, in strip order. */
 const TAB_KEYS = [
@@ -140,6 +152,15 @@ describe("Interviews counts reconcile", () => {
         `the ${status} bucket must be defined by that status and nothing else — the buckets ` +
           "summing to 'all' is an identity only while each one filters on its own member",
       );
+      // The SQL path: the key is read through that status's own filter...
+      assert.match(SQL_COMPUTED, new RegExp(`\\b${status}: countOf\\("${status}"\\),`));
+      // ...and the filter names that status (unknown: everything that is not a stored status).
+      const body = sqlCase(status);
+      if (status === "unknown") {
+        assert.match(body, /status\.is\.null,status\.not\.in\.\$\{STORED_STATUSES\}/);
+      } else {
+        assert.match(body, new RegExp(`"${status}"|status\\.eq\\.${status}`));
+      }
     });
   }
 
@@ -153,7 +174,16 @@ describe("Interviews counts reconcile", () => {
   });
 
   test("the computation charts the same keys as the type", () => {
+    assert.equal(COUNT_BLOCKS.length, 2, "the SQL path and the search path");
     assert.deepEqual([...COMPUTED_KEYS].sort(), [...COUNT_KEYS].sort());
+    assert.deepEqual([...SQL_COMPUTED_KEYS].sort(), [...COUNT_KEYS].sort());
+  });
+
+  test("the SQL path's stored statuses are every member but unknown, plus abandoned", () => {
+    const stored = block(REVIEW, /const STORED_STATUSES = "\(([^)]*)\)";/, "STORED_STATUSES")
+      .split(",")
+      .sort();
+    assert.deepEqual(stored, [...STATUSES.filter((s) => s !== "unknown"), "abandoned"].sort());
   });
 
   test("every chip is either a status, or one of the two that are not", () => {

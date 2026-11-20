@@ -49,6 +49,7 @@ const { createElement } = await import("react");
 const { renderToStaticMarkup } = await import("react-dom/server");
 globalThis.__h = createElement;
 const { fakeService } = await import("../../test-support/fake-postgrest.mjs");
+const { answerSessions } = await import("../../test-support/interview-list-fake.mjs");
 const { deriveStatus, listInterviewSessions, loadInterviewSession } = await import("./review.ts");
 const { INTERVIEW_STATUS_LABELS } = await import("./review-types.ts");
 const { scorecardRecoveryEligibility } = await import("./scorecard.ts");
@@ -91,7 +92,11 @@ function world(sessions) {
     if (table === "interview_sessions") {
       const id = calls.find((c) => c[0] === "eq" && c[1] === "id")?.[2];
       if (single) return { data: sessions.find((s) => s.id === id) ?? null, error: null };
-      return { data: sessions, error: null };
+      // Filters, counts and paging applied as PostgREST would (#41 part 2).
+      return answerSessions(
+        sessions.map((s) => ({ company_id: CO, ...s })),
+        calls,
+      );
     }
     if (table === "interview_answers") return { data: [], count: 0, error: null };
     return { data: single ? null : [], error: null };

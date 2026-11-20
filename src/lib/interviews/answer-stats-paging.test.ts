@@ -22,6 +22,7 @@ register(new URL("../../test-support/node-resolve.mjs", import.meta.url));
 register(new URL("../../test-support/messages-test-hook.mjs", import.meta.url));
 
 const { call, fakeService } = await import("../../test-support/fake-postgrest.mjs");
+const { answerSessions } = await import("../../test-support/interview-list-fake.mjs");
 const { listInterviewSessions } = await import("./review.ts");
 
 const NOW = Date.parse("2026-11-03T12:00:00.000Z");
@@ -76,7 +77,13 @@ function install(sessionRows, answerRows) {
         const [from, to] = r ? [r[1], r[2]] : [0, rows.length - 1];
         return rows.slice(from, Math.min(to, from + MAX_ROWS - 1) + 1);
       };
-      if (table === "interview_sessions") return { data: window(sessionRows), error: null };
+      // Filters, counts and paging applied as PostgREST would (#41 part 2).
+      if (table === "interview_sessions") {
+        return answerSessions(
+          sessionRows.map((s) => ({ company_id: CO, ...s })),
+          calls,
+        );
+      }
       if (table === "interview_answers") {
         reads.answers += 1;
         const ids = new Set(call(calls, "in")[2]);

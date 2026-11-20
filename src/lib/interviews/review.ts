@@ -102,6 +102,311 @@ type SessionRow = {
   previous_attempt_id?: string | null;
 };
 
+/** Everything a list row needs; `questions_snapshot` only on the visible page's read. */
+const LIST_COLUMNS =
+  "id, application_id, job_id, kind, status, started_at, submitted_at, expires_at, delete_after, invited_by_name, questions_snapshot, archived_at, created_at, previous_attempt_id";
+
+/** The statuses a session can be stored with; anything else derives to `unknown`. */
+const STORED_STATUSES = "(invited,started,submitted,expired,cancelled,abandoned)";
+
+/** PostgREST's "Requested range not satisfiable": the page has outrun the rows. */
+const RANGE_NOT_SATISFIABLE = "PGRST103";
+
+/**
+ * A query builder the list narrows step by step. Typed loosely on purpose:
+ * each step is one PostgREST filter, and the list composes them per tab.
+ */
+type Builder = any;
+
+/**
+ * deriveStatus, as filters (#41). The five tabs and `unknown` partition the
+ * stored statuses exactly as deriveStatus does, so the counts still sum to
+ * `all` as an identity: an invited or started session whose deadline has
+ * passed is expired whatever the column says (expires_at is NOT NULL), and a
+ * status nothing here recognises is unknown before any deadline is looked at.
+ * `abandoned` never reaches these: it is a restarted first attempt, dropped
+ * from the list before any tab (see listInterviewSessions).
+ */
+function statusFilter(q: Builder, status: InterviewStatus, nowIso: string): Builder {
+  switch (status) {
+    case "submitted":
+      return q.eq("status", "submitted");
+    case "cancelled":
+      // Abandoned too: only one no restart points to survives the list's
+      // scope, and deriveStatus reads it as cancelled.
+      return q.or("status.eq.cancelled,status.eq.abandoned");
+    case "expired":
+      return q.or(`status.eq.expired,and(status.in.(invited,started),expires_at.lt.${nowIso})`);
+    case "started":
+      return q.eq("status", "started").gte("expires_at", nowIso);
+    case "invited":
+      return q.eq("status", "invited").gte("expires_at", nowIso);
+    case "unknown":
+      // NULL included, as deriveStatus reads it (#47): SQL's NOT IN alone
+      // would drop a NULL status silently.
+      return q.or(`status.is.null,status.not.in.${STORED_STATUSES}`);
+  }
+}
+
+/**
+ * One page of interviews, plus the aggregate counts the tabs and hero read.
+ *
+ * In SQL (#41). This used to read EVERY session the company had, in pages of
+ * 1,000 one after another, each row with its questions snapshot, on every tab
+ * click, and derive, count, filter and page in JavaScript: linear in the
+ * company's interviews. Now, with no search:
+ *   - the restart chain: exactly the first attempts a restart points to are
+ *     dropped, as before. Migration 053 makes every such first attempt
+ *     `abandoned` (a restart may only follow an abandoned first attempt, and
+ *     abandoned is terminal), so the filter is `status <> 'abandoned'`, plus,
+ *     added back, any abandoned session NO restart points to: 053 requires a
+ *     recorded restart decision for `abandoned`, not that attempt 2 exists, so
+ *     such a row is possible, and deriveStatus lists it as cancelled. Both
+ *     sets are read once (they are few: live first attempts a person chose to
+ *     restart), the restarts also for the hero's "sent this week" (a chain was
+ *     sent when its first attempt was);
+ *   - the tab counts are head counts, one wave, with deriveStatus as filters;
+ *   - the visible page is one ranged read with an exact count, and only it
+ *     carries the questions snapshots;
+ *   - the job filter's options and "open roles" are one read of the scoped
+ *     jobs with their session counts embedded.
+ * Every read is on the company and, for a scoped member, on their jobs, as
+ * before. A search still reads the whole scoped set (listBySearch): it matches
+ * on names, which live on the applications.
+ */
+export async function listInterviewSessions(
+  ctx: CompanyContext,
+  opts: {
+    status?: InterviewTab;
+    jobId?: string | null;
+    query?: string;
+    page?: number;
+  } = {},
+): Promise<Read<InterviewListResult>> {
+  if ((opts.query ?? "").trim()) return listBySearch(ctx, opts);
+
+  const applied = {
+    status: opts.status ?? "all",
+    jobId: opts.jobId ?? null,
+    query: opts.query ?? "",
+  } as const;
+  const empty: InterviewListResult = {
+    applied,
+    rows: [],
+    total: 0,
+    page: 1,
+    pageSize: PAGE_SIZE,
+    counts: {
+      all: 0,
+      submitted: 0,
+      started: 0,
+      invited: 0,
+      expired: 0,
+      cancelled: 0,
+      unknown: 0,
+      archived: 0,
+    },
+    jobs: [],
+    sentThisWeek: 0,
+    openRoles: 0,
+  };
+
+  const scope = await getJobScope(ctx);
+  if (isEmptyScope(scope)) return answered(empty);
+  const allowedJobIds = scopeJobIds(scope);
+  const service = createServiceClient();
+  const nowIso = new Date().toISOString();
+  const weekAgoIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  /* The restarts (attempt 2), with when their first attempt was sent. */
+  type RestartRow = {
+    id: string;
+    archived_at: string | null;
+    previous_attempt_id: string;
+    first: { status: string; created_at: string } | null;
+  };
+  let restarts: RestartRow[];
+  let abandonedIds: string[];
+  try {
+    const restartRead = pageAll<RestartRow>(
+      (from, to) => {
+        let q = service
+          .from("interview_sessions")
+          .select(
+            "id, archived_at, previous_attempt_id, first:interview_sessions!previous_attempt_id(status, created_at)",
+          )
+          .eq("company_id", ctx.companyId)
+          .not("previous_attempt_id", "is", null)
+          .order("id")
+          .range(from, to);
+        if (allowedJobIds) q = q.in("job_id", allowedJobIds);
+        return q;
+      },
+      { scope: "interviews", label: "restarts" },
+    );
+    const abandonedRead = pageAll<{ id: string }>(
+      (from, to) => {
+        let q = service
+          .from("interview_sessions")
+          .select("id")
+          .eq("company_id", ctx.companyId)
+          .eq("status", "abandoned")
+          .order("id")
+          .range(from, to);
+        if (allowedJobIds) q = q.in("job_id", allowedJobIds);
+        return q;
+      },
+      { scope: "interviews", label: "abandoned" },
+    );
+    [restarts, abandonedIds] = await Promise.all([
+      restartRead,
+      abandonedRead.then((rows) => rows.map((r) => r.id)),
+    ]);
+  } catch (err) {
+    console.error("[interviews] restart read failed:", err);
+    return unavailable();
+  }
+  // Abandoned, but no restart points to it: listed, as cancelled (deriveStatus).
+  const superseded = new Set(restarts.map((r) => r.previous_attempt_id));
+  const lonely = abandonedIds.filter((id) => !superseded.has(id));
+  const keep = `status.is.null,status.neq.abandoned${lonely.length ? `,id.in.(${lonely.join(",")})` : ""}`;
+  // A restart whose first attempt is not abandoned: the invariant says none.
+  const strayFirsts = restarts
+    .filter((r) => r.first?.status !== "abandoned")
+    .map((r) => r.previous_attempt_id);
+
+  /** The scoped list: this company, the member's jobs, no restarted first attempt. */
+  const scoped = (q: Builder): Builder => {
+    // Superseded first attempts out; a NULL status kept (SQL's <> alone would
+    // drop it, and deriveStatus shows it as unknown); a lonely abandoned kept.
+    let out = q.eq("company_id", ctx.companyId).or(keep);
+    if (allowedJobIds) out = out.in("job_id", allowedJobIds);
+    if (strayFirsts.length) out = out.not("id", "in", `(${strayFirsts.join(",")})`);
+    return out;
+  };
+  const head = (narrow: (q: Builder) => Builder) =>
+    narrow(scoped(service.from("interview_sessions").select("id", { count: "exact", head: true })));
+  const live = (q: Builder) => q.is("archived_at", null);
+
+  const wantArchived = opts.status === "archived";
+  const tabFilter = (q: Builder): Builder => {
+    let out = wantArchived ? q.not("archived_at", "is", null) : live(q);
+    if (opts.status && opts.status !== "all" && opts.status !== "archived") {
+      out = statusFilter(out, opts.status, nowIso);
+    }
+    if (opts.jobId) out = out.eq("job_id", opts.jobId);
+    return out;
+  };
+  const page = Math.max(1, opts.page ?? 1);
+  const start = (page - 1) * PAGE_SIZE;
+
+  const STATUSES = ["submitted", "started", "invited", "expired", "cancelled", "unknown"] as const;
+  const [allCount, archivedCount, weekCount, statusCounts, pageRead, jobsRead] = await Promise.all([
+    head(live),
+    head((q) => q.not("archived_at", "is", null)),
+    // Sent this week, first attempts and plain sessions; restarts are added below.
+    head((q) => live(q).is("previous_attempt_id", null).gte("created_at", weekAgoIso)),
+    Promise.all(STATUSES.map((st) => head((q) => statusFilter(live(q), st, nowIso)))),
+    tabFilter(scoped(service.from("interview_sessions").select(LIST_COLUMNS, { count: "exact" })))
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(start, start + PAGE_SIZE - 1),
+    (() => {
+      let q = service
+        .from("jobs")
+        .select("id, title, sessions:interview_sessions(count), live:interview_sessions(count)")
+        .eq("company_id", ctx.companyId)
+        .eq("sessions.company_id", ctx.companyId)
+        .or(keep, { referencedTable: "sessions" })
+        .eq("live.company_id", ctx.companyId)
+        .or(keep, { referencedTable: "live" })
+        .is("live.archived_at", null);
+      if (strayFirsts.length) {
+        q = q
+          .not("sessions.id", "in", `(${strayFirsts.join(",")})`)
+          .not("live.id", "in", `(${strayFirsts.join(",")})`);
+      }
+      return allowedJobIds ? q.in("id", allowedJobIds) : q;
+    })(),
+  ]);
+
+  const failed = [allCount, archivedCount, weekCount, ...statusCounts, jobsRead].find(
+    (r) => r.error,
+  );
+  if (failed) {
+    console.error("[interviews] list read failed:", failed.error);
+    return unavailable();
+  }
+  let pageSessions: SessionRow[] = [];
+  let total: number;
+  if (pageRead.error) {
+    if (pageRead.error.code !== RANGE_NOT_SATISFIABLE) {
+      console.error("[interviews] page read failed:", pageRead.error);
+      return unavailable();
+    }
+    // A page past the end: no rows, and the true total for the pager.
+    const recount = await tabFilter(
+      scoped(service.from("interview_sessions").select("id", { count: "exact", head: true })),
+    );
+    if (recount.error) return unavailable();
+    total = recount.count ?? 0;
+  } else {
+    pageSessions = (pageRead.data ?? []) as SessionRow[];
+    total = pageRead.count ?? 0;
+  }
+
+  type JobCounts = {
+    id: string;
+    title: string | null;
+    sessions: { count: number }[];
+    live: { count: number }[];
+  };
+  const jobRows = ((jobsRead.data ?? []) as JobCounts[]).filter(
+    (j) => (j.sessions?.[0]?.count ?? 0) > 0,
+  );
+  const jobs = new Map(jobRows.map((j) => [j.id, (j.title ?? "").trim() || "Untitled role"]));
+
+  /** The head count read for one status, through statusFilter (above). */
+  const countOf = (st: (typeof STATUSES)[number]) => statusCounts[STATUSES.indexOf(st)].count ?? 0;
+  const counts = {
+    all: allCount.count ?? 0,
+    submitted: countOf("submitted"),
+    started: countOf("started"),
+    invited: countOf("invited"),
+    expired: countOf("expired"),
+    cancelled: countOf("cancelled"),
+    unknown: countOf("unknown"),
+    archived: archivedCount.count ?? 0,
+  };
+  if (counts.all + counts.archived === 0) return answered(empty);
+
+  const sentThisWeek =
+    (weekCount.count ?? 0) +
+    restarts.filter(
+      (r) =>
+        r.archived_at === null &&
+        r.first?.status === "abandoned" &&
+        r.first.created_at >= weekAgoIso,
+    ).length;
+
+  const sliced = pageSessions.map((s) => toListRow(s, NAME_PENDING, jobs));
+  const rows = await withPageDetail(service, ctx.companyId, sliced, pageSessions, null);
+
+  return answered({
+    applied,
+    rows,
+    total,
+    page,
+    pageSize: PAGE_SIZE,
+    counts,
+    jobs: [...jobs.entries()]
+      .map(([id, title]) => ({ id, title }))
+      .sort((a, b) => a.title.localeCompare(b.title)),
+    sentThisWeek,
+    openRoles: jobRows.filter((j) => (j.live?.[0]?.count ?? 0) > 0).length,
+  });
+}
+
 /**
  * One page of interviews, plus the aggregate counts the tabs and hero read.
  *
@@ -123,7 +428,7 @@ type SessionRow = {
  * if it had worked. The failure arm of `Read` carries no value at all, so
  * there is nothing to render by mistake.
  */
-export async function listInterviewSessions(
+async function listBySearch(
   ctx: CompanyContext,
   opts: {
     status?: InterviewTab;
@@ -264,33 +569,10 @@ export async function listInterviewSessions(
    * (withPageDetail): nothing before it reads them, so they are read for the
    * visible rows only, one request each whatever the company's size.
    */
-  const rows: InterviewRow[] = sessions.map((s) => {
+  const rows: InterviewRow[] = sessions.map((s) =>
     // Without a search the name is filled in after the page slice.
-    const who = searchApps ? candidateOf(s.application_id, searchApps) : NAME_PENDING;
-    const status = deriveStatus(s.status, s.expires_at);
-    return {
-      id: s.id,
-      applicationId: s.application_id,
-      jobId: s.job_id,
-      candidateName: who.name,
-      candidateEmail: who.email,
-      candidateLink: who.link,
-      jobTitle: (s.job_id ? jobs.get(s.job_id) : null) ?? "This role",
-      kind: readInterviewKind(s.kind, s.id),
-      status,
-      // Filled in for the visible rows by withPageDetail; never returned as is.
-      progress: null,
-      totalQuestions: null,
-      submittedAt: s.submitted_at,
-      startedAt: s.started_at,
-      expiresAt: s.expires_at,
-      sentAt: s.created_at,
-      invitedByName: s.invited_by_name,
-      score: null,
-      scoreUnavailable: false,
-      archivedAt: s.archived_at,
-    };
-  });
+    toListRow(s, searchApps ? candidateOf(s.application_id, searchApps) : NAME_PENDING, jobs),
+  );
 
   /*
    * ── Aggregates over the whole scoped set, ARCHIVE EXCLUDED ──
@@ -351,28 +633,87 @@ export async function listInterviewSessions(
   const page = Math.max(1, opts.page ?? 1);
   const start = (page - 1) * PAGE_SIZE;
   const sliced = filtered.slice(start, start + PAGE_SIZE);
+  const pageIds = new Set(sliced.map((r) => r.id));
+  const pageRows = await withPageDetail(
+    service,
+    ctx.companyId,
+    sliced,
+    sessions.filter((s) => pageIds.has(s.id)),
+    searchApps,
+  );
+
+  return answered({
+    applied,
+    rows: pageRows,
+    total: filtered.length,
+    page,
+    pageSize: PAGE_SIZE,
+    counts,
+    jobs: jobList,
+    sentThisWeek,
+    openRoles: new Set(live.map((r) => r.jobId).filter(Boolean)).size,
+  });
+}
+
+/** One list row from a session, before the page's detail is filled in. */
+function toListRow(
+  s: SessionRow,
+  who: { name: string; email: string; link: InterviewRow["candidateLink"] },
+  jobs: Map<string, string>,
+): InterviewRow {
+  return {
+    id: s.id,
+    applicationId: s.application_id,
+    jobId: s.job_id,
+    candidateName: who.name,
+    candidateEmail: who.email,
+    candidateLink: who.link,
+    jobTitle: (s.job_id ? jobs.get(s.job_id) : null) ?? "This role",
+    kind: readInterviewKind(s.kind, s.id),
+    status: deriveStatus(s.status, s.expires_at),
+    // Filled in for the visible rows by withPageDetail; never returned as is.
+    progress: null,
+    totalQuestions: null,
+    submittedAt: s.submitted_at,
+    startedAt: s.started_at,
+    expiresAt: s.expires_at,
+    sentAt: s.created_at,
+    invitedByName: s.invited_by_name,
+    score: null,
+    scoreUnavailable: false,
+    archivedAt: s.archived_at,
+  };
+}
+
+/**
+ * The visible rows' detail: names (unless a search already read them), answer
+ * counts and scores, each ONE request for the page whatever the company's
+ * size (#20). `pageSessions` carries each row's questions snapshot.
+ */
+async function withPageDetail(
+  service: ReturnType<typeof createServiceClient>,
+  companyId: string,
+  sliced: InterviewRow[],
+  pageSessions: SessionRow[],
+  searchApps: Read<AppNames> | null,
+): Promise<InterviewRow[]> {
   const pageIds = sliced.map((r) => r.id);
-  const pageSessions = sessions.filter((s) => pageIds.includes(s.id));
   const nowMs = Date.now();
   const [pageApps, answers, scores] = await Promise.all([
     searchApps
       ? null
-      : fetchApplications(
-          service,
-          ctx.companyId,
-          applicationIdsOf(sliced.map((r) => r.applicationId)),
-        ),
+      : fetchApplications(service, companyId, applicationIdsOf(sliced.map((r) => r.applicationId))),
     fetchAnswerStats(service, pageIds),
     fetchSessionScores(
       service,
-      ctx.companyId,
+      companyId,
       pageIds,
       new Set(pageSessions.filter((s) => retentionPassed(s.delete_after, nowMs)).map((s) => s.id)),
     ),
   ]);
   const snapshotOf = new Map(pageSessions.map((s) => [s.id, s.questions_snapshot]));
 
-  const pageRows: InterviewRow[] = sliced.map((r) => {
+  return sliced.map((r) => {
     const named = pageApps ? candidateOf(r.applicationId, pageApps) : null;
     const stats = answers.ok ? answers.value.get(r.id) : undefined;
     /* The snapshot is the better denominator and does not depend on the answer
@@ -398,18 +739,6 @@ export async function listInterviewSessions(
       score: scores.ok ? (scores.value.get(r.id) ?? null) : null,
       scoreUnavailable: !scores.ok,
     };
-  });
-
-  return answered({
-    applied,
-    rows: pageRows,
-    total: filtered.length,
-    page,
-    pageSize: PAGE_SIZE,
-    counts,
-    jobs: jobList,
-    sentThisWeek,
-    openRoles: new Set(live.map((r) => r.jobId).filter(Boolean)).size,
   });
 }
 
@@ -594,42 +923,75 @@ export async function loadInterviewSession(
   const allowed = scopeJobIds(scope);
   if (allowed && (!row.job_id || !allowed.includes(row.job_id))) return null;
 
-  const [apps, jobs] = await Promise.all([
-    fetchApplications(service, ctx.companyId, row.application_id ? [row.application_id] : []),
-    fetchJobs(service, ctx.companyId, row.job_id ? [row.job_id] : []),
-  ]);
+  /*
+   * ── Wave 1 (#41): every read that needs only the session row ──
+   *
+   * Names, the job, the pipeline stage, the answers, the job's questions, the
+   * session score, the delete permission and the notes used to wait for each
+   * other in turn; none needs another's answer. All keep their own company
+   * filter, and all run only after the session read and the job-scope check
+   * above. Wave 2 below is the two reads that do need wave 1's answers.
+   */
+  const evidenceDeleted = retentionPassed(row.delete_after, Date.now());
+  const [apps, jobs, { data: appRow }, answersRead, { data: qRows }, scoreRead, canDelete, notes] =
+    await Promise.all([
+      fetchApplications(service, ctx.companyId, row.application_id ? [row.application_id] : []),
+      fetchJobs(service, ctx.companyId, row.job_id ? [row.job_id] : []),
+      row.application_id
+        ? service
+            .from("job_applications")
+            .select("pipeline_stage")
+            .eq("id", row.application_id)
+            .eq("company_id_snapshot", ctx.companyId)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
+      // video_path is selected so `hasVideo` can be derived, and is NOT
+      // returned. The exact count comes with the same rows (#46): the page
+      // says when it is not showing them all.
+      service
+        .from("interview_answers")
+        .select(
+          "id, position, question_text, video_path, duration_seconds, transcript, transcript_segments, transcript_status, transcript_error, recorded_at",
+          { count: "exact" },
+        )
+        .eq("session_id", row.id)
+        .order("position", { ascending: true })
+        .limit(ANSWERS_SHOWN),
+      row.job_id
+        ? service
+            .from("interview_questions")
+            .select("id, position, question, competency, rubric, weight")
+            .eq("job_id", row.job_id)
+            .eq("company_id", ctx.companyId)
+            .limit(50)
+        : Promise.resolve({ data: [] }),
+      fetchSessionScores(
+        service,
+        ctx.companyId,
+        [row.id],
+        new Set(evidenceDeleted ? [row.id] : []),
+      ),
+      canAccessJob(ctx, row.job_id ?? ""),
+      /*
+       * Notes SURVIVE the purge. They are a reviewer's own words about a
+       * candidate, not the candidate's media — the six-month promise covers
+       * the recording, and deleting the reasoning behind a hiring decision
+       * along with it would erase the audit trail the recording existed to
+       * support.
+       */
+      readNotes(service, ctx.companyId, row.id),
+    ]);
   const who = candidateOf(row.application_id, apps);
 
-  const { data: appRow } = row.application_id
-    ? await service
-        .from("job_applications")
-        .select("pipeline_stage")
-        .eq("id", row.application_id)
-        .eq("company_id_snapshot", ctx.companyId)
-        .maybeSingle()
-    : { data: null };
-
-  // video_path is selected so `hasVideo` can be derived, and is NOT returned.
-  // The exact count comes with the same rows (#46): the page says when it is
-  // not showing them all. A failed read throws, so the review is reported
-  // unavailable (the error boundary) instead of showing an interview with no
-  // answers.
-  const {
-    data: answerRows,
-    error: answersError,
-    count: answersCount,
-  } = await service
-    .from("interview_answers")
-    .select(
-      "id, position, question_text, video_path, duration_seconds, transcript, transcript_segments, transcript_status, transcript_error, recorded_at",
-      { count: "exact" },
-    )
-    .eq("session_id", row.id)
-    .order("position", { ascending: true })
-    .limit(ANSWERS_SHOWN);
+  // A failed answers read throws, so the review is reported unavailable (the
+  // error boundary) instead of showing an interview with no answers.
+  const { data: answerRows, error: answersError, count: answersCount } = answersRead;
   if (answersError) {
     throw new Error(`[review] answers read failed: ${answersError.code ?? "error"}`);
   }
+  // A failed score read throws too: read as "no score", it would offer
+  // "Score interview" on an interview that may already be scored.
+  if (!scoreRead.ok) throw new Error("[review] session score read failed");
 
   const answers: InterviewAnswerView[] = (
     (answerRows ?? []) as {
@@ -680,15 +1042,45 @@ export async function loadInterviewSession(
     }
   }
 
-  const evidenceDeleted = retentionPassed(row.delete_after, Date.now());
-  const answerScores = await fetchAnswerScores(
-    service,
-    ctx.companyId,
-    row.id,
-    answers.map((a) => a.id),
-    segmentsById,
-    evidenceDeleted,
+  const status = deriveStatus(row.status, row.expires_at);
+  const totalQuestions = snapshotLength(row.questions_snapshot) ?? answers.length;
+  const kind = readInterviewKind(row.kind, row.id);
+
+  /*
+   * Criteria quotes are PLACED here, not in fetchSessionScores.
+   *
+   * Placement needs the answers' segments, which only this detail path loads
+   * — the list would have to fetch them for a seek button it never renders.
+   * So the score arrives with nulls and gets its offsets filled in against
+   * the segments already in hand.
+   */
+  const score = withPlacedCriteria(
+    scoreRead.value.get(row.id) ?? null,
+    answers.map((a) => ({ id: a.id, segments: segmentsById.get(a.id) ?? null })),
   );
+
+  /*
+   * ── Wave 2: the two reads that need wave 1's answers ──
+   *
+   * The answer scores need the answers' ids and segments. "Score interview"
+   * is offered only to a submitted async interview with no scorecard row at
+   * all; its two extra reads (pending transcripts, live job) are made only
+   * when the cheap facts already allow it, so the common case - a scored
+   * interview - costs nothing here.
+   */
+  const [answerScores, facts] = await Promise.all([
+    fetchAnswerScores(
+      service,
+      ctx.companyId,
+      row.id,
+      answers.map((a) => a.id),
+      segmentsById,
+      evidenceDeleted,
+    ),
+    kind === "async" && status === "submitted" && score === null
+      ? readScorecardFacts(service, row.id)
+      : Promise.resolve({ pendingTranscripts: 0, liveJob: false }),
+  ]);
   for (const a of answers) a.score = answerScores.get(a.id) ?? null;
 
   /*
@@ -701,14 +1093,6 @@ export async function loadInterviewSession(
    * the lie the scorer just refused to tell.
    */
   {
-    const { data: qRows } = row.job_id
-      ? await service
-          .from("interview_questions")
-          .select("id, position, question, competency, rubric, weight")
-          .eq("job_id", row.job_id)
-          .eq("company_id", ctx.companyId)
-          .limit(50)
-      : { data: [] };
     const live = (qRows ?? []) as {
       id: string;
       position: number;
@@ -731,42 +1115,6 @@ export async function loadInterviewSession(
     }
   }
 
-  const status = deriveStatus(row.status, row.expires_at);
-  const totalQuestions = snapshotLength(row.questions_snapshot) ?? answers.length;
-  const kind = readInterviewKind(row.kind, row.id);
-
-  /*
-   * Criteria quotes are PLACED here, not in fetchSessionScores.
-   *
-   * Placement needs the answers' segments, which only this detail path loads
-   * — the list would have to fetch them for a seek button it never renders.
-   * So the score arrives with nulls and gets its offsets filled in against
-   * the segments already in hand.
-   */
-  // A failed read throws, like the answers read above: read as "no score", it
-  // would offer "Score interview" on an interview that may already be scored.
-  const scoreRead = await fetchSessionScores(
-    service,
-    ctx.companyId,
-    [row.id],
-    new Set(evidenceDeleted ? [row.id] : []),
-  );
-  if (!scoreRead.ok) throw new Error("[review] session score read failed");
-  const score = withPlacedCriteria(
-    scoreRead.value.get(row.id) ?? null,
-    answers.map((a) => ({ id: a.id, segments: segmentsById.get(a.id) ?? null })),
-  );
-
-  /*
-   * "Score interview" is offered only to a submitted async interview with no
-   * scorecard row at all. The two extra reads (pending transcripts, live job)
-   * are made only when the cheap facts already allow it, so the common case -
-   * a scored interview - costs nothing here.
-   */
-  const facts =
-    kind === "async" && status === "submitted" && score === null
-      ? await readScorecardFacts(service, row.id)
-      : { pendingTranscripts: 0, liveJob: false };
   const canScore = scorecardRecoveryEligibility({
     kind,
     status,
@@ -798,17 +1146,11 @@ export async function loadInterviewSession(
     invitedByName: row.invited_by_name,
     archivedAt: row.archived_at,
     score,
-    canDelete: await canAccessJob(ctx, row.job_id ?? ""),
+    canDelete,
     canScore,
     purged: answers.length > 0 && answers.every((a) => a.purged),
     evidenceDeleted,
-    /*
-     * Notes SURVIVE the purge. They are a reviewer's own words about a
-     * candidate, not the candidate's media — the six-month promise covers the
-     * recording, and deleting the reasoning behind a hiring decision along
-     * with it would erase the audit trail the recording existed to support.
-     */
-    notes: await readNotes(service, ctx.companyId, row.id),
+    notes,
     // Null for a context without a member row (shouldn't happen inside the
     // gated segment); an empty string simply matches no note's author.
     viewerMemberId: ctx.memberId ?? "",

@@ -17,6 +17,7 @@ register(new URL("../../test-support/node-resolve.mjs", import.meta.url));
 register(new URL("../../test-support/messages-test-hook.mjs", import.meta.url));
 
 const { call, fakeService } = await import("../../test-support/fake-postgrest.mjs");
+const { answerSessions } = await import("../../test-support/interview-list-fake.mjs");
 const { listInterviewSessions } = await import("./review.ts");
 
 // The read logs its failures; the assertions are on what the page shows.
@@ -50,6 +51,7 @@ function world(n, { failNames = false, missing = new Set(), delayMs = 0, flight 
     created_at: iso(NOW - i * 1000),
     previous_attempt_id: null,
   }));
+  const withCompany = sessions.map((s) => ({ company_id: CO, ...s }));
   const apps = new Map(
     sessions
       .map((_, i) => i)
@@ -68,9 +70,8 @@ function world(n, { failNames = false, missing = new Set(), delayMs = 0, flight 
   globalThis.__messagesServiceForTests = () =>
     fakeService((table, calls) => {
       if (table === "interview_sessions") {
-        const r = call(calls, "range");
-        const [from, to] = r ? [r[1], r[2]] : [0, sessions.length - 1];
-        return { data: sessions.slice(from, Math.min(to, from + MAX_ROWS - 1) + 1), error: null };
+        // Filters, counts and paging applied as PostgREST would (#41 part 2).
+        return answerSessions(withCompany, calls, { maxRows: MAX_ROWS });
       }
       if (table === "job_applications") {
         const ids = call(calls, "in")[2];
