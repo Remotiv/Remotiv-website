@@ -1260,9 +1260,20 @@ export async function sendManualMessage(input: {
   });
 
   if (!outcome.ok) {
-    // The cap message is written for the sender, not for a log — someone is
-    // waiting on this reply, so they are told plainly rather than finding a
-    // silently skipped row later.
+    // #19: a provider refusal carries Resend's own text (an address it would
+    // not take, a key it rejected). That text goes to the log; the sender gets
+    // what happened and what to do.
+    if (outcome.kind === "provider") {
+      console.error(
+        `[messages] manual email for application ${applicationId} refused by the provider:`,
+        outcome.message,
+      );
+      return { success: false, error: PROVIDER_REFUSED };
+    }
+    // The other refusals are ours, written for the sender (the daily cap, not
+    // configured, already sent, could not be recorded): someone is waiting on
+    // this reply, so they are told plainly rather than finding a silently
+    // skipped row later.
     return { success: false, error: outcome.message };
   }
 
@@ -1272,6 +1283,10 @@ export async function sendManualMessage(input: {
 }
 
 /** Fixed replies for "Request stop". No database text ever reaches them. */
+/** A manual email the provider refused (#19). Its own text stays in the server log. */
+const PROVIDER_REFUSED =
+  "The email service couldn't send this message, so nothing was sent. Please try again in a moment. If it keeps failing, contact support.";
+
 const STOP_REPLY = {
   failed: "Couldn't request a stop for this message. Try again in a moment.",
   sent: "This message has already been sent.",
