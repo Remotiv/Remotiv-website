@@ -713,9 +713,12 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ t
    * the booking is gone and the calendar entry with it. Returning an error
    * would tell the candidate their cancellation did not work, and the only
    * thing they could do about it is try again, which is worse than the
-   * problem. The delivery trouble belongs to us, so it goes to the log and to
-   * `notices` in the body, where the client may mention it but must not treat
-   * it as a failure.
+   * problem. The delivery trouble belongs to us, so it goes to the log, and
+   * the body says only whether each email went (#19): never the providers'
+   * own words in `problems`, never an internal log id.
    */
-  return NextResponse.json({ state: "cancelled", notices }, { headers: NO_STORE });
+  return NextResponse.json(
+    { state: "cancelled", notices: { candidate: notices.candidate, host: notices.host } },
+    { headers: NO_STORE },
+  );
 }

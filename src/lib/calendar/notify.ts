@@ -6,6 +6,7 @@ import { sendEmail } from "@/lib/email/send";
 import { recordingNoticeText } from "@/lib/final-interviews/constants";
 import { createServiceClient } from "@/lib/supabase/server";
 import { BOOKING_EXPIRY_DAYS, type BookingActor, type BookingRow } from "./bookings";
+import { bookingSendFailure } from "./send-failure";
 import { formatInZone, zoneAbbreviation } from "./timezone";
 
 /**
@@ -272,13 +273,11 @@ export async function sendFinalInterviewLinkEmail(args: {
       sentByName: args.sentByName,
       actorMemberId: args.actorMemberId,
     });
-    if (!outcome.ok) {
-      console.error(`[booking] final link: ${outcome.kind} - ${outcome.message}`);
-      return { ok: false, message: outcome.message };
-    }
+    // #19: the email service's own text stays out of the reply (and the log).
+    if (!outcome.ok) return { ok: false, message: bookingSendFailure(outcome, "final link") };
     return { ok: true };
   } catch (err) {
-    console.error("[booking] final link threw:", err);
+    console.error("[booking] final link threw:", err instanceof Error ? err.name : "error");
     return { ok: false, message: "Couldn't send the booking link. Try again." };
   }
 }
@@ -493,7 +492,10 @@ export type NoticeOutcome = {
    */
   candidateLogId: string | null;
   host: "sent" | "skipped_no_address" | "failed";
-  /** Populated when either side is not "sent". Safe to log; no personal data. */
+  /**
+   * Populated when either side is not "sent": codes for the server log only
+   * (#19), never the providers' own words, and never sent to a browser.
+   */
   problems: string[];
 };
 
@@ -522,7 +524,8 @@ async function deliverBooking(
       actorMemberId: args.actorMemberId ?? null,
     });
     if (!outcome.ok) {
-      const problem = `candidate ${event}: ${outcome.kind} — ${outcome.message}`;
+      // A code, never the email service's own words (#19).
+      const problem = `candidate ${event}: ${outcome.kind}`;
       console.error(`[booking] ${problem}`);
       return { result: "failed", problem, logId: outcome.logId };
     }
@@ -530,7 +533,7 @@ async function deliverBooking(
   } catch (err) {
     // The booking change is already real. A failed notification must not
     // unwind it — but it must not vanish either.
-    const problem = `candidate ${event}: threw — ${err instanceof Error ? err.message : String(err)}`;
+    const problem = `candidate ${event}: threw ${err instanceof Error ? err.name : "error"}`;
     console.error(`[booking] ${problem}`);
     return { result: "failed", problem };
   }
@@ -560,13 +563,13 @@ async function sendHostEmail(
   try {
     const sent = await sendEmail({ to, subject, html });
     if (!sent.ok) {
-      const problem = `host: ${sent.error ?? "send failed"}`;
+      const problem = "host: send failed";
       console.error(`[booking] ${problem}`);
       return { result: "failed", problem };
     }
     return { result: "sent" };
   } catch (err) {
-    const problem = `host: threw — ${err instanceof Error ? err.message : String(err)}`;
+    const problem = `host: threw ${err instanceof Error ? err.name : "error"}`;
     console.error(`[booking] ${problem}`);
     return { result: "failed", problem };
   }

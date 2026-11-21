@@ -204,18 +204,6 @@ export const EXCLUDED_DECLARATIONS = [
     note: "system argument of the screening question model call",
   },
   {
-    file: "lib/calendar/notify.ts",
-    symbol: "deliverBooking/problem",
-    reason: "log-only",
-    note: "NoticeOutcome.problems; every consumer only console.errors them",
-  },
-  {
-    file: "lib/calendar/notify.ts",
-    symbol: "sendHostEmail/problem",
-    reason: "log-only",
-    note: "NoticeOutcome.problems; every consumer only console.errors them",
-  },
-  {
     file: "lib/cv-extract.ts",
     symbol: "BASIC_SYSTEM_PROMPT",
     reason: "model-prompt",

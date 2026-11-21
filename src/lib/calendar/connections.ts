@@ -25,8 +25,8 @@ import {
  *     whitelist — new columns are invisible to the UI until someone
  *     deliberately adds them, which is the safe default for a table that will
  *     accumulate more secrets, not fewer.
- *   · No token is ever logged. `last_error` stores provider messages, which
- *     are about the grant, never the credential.
+ *   · No token is ever logged. `last_error` stores only CONNECTION_PROBLEM's
+ *     plain sentences (#19); a provider's own words go to the log as a code.
  *
  * ── Not encrypted at rest ────────────────────────────────────
  *
@@ -88,13 +88,31 @@ const ROW_COLUMNS =
 const VIEW_COLUMNS = "provider, provider_account, timezone, status, last_error, created_at";
 
 /**
- * Reduce a row to what the client may see.
- *
- * `last_error` is a provider message. It is surfaced because a recruiter whose
- * calendar has silently stopped working needs to know it needs reconnecting —
- * "it broke" with no reason is the state that generates support tickets — but
- * it is truncated, because an unbounded provider string in a UI is how a page
- * ends up rendering something nobody reviewed.
+ * What the settings card says about a calendar that stopped working (#19).
+ * Only these sentences are ever written to `last_error`, and only these are
+ * ever shown: a stored value that is not one of them (a provider's own text,
+ * written before #19) is shown as the plain sentence for its status instead.
+ * The provider's words go to the server log as a code, never to a screen.
+ */
+export const CONNECTION_PROBLEM = {
+  revoked: "Access was revoked at the provider. Reconnect to continue.",
+  noRefreshToken: "This calendar needs reconnecting. No refresh token is stored.",
+  unavailable: "This calendar provider isn't available right now. Reconnect to continue.",
+  refreshFailed: "This calendar couldn't be refreshed just now. Try again later, or reconnect it.",
+  generic: "This calendar stopped working. Reconnect it to continue.",
+} as const;
+const KNOWN_PROBLEMS = new Set<string>(Object.values(CONNECTION_PROBLEM));
+
+/** The sentence a not-active connection shows: a known one, else its status's plain one. */
+export function connectionProblem(status: CalendarStatus, stored: string | null): string | null {
+  if (status === "active") return null;
+  if (stored && KNOWN_PROBLEMS.has(stored)) return stored;
+  return status === "revoked" ? CONNECTION_PROBLEM.revoked : CONNECTION_PROBLEM.generic;
+}
+
+/**
+ * Reduce a row to what the client may see. The problem line is one of
+ * CONNECTION_PROBLEM's sentences, never stored text as it is (#19).
  */
 function toView(row: {
   provider: string;
@@ -110,7 +128,7 @@ function toView(row: {
     account: row.provider_account ?? "",
     timezone: row.timezone,
     status: row.status,
-    problem: row.status === "active" ? null : (row.last_error ?? "").slice(0, 200) || null,
+    problem: connectionProblem(row.status, row.last_error),
     connectedAt: row.created_at,
   };
 }
@@ -219,9 +237,9 @@ export async function storeTokens(args: {
     .upsert(patch, { onConflict: "member_id,provider" });
 
   if (error) {
-    // The message names a column or a constraint, never a token value.
-    console.error("[calendar] storeTokens failed:", error.message);
-    return { ok: false, error: error.message };
+    // The code only (#19): the message names columns and constraints.
+    console.error(`[calendar] storeTokens failed: ${error.code ?? "error"}`);
+    return { ok: false, error: error.code ?? "error" };
   }
   /*
    * Which account, as an HMAC (#56, account-key.ts): copied onto every event
@@ -253,7 +271,7 @@ export async function markConnectionProblem(
   memberId: string,
   provider: string,
   status: Exclude<CalendarStatus, "active">,
-  message: string,
+  message: (typeof CONNECTION_PROBLEM)[keyof typeof CONNECTION_PROBLEM],
 ): Promise<void> {
   const service = createServiceClient();
   const { error } = await service
@@ -297,12 +315,7 @@ export async function getAccessToken(
 
   const impl = getProvider(provider);
   if (!impl) {
-    await markConnectionProblem(
-      memberId,
-      provider,
-      "error",
-      `Provider "${provider}" is not available`,
-    );
+    await markConnectionProblem(memberId, provider, "error", CONNECTION_PROBLEM.unavailable);
     return null;
   }
 
@@ -317,12 +330,7 @@ export async function getAccessToken(
      * exists to prevent, so if it is ever seen in the wild it is worth
      * treating as a bug report rather than routine.
      */
-    await markConnectionProblem(
-      memberId,
-      provider,
-      "error",
-      "This calendar needs reconnecting - no refresh token is stored.",
-    );
+    await markConnectionProblem(memberId, provider, "error", CONNECTION_PROBLEM.noRefreshToken);
     return null;
   }
 
@@ -363,11 +371,15 @@ export async function getAccessToken(
      * transient, so it is `error` and a later call may recover.
      */
     const revoked = /invalid_grant/i.test(message);
+    // #19: Google's own words are a code in the log, never the stored problem.
+    console.error(
+      `[calendar] token refresh failed: ${revoked ? "invalid_grant" : err instanceof Error ? err.name : "error"}`,
+    );
     await markConnectionProblem(
       memberId,
       provider,
       revoked ? "revoked" : "error",
-      revoked ? "Access was revoked at the provider. Reconnect to continue." : message,
+      revoked ? CONNECTION_PROBLEM.revoked : CONNECTION_PROBLEM.refreshFailed,
     );
     return null;
   }

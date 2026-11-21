@@ -18,6 +18,7 @@ import {
 } from "@/lib/calendar/bookings";
 import { type CancelNotice, cancelNotice } from "@/lib/calendar/cancel-notice";
 import { sendCancellationNotices } from "@/lib/calendar/notify";
+import { bookingSendFailure } from "@/lib/calendar/send-failure";
 import "@/lib/calendar/google";
 import { buildCandidateHtml, deliverEmail } from "@/lib/email/candidate/deliver";
 import { escapeHtml } from "@/lib/email/candidate/render";
@@ -262,10 +263,13 @@ export async function sendBookingLink(
         // costs nothing and makes that impossible rather than merely unlikely.
         .eq("status", "invited");
       if (cleanupErr) {
-        console.error("[booking] failed to roll back the orphan booking:", cleanupErr.message);
+        console.error(
+          `[booking] failed to roll back the orphan booking: ${cleanupErr.code ?? "error"}`,
+        );
       }
     }
-    return { success: false, error: outcome.message };
+    // #19: a provider refusal's own text never reaches the recruiter.
+    return { success: false, error: bookingSendFailure(outcome, "booking link") };
   }
 
   revalidatePath("/ai-dashboard/applicants");

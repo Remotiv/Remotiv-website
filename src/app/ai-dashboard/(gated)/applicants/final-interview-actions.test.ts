@@ -356,10 +356,12 @@ test("a failed email keeps the interview, deletes the unsent link, and says to r
     },
   });
   assert.equal(result.success, false);
+  // #19: a plain sentence; the email service's own words never reach the recruiter.
   assert.match(
     result.error,
-    /created, but the link could not be sent: The email provider rejected the message\. Use Resend link/,
+    /created, but the link could not be sent: The email service couldn't send the booking link right now, so nothing was sent\. Use Resend link/,
   );
+  assert.doesNotMatch(result.error, /rejected the message/);
   assert.equal(db.final_interviews.length, 1, "the interview stays");
   assert.equal(db.interview_bookings.length, 0, "the unsent link is gone");
   const del = writes(service, "interview_bookings").find((w) => w[0] === "delete");
