@@ -145,3 +145,72 @@ test("E8. the candidate's cancel response says only whether each email went: no 
     assert.match(f, /^"[a-z_]+"$|^claim\.reason$|^moved\.reason$|^cancelled\.reason$/, f);
   }
 });
+
+test("E9. old rows holding Google's raw text: the settings read shows only our sentences, never the stored text", async () => {
+  const { fakeService } = await import("../../test-support/fake-postgrest.mjs");
+  const { listConnectionsForMember } = await import("./connections.ts");
+  // Written before #19: Google's own words, as the token refresh used to store them.
+  const RAW_GOOGLE = [
+    "invalid_client: The OAuth client was not found.",
+    "Token has been expired or revoked.",
+    'Google token refresh failed (400): {"error":"invalid_grant"}',
+  ];
+  const rows = [
+    {
+      provider: "google",
+      provider_account: "a@example.invalid",
+      timezone: null,
+      status: "error",
+      last_error: RAW_GOOGLE[0],
+      created_at: "2026-11-01T00:00:00Z",
+    },
+    {
+      provider: "google",
+      provider_account: "b@example.invalid",
+      timezone: null,
+      status: "revoked",
+      last_error: RAW_GOOGLE[1],
+      created_at: "2026-11-02T00:00:00Z",
+    },
+    {
+      provider: "google",
+      provider_account: "c@example.invalid",
+      timezone: null,
+      status: "error",
+      last_error: RAW_GOOGLE[2],
+      created_at: "2026-11-03T00:00:00Z",
+    },
+    {
+      provider: "google",
+      provider_account: "d@example.invalid",
+      timezone: null,
+      status: "error",
+      last_error: CONNECTION_PROBLEM.noRefreshToken,
+      created_at: "2026-11-04T00:00:00Z",
+    },
+    {
+      provider: "google",
+      provider_account: "e@example.invalid",
+      timezone: null,
+      status: "active",
+      last_error: RAW_GOOGLE[0],
+      created_at: "2026-11-05T00:00:00Z",
+    },
+  ];
+  globalThis.__applicantsServiceForTests = () => fakeService(() => ({ data: rows, error: null }));
+  const views = await listConnectionsForMember("m-1");
+  assert.deepEqual(
+    views.map((v) => v.problem),
+    [
+      CONNECTION_PROBLEM.generic,
+      CONNECTION_PROBLEM.revoked,
+      CONNECTION_PROBLEM.generic,
+      CONNECTION_PROBLEM.noRefreshToken,
+      null,
+    ],
+  );
+  const shown = JSON.stringify(views);
+  for (const raw of RAW_GOOGLE)
+    assert.ok(!shown.includes(raw), `stored text reached the view: ${raw}`);
+  assert.ok(!/invalid_client|invalid_grant|OAuth|expired or revoked/i.test(shown));
+});
