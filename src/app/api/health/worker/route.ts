@@ -38,7 +38,7 @@ export const dynamic = "force-dynamic";
  *                                    "not healthy" to a monitor, on purpose)
  */
 export async function GET(request: Request) {
-  const rl = rateLimit(request, { bucketKey: "health-worker", max: 60 });
+  const rl = rateLimit(request, { bucketKey: "health-worker", group: "local", max: 60 });
   if (!rl.ok) {
     return NextResponse.json({ ok: false, reason: "rate_limited" }, { status: 429 });
   }

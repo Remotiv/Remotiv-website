@@ -27,6 +27,7 @@ function sanitize(
 export async function POST(request: Request): Promise<NextResponse> {
   const limit = rateLimit(request, {
     bucketKey: "track-follow-click",
+    group: "local",
     max: 30,
     windowMs: 60_000,
   });

@@ -86,7 +86,11 @@ test("sync failures: every failing INCR is swallowed, one line written per minut
     globalThis.__redisCalls.filter((c) => c === "incr").length >= 30,
     "the INCRs still fired",
   );
-  assert.deepEqual(errors, ["[rate-limit] redis-sync=failed reason=WRONGPASS"]);
+  assert.deepEqual(errors, [
+    // #57 slice 2: production without the public group's own pair says so.
+    "[rate-limit] public-store=memory reason=PUBLIC_CREDS_MISSING",
+    "[rate-limit] redis-sync=failed reason=WRONGPASS",
+  ]);
   for (const line of [...info, ...errors]) {
     for (const s of [FAKE_URL, FAKE_TOKEN, "fake-host-456", "command was", "diag-test-key"]) {
       assert.ok(!line.includes(s), `leaked ${s}: ${line}`);

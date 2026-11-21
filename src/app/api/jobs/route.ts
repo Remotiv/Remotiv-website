@@ -21,7 +21,7 @@ function trimmedParam(raw: string | null): string | null {
 }
 
 export async function GET(request: NextRequest) {
-  const rl = rateLimit(request, { bucketKey: "jobs" });
+  const rl = rateLimit(request, { bucketKey: "jobs", group: "local" });
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },

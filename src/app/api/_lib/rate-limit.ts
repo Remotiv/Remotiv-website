@@ -74,6 +74,63 @@ function redisClient(): Redis | null {
   return client;
 }
 
+/**
+ * The PUBLIC group's own database (#57 slice 2): public forms and reads count
+ * here, so a bot burst spends this database's budget, never the main one the
+ * security and interview limits depend on.
+ *
+ * Read from RATE_LIMIT_PUBLIC_REDIS_REST_URL + RATE_LIMIT_PUBLIC_REDIS_REST_TOKEN
+ * ONLY, as a complete pair. There is deliberately no fallback to UPSTASH_* or
+ * KV_* and no path to redisClient(): this function returns its own client or
+ * none. A pair that names the main database (either URL or either token) is
+ * treated as missing. Without a client the public group runs in this
+ * instance's memory, which is the per-instance limiting every route had before
+ * Redis, and one store line says why.
+ */
+const PUBLIC_URL_VAR = "RATE_LIMIT_PUBLIC_REDIS_REST_URL";
+const PUBLIC_TOKEN_VAR = "RATE_LIMIT_PUBLIC_REDIS_REST_TOKEN";
+
+export type PublicStoreChoice =
+  | { store: "redis"; url: string; token: string }
+  | { store: "memory"; reason: "PUBLIC_CREDS_MISSING" | "PUBLIC_SAME_AS_SECURITY" };
+
+const normalUrl = (u: string) => u.trim().replace(/\/+$/, "").toLowerCase();
+
+export function publicStoreChoice(env: Record<string, string | undefined>): PublicStoreChoice {
+  const url = env[PUBLIC_URL_VAR]?.trim();
+  const token = env[PUBLIC_TOKEN_VAR]?.trim();
+  if (!url || !token) return { store: "memory", reason: "PUBLIC_CREDS_MISSING" };
+  const mainUrls = [env.UPSTASH_REDIS_REST_URL, env.KV_REST_API_URL]
+    .filter((u): u is string => !!u)
+    .map(normalUrl);
+  const mainTokens = [env.UPSTASH_REDIS_REST_TOKEN, env.KV_REST_API_TOKEN].map((t) => t?.trim());
+  if (mainUrls.includes(normalUrl(url)) || mainTokens.includes(token)) {
+    return { store: "memory", reason: "PUBLIC_SAME_AS_SECURITY" };
+  }
+  return { store: "redis", url, token };
+}
+
+/** The public store line, by reason code only. */
+export function publicStoreLine(choice: PublicStoreChoice): string {
+  return choice.store === "redis"
+    ? `${LOG_PREFIX} public-store=redis`
+    : `${LOG_PREFIX} public-store=memory reason=${choice.reason}`;
+}
+
+let publicClient: Redis | null | undefined;
+function publicRedisClient(): Redis | null {
+  if (publicClient !== undefined) return publicClient;
+  const choice = publicStoreChoice(process.env);
+  publicClient = null;
+  if (choice.store !== "redis") return publicClient;
+  try {
+    publicClient = new Redis({ url: choice.url, token: choice.token });
+  } catch (err) {
+    console.error(`${LOG_PREFIX} public-redis-client=failed reason=${redisReasonCode(err)}`);
+  }
+  return publicClient;
+}
+
 /*
  * Diagnostics only (#48 / #57): which store this instance picked, and whether
  * Redis answers, once per cold start; Redis errors at most once a minute. No
@@ -85,6 +142,13 @@ if (diagnosticsOn) {
   console.info(storeChoiceLine(storeChoice(process.env, { kvFallback: true })));
   const redis = redisClient();
   if (redis) void redisCheckLine(redis).then((line) => console.info(line));
+  // Without its own database in production the public group is per-instance:
+  // an error line, so it is seen.
+  const publicChoice = publicStoreChoice(process.env);
+  const inProduction = process.env.VERCEL_ENV === "production";
+  (publicChoice.store === "memory" && inProduction ? console.error : console.info)(
+    publicStoreLine(publicChoice),
+  );
 }
 const logSyncFailure = throttledFailureLog((line) => console.error(line));
 
@@ -93,17 +157,24 @@ export type RateLimitResult =
   | { ok: false; retryAfter: number };
 
 /**
- * A limit's group, for its Redis error lines (#57). A grouped limit writes one
- * line per Redis error, never throttled:
+ * A limit's group (#57): which store it counts in, and its Redis error lines.
  *
- *   [rate-limit] redis-error route=<route> group=<group> outcome=open reason=<CODE>
+ *   interview  the main database (slice 1)
+ *   public     the public database only (publicRedisClient), never the main one
+ *   local      no Redis at all: noisy buckets a shared count buys nothing for
+ *
+ * Ungrouped limits (the security routes, until slice 3) count in the main
+ * database and keep the once-a-minute redis-sync line. A grouped limit's Redis
+ * errors are written per route, at most one line a minute, the next line
+ * carrying how many were held back:
+ *
+ *   [rate-limit] redis-error route=<route> group=<group> outcome=open reason=<CODE> [suppressed=<N>]
  *
  * `route` is the key up to its first ":" (the constant part, never the token,
  * id or IP after it); `outcome=open` because the request was decided from this
- * instance's memory. Ungrouped limits keep the once-a-minute line until their
- * group is moved over.
+ * instance's memory. Never the token, IP, user id, URL or error text.
  */
-export type RateLimitGroup = "interview";
+export type RateLimitGroup = "interview" | "public" | "local";
 
 /** The constant route part of a key; "unknown" if it does not look like one. */
 function routeOf(key: string): string {
@@ -111,11 +182,32 @@ function routeOf(key: string): string {
   return /^[a-z0-9-]{1,64}$/.test(route) ? route : "unknown";
 }
 
+const GROUP_LOG_INTERVAL_MS = 60_000;
+/** Per route: when its last line was written, and how many errors since were held back. */
+const groupLogs = new Map<string, { last: number; suppressed: number }>();
+
 function groupFailureLog(key: string, group: RateLimitGroup): (err: unknown) => void {
-  return (err) =>
+  return (err) => {
+    const route = routeOf(key);
+    const now = Date.now();
+    const state = groupLogs.get(route);
+    if (state && now - state.last < GROUP_LOG_INTERVAL_MS) {
+      state.suppressed++;
+      return;
+    }
+    const held = state?.suppressed ? ` suppressed=${state.suppressed}` : "";
+    groupLogs.set(route, { last: now, suppressed: 0 });
     console.error(
-      `${LOG_PREFIX} redis-error route=${routeOf(key)} group=${group} outcome=open reason=${redisReasonCode(err)}`,
+      `${LOG_PREFIX} redis-error route=${route} group=${group} outcome=open reason=${redisReasonCode(err)}${held}`,
     );
+  };
+}
+
+/** The store a group counts in: the public group only ever gets the public client. */
+function storeFor(group: RateLimitGroup | undefined): Redis | null {
+  if (group === "local") return null;
+  if (group === "public") return publicRedisClient();
+  return redisClient();
 }
 
 /**
@@ -129,9 +221,10 @@ function syncRemoteCount(
   key: string,
   windowMs: number,
   resetAt: number,
+  group: RateLimitGroup | undefined,
   onError: (err: unknown) => void,
 ): void {
-  const redis = redisClient();
+  const redis = storeFor(group);
   if (!redis) return;
   const redisKey = `rl:${key}:${resetAt}`;
   redis
@@ -156,7 +249,7 @@ function check(
   windowMs: number,
   group?: RateLimitGroup,
 ): RateLimitResult {
-  const onError = group ? groupFailureLog(key, group) : logSyncFailure;
+  const onError = group && group !== "local" ? groupFailureLog(key, group) : logSyncFailure;
   const now = Date.now();
   // Epoch-aligned window end so every instance derives the SAME Redis key
   // for the same wall-clock window. (A first-request-anchored window would
@@ -166,16 +259,18 @@ function check(
 
   if (!bucket || bucket.resetAt !== resetAt) {
     buckets.set(key, { count: 1, resetAt });
-    syncRemoteCount(key, windowMs, resetAt, onError);
+    syncRemoteCount(key, windowMs, resetAt, group, onError);
     return { ok: true };
   }
 
+  // Refused from this instance's own count: no Redis command, so a refused
+  // burst costs nothing in either database.
   if (bucket.count >= max) {
     return { ok: false, retryAfter: Math.ceil((resetAt - now) / 1000) };
   }
 
   bucket.count++;
-  syncRemoteCount(key, windowMs, resetAt, onError);
+  syncRemoteCount(key, windowMs, resetAt, group, onError);
   return { ok: true };
 }
 
@@ -209,7 +304,7 @@ function getClientIp(request: Request): string {
 
 export function rateLimit(
   request: Request,
-  opts?: { max?: number; windowMs?: number; bucketKey?: string },
+  opts?: { max?: number; windowMs?: number; bucketKey?: string; group?: RateLimitGroup },
 ): RateLimitResult {
   const max = opts?.max ?? DEFAULT_MAX;
   const windowMs = opts?.windowMs ?? DEFAULT_WINDOW_MS;
@@ -217,7 +312,7 @@ export function rateLimit(
 
   // Distinct bucket per (route, ip) pair so the per-route override doesn't
   // share state with another route's stricter limit.
-  return check(`${opts?.bucketKey ?? "default"}:${ip}`, max, windowMs);
+  return check(`${opts?.bucketKey ?? "default"}:${ip}`, max, windowMs, opts?.group);
 }
 
 /**

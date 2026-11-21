@@ -299,7 +299,7 @@ test("a full live call, 200 pieces on a network that drops for 20 s in every 23 
 
 // Negative control: refuse on a Redis error (close the bucket in the error
 // handler) and the second call here is refused, and so is the loop below.
-test("Redis down: every request is still allowed, and each error is one line with no token", async () => {
+test("Redis down: every request is still allowed; one line a minute per route, then the count held back, no token", async () => {
   globalThis.__redisMode = "fail";
   errors.length = 0;
   const token = newToken();
@@ -309,17 +309,19 @@ test("Redis down: every request is still allowed, and each error is one line wit
     await settle();
     await settle();
   }
+  const line =
+    "[rate-limit] redis-error route=interview-upload-url group=interview outcome=open reason=WRONGPASS";
+  assert.deepEqual(errors, [line], "5 errors in a minute: one line (#57 slice 2 throttling)");
+  clockNow += MIN;
+  got.push(limitInterview("interview-upload-url", token).ok);
+  await settle();
+  await settle();
   globalThis.__redisMode = "ok";
-  assert.deepEqual(got, [true, true, true, true, true]);
-  assert.deepEqual(
-    errors,
-    Array(5).fill(
-      "[rate-limit] redis-error route=interview-upload-url group=interview outcome=open reason=WRONGPASS",
-    ),
-  );
-  for (const line of errors) {
+  assert.deepEqual(got, [true, true, true, true, true, true]);
+  assert.deepEqual(errors, [line, `${line} suppressed=4`]);
+  for (const l of errors) {
     for (const s of [token.slice(0, 10), FAKE_URL, FAKE_TOKEN, "command was"]) {
-      assert.ok(!line.includes(s), `leaked ${s}: ${line}`);
+      assert.ok(!l.includes(s), `leaked ${s}: ${l}`);
     }
   }
 });

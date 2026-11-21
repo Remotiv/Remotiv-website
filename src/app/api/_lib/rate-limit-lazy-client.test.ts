@@ -101,6 +101,8 @@ test("Z1. a malformed URL: the module loads, routes answer from memory, one reas
     assert.deepEqual(c.lines, [
       "info: [rate-limit] store=redis",
       "error: [rate-limit] redis-client=failed reason=BADURL",
+      // #57 slice 2: the public group's own store line (no public pair set here).
+      "info: [rate-limit] public-store=memory reason=PUBLIC_CREDS_MISSING",
     ]);
     assert.equal(fetches.length, 0, "no client, so no request");
     noSecrets(c.lines);
@@ -138,7 +140,10 @@ test("Z3. a mixed pair (an UPSTASH URL with a KV token) is no pair: memory, no c
     assert.equal(c.threw, null);
     c.mod.rateLimitByKey("z3");
     await c.settle();
-    assert.deepEqual(c.lines, ["info: [rate-limit] store=memory"]);
+    assert.deepEqual(c.lines, [
+      "info: [rate-limit] store=memory",
+      "info: [rate-limit] public-store=memory reason=PUBLIC_CREDS_MISSING",
+    ]);
     assert.equal(fetches.length, before, "nothing was sent with half a pair");
     noSecrets(c.lines);
   } finally {
@@ -200,8 +205,13 @@ test("Z6. the source builds no client at module load and reads no single variabl
     code,
     /try \{\s*client = new Redis\(\{ url: creds\.url, token: creds\.token \}\);\s*\} catch \(err\) \{/,
   );
-  // Exactly one place builds a client, and it is inside that function.
-  assert.equal((code.match(/new Redis\(/g) ?? []).length, 1);
+  // Exactly two places build a client: the main one above, and the public
+  // group's own (#57 slice 2), which is built only from its own pair.
+  assert.equal((code.match(/new Redis\(/g) ?? []).length, 2);
+  assert.match(
+    code,
+    /try \{\s*publicClient = new Redis\(\{ url: choice\.url, token: choice\.token \}\);\s*\} catch \(err\) \{/,
+  );
 });
 
 test("teardown", () => {

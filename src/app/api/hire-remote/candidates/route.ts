@@ -48,7 +48,7 @@ function sanitiseOrValue(q: string): string {
 }
 
 export async function GET(request: NextRequest) {
-  const rl = rateLimit(request, { bucketKey: "hire-remote-candidates" });
+  const rl = rateLimit(request, { bucketKey: "hire-remote-candidates", group: "public" });
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },

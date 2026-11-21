@@ -114,7 +114,7 @@ function enrichWithUserState(
 export async function POST(request: NextRequest) {
   // Spike-abuse limiter — 30 calls/min/IP on top of the daily counter. Stops
   // someone scripting a tight loop, regardless of tier.
-  const rl = rateLimit(request, { bucketKey: "ai-matching" });
+  const rl = rateLimit(request, { bucketKey: "ai-matching", group: "public" });
   if (!rl.ok) {
     // Use the same error discriminator the daily-limit path uses so the client
     // routes both 429s to RateLimitState. Burst path has no used/limit numbers,

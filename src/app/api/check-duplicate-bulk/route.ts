@@ -46,7 +46,7 @@ function safeName(row: { first_name?: string | null; last_name?: string | null }
 }
 
 export async function POST(request: NextRequest) {
-  const rl = rateLimit(request, { bucketKey: "check-duplicate-bulk" });
+  const rl = rateLimit(request, { bucketKey: "check-duplicate-bulk", group: "public" });
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },

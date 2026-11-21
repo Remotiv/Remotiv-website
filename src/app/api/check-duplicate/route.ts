@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
   // 100 / min comfortably covers the worst typist; abuse scripts spike past it fast.
   const rl = rateLimit(request, {
     bucketKey: "check-duplicate",
+    group: "local",
     max: 100,
     windowMs: 60_000,
   });

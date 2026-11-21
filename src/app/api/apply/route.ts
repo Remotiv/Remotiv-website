@@ -191,7 +191,7 @@ function buildScreeningSnapshot(
 }
 
 export async function POST(request: NextRequest) {
-  const rl = rateLimit(request, { bucketKey: "apply" });
+  const rl = rateLimit(request, { bucketKey: "apply", group: "public" });
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },
