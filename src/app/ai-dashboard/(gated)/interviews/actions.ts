@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { refuseIfBeingDeleted } from "@/lib/applicant-deletion";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import {
@@ -58,6 +59,20 @@ const NOTE_MAX = 4000;
  * a single function so playback and the three note actions cannot drift: a new
  * action that forgets a check is a new function, not a missing line here.
  */
+/**
+ * #16: gateSession, then no change while the session's applicant is being
+ * deleted (notes, scores, archive, delete). Reads (playback) keep gateSession.
+ */
+async function gateSessionForChange(sessionId: string): ReturnType<typeof gateSession> {
+  const gate = await gateSession(sessionId);
+  if (!gate.ok) return gate;
+  const deleting = await refuseIfBeingDeleted(createServiceClient(), {
+    applicationId: gate.session.application_id,
+    companyId: gate.ctx.companyId,
+  });
+  return deleting ? { ok: false, error: deleting } : gate;
+}
+
 async function gateSession(sessionId: string): Promise<
   | {
       ok: true;
@@ -236,7 +251,7 @@ export async function addInterviewNote(
     return { ok: false, error: `Notes are limited to ${NOTE_MAX} characters.` };
   }
 
-  const gate = await gateSession(sessionId);
+  const gate = await gateSessionForChange(sessionId);
   if (!gate.ok) return gate;
   const { ctx, session } = gate;
 
@@ -299,7 +314,7 @@ export async function updateInterviewNote(
     return { ok: false, error: `Notes are limited to ${NOTE_MAX} characters.` };
   }
 
-  const gate = await gateSession(sessionId);
+  const gate = await gateSessionForChange(sessionId);
   if (!gate.ok) return gate;
   const { ctx, session } = gate;
   if (!ctx.memberId) return { ok: false, error: NOT_YOURS };
@@ -336,7 +351,7 @@ export async function deleteInterviewNote(
   sessionId: string,
   noteId: string,
 ): Promise<NotesResult> {
-  const gate = await gateSession(sessionId);
+  const gate = await gateSessionForChange(sessionId);
   if (!gate.ok) return gate;
   const { ctx, session } = gate;
   if (!ctx.memberId) return { ok: false, error: NOT_YOURS };
@@ -408,7 +423,7 @@ type ScoreRequestResult =
  * surfaced as `already_queued`, which is reported as success because it is.
  */
 export async function scoreInterview(sessionId: string): Promise<ScoreRequestResult> {
-  const gate = await gateSession(sessionId);
+  const gate = await gateSessionForChange(sessionId);
   if (!gate.ok) return gate;
   const { ctx, session } = gate;
 
@@ -506,7 +521,7 @@ export async function setInterviewArchived(
   sessionId: string,
   archived: boolean,
 ): Promise<SessionMutation> {
-  const gate = await gateSession(sessionId);
+  const gate = await gateSessionForChange(sessionId);
   if (!gate.ok) return gate;
   const { ctx, session } = gate;
 
@@ -558,7 +573,7 @@ export async function setInterviewArchived(
 export async function deleteInterview(
   sessionId: string,
 ): Promise<SessionMutation> {
-  const gate = await gateSession(sessionId);
+  const gate = await gateSessionForChange(sessionId);
   if (!gate.ok) return gate;
   const { ctx, session } = gate;
 
@@ -752,7 +767,7 @@ export async function adjustAnswerScore(
     return { ok: false, error: "Score must be a whole number from 0 to 100." };
   }
 
-  const gate = await gateSession(sessionId);
+  const gate = await gateSessionForChange(sessionId);
   if (!gate.ok) return gate;
   const { ctx, session } = gate;
 
@@ -794,7 +809,7 @@ export async function revertAnswerScore(
   sessionId: string,
   answerId: string,
 ): Promise<SessionMutation> {
-  const gate = await gateSession(sessionId);
+  const gate = await gateSessionForChange(sessionId);
   if (!gate.ok) return gate;
   const { ctx, session } = gate;
 
@@ -830,7 +845,7 @@ export async function adjustSessionScore(
     return { ok: false, error: "Score must be a whole number from 0 to 100." };
   }
 
-  const gate = await gateSession(sessionId);
+  const gate = await gateSessionForChange(sessionId);
   if (!gate.ok) return gate;
   const { ctx, session } = gate;
 
@@ -863,7 +878,7 @@ export async function adjustSessionScore(
 export async function revertSessionScore(
   sessionId: string,
 ): Promise<SessionMutation> {
-  const gate = await gateSession(sessionId);
+  const gate = await gateSessionForChange(sessionId);
   if (!gate.ok) return gate;
   const { ctx, session } = gate;
 

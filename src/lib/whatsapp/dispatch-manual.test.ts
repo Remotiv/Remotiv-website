@@ -331,3 +331,35 @@ test("an application outside the company, or the outbox failing: not queued, not
 test("no test in this file tried the network", () => {
   guard.assertNoNetwork();
 });
+
+/* ── #16: the applicant's delete started ──────────────────────── */
+
+const NOT_SENT_DELETING = "Not sent: this applicant is being deleted.";
+
+test("16-W1. the guard refuses the manual claim (071, RD071): the row ends skipped, nothing sent, no retry", async () => {
+  const world = attemptDb({
+    logs: [queuedRow()],
+    claimManual: () => ({ data: null, error: { code: "RD071", message: "x" }, status: 400 }),
+  });
+  const r = await run(world);
+  assert.equal(r.metaCalls.length, 0);
+  assert.ok(!r.threw, "not thrown: the queue does not retry it");
+  const left = logById(world.db, "log-q");
+  assert.equal(left.status, "skipped");
+  assert.equal(left.error, NOT_SENT_DELETING);
+});
+
+test("16-W2. claimed before the Close, sent after: the marker is read again just before Meta, nothing sent", async () => {
+  const world = attemptDb({ logs: [queuedRow()] });
+  world.db.app = { ...world.db.app, deletion_started_at: "2026-11-20T10:00:00.000Z" };
+  const r = await run(world);
+  assert.equal(r.metaCalls.length, 0);
+  assert.equal(logById(world.db, "log-q").status, "skipped");
+  assert.equal(logById(world.db, "log-q").error, NOT_SENT_DELETING);
+});
+
+test("16-W4. not being deleted: sent as before", async () => {
+  const world = attemptDb({ logs: [queuedRow()] });
+  const r = await run(world);
+  assert.equal(r.metaCalls.length, 1);
+});

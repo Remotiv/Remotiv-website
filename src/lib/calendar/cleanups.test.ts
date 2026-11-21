@@ -490,10 +490,28 @@ test("C15. wired: the delete activates only at the very end; the callback and th
     new URL("../../app/ai-dashboard/(gated)/applicants/actions.ts", import.meta.url),
     "utf8",
   );
-  const fn = actions.slice(actions.indexOf("export async function deleteApplication("));
-  const activate = fn.indexOf("await activateCalendarCleanups(ctx.companyId);");
-  assert.ok(activate > 0);
-  assert.ok(activate > fn.lastIndexOf("PARTLY_DELETED", activate), "after every failure return");
+  // #16: activated by 071's Finish, after the row delete, in the same
+  // transaction; never by the app, so a failed delete can activate nothing.
+  const fn = actions.slice(
+    actions.indexOf("export async function deleteApplication("),
+    actions.indexOf("// ── Team comments"),
+  );
+  assert.doesNotMatch(fn, /activateCalendarCleanups\(/, "no app-side activation");
+  assert.ok(fn.indexOf("finishApplicationDeletion(") > 0);
+  const sql = readFileSync(
+    new URL("../supabase/migrations/071_application_deletion.sql", import.meta.url),
+    "utf8",
+  );
+  const finish = sql.slice(
+    sql.indexOf("create or replace function public.finish_application_deletion"),
+  );
+  const rowDelete = finish.indexOf("delete from public.job_applications a");
+  const activate = finish.indexOf("update public.calendar_cleanups c");
+  assert.ok(rowDelete > 0 && activate > rowDelete, "activated after the row, same transaction");
+  const notClosed = finish.search(
+    /if app\.deletion_started_at is null then\s+return jsonb_build_object\('outcome', 'not_closed'\);/,
+  );
+  assert.ok(notClosed > 0 && notClosed < rowDelete, "and only after Close");
   const callback = readFileSync(
     new URL("../../app/api/calendar/google/callback/route.ts", import.meta.url),
     "utf8",

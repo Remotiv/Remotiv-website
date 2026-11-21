@@ -10,6 +10,7 @@ import {
   interviewLimitMessage,
   releaseInterviewAllowance,
 } from "@/lib/interview-allowance";
+import { refuseIfBeingDeleted } from "@/lib/applicant-deletion";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import { canAccessJob } from "@/app/ai-dashboard/lib/job-scope";
@@ -500,6 +501,9 @@ async function loadInviteTarget(
       error: "This application isn't attached to a job, so there's nothing to ask.",
     };
   }
+  // #16: no new interview for an applicant whose delete has started.
+  const deleting = await refuseIfBeingDeleted(service, { applicationId, companyId: ctx.companyId });
+  if (deleting) return { ok: false, error: deleting };
   return { ok: true, app, jobId: app.job_id };
 }
 

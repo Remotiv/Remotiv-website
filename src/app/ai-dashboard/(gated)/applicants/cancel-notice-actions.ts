@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import { canManageBookings } from "@/app/ai-dashboard/lib/company-roles";
 import { roleAllowsJobAction } from "@/app/ai-dashboard/lib/job-scope";
+import { refuseIfBeingDeleted } from "@/lib/applicant-deletion";
 import { cancellationCandidateEmail } from "@/lib/calendar/notify";
 import { buildCandidateHtml, resendFailedEmail } from "@/lib/email/candidate/deliver";
 import { interviewTypeLabel } from "@/lib/final-interviews/constants";
@@ -88,6 +89,12 @@ export async function retryCancellationNotice(input: {
   if (!app || !(await roleAllowsJobAction(ctx, app.job_id ?? ""))) {
     return { success: false, error: NOT_YOURS };
   }
+  // #16: nothing is sent for an applicant whose delete has started.
+  const deleting = await refuseIfBeingDeleted(service, {
+    applicationId: booking.application_id,
+    companyId: ctx.companyId,
+  });
+  if (deleting) return { success: false, error: deleting };
   if (booking.status !== "cancelled" || booking.cancelled_by !== "recruiter") {
     return { success: false, error: NOTHING_TO_RESEND };
   }
@@ -159,6 +166,11 @@ export async function retryCancellationNotice(input: {
       return { success: false, error: NOT_CONFIRMED };
     case "not_retried":
       return { success: false, error: notRetriedMessage(outcome.reason) };
+    case "deleting":
+      return {
+        success: false,
+        error: "This applicant is being deleted, so the email was not sent.",
+      };
     case "cap":
       return {
         success: false,

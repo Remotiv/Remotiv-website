@@ -88,6 +88,7 @@ import { stagePill } from "@/app/ai-dashboard/lib/stage-pill";
 import { unscoredCardState } from "@/app/ai-dashboard/lib/unscored-card";
 import { useModalFocus } from "@/hooks/use-modal-focus";
 import { placeholderFor } from "@/lib/whatsapp/inbound-display";
+import { DELETE_ANYWAY, DELETE_ANYWAY_BODY, DELETE_ANYWAY_TITLE } from "./_deletion-pending";
 import {
   ApplicationCard,
   CONFIDENCE_BADGE,
@@ -136,10 +137,12 @@ import {
   attachApplicationCv,
   clearScoreAdjustment,
   deleteApplication,
+  deleteApplicationAnyway,
   deleteApplicationComment,
   dismissShortlistFlagAction,
   fetchApplicantsView,
   fetchCompanyApplicant,
+  fetchPendingDeletions,
   fetchScreeningAnswers,
   rescoreApplication,
   updateApplicationComment,
@@ -4184,6 +4187,25 @@ export function ApplicantsClient({
 
   const [deleteTarget, setDeleteTarget] = useState<CompanyApplicantRow | null>(null);
   const [deleting, setDeleting] = useState(false);
+  /**
+   * #16: applicants whose delete has started and not finished, by id, with
+   * whether a calendar failure was recorded ("Delete anyway" is offered only
+   * then). Read on load and after every delete attempt.
+   */
+  const [pendingDeletions, setPendingDeletions] = useState<Map<string, boolean>>(new Map());
+  /** The applicant the "Delete anyway?" confirmation is open for. */
+  const [anywayTarget, setAnywayTarget] = useState<CompanyApplicantRow | null>(null);
+  const refreshPendingDeletions = useCallback(async () => {
+    try {
+      const rows = await fetchPendingDeletions();
+      setPendingDeletions(new Map(rows.map((r) => [r.id, r.calendarFailed])));
+    } catch {
+      // Unknown is shown as nothing pending; a delete attempt reads it again.
+    }
+  }, []);
+  useEffect(() => {
+    void refreshPendingDeletions();
+  }, [refreshPendingDeletions]);
   /** The Add candidate form: open, mid-submit, and its two failure shapes. */
   const [addOpen, setAddOpen] = useState(false);
   const [addBusy, setAddBusy] = useState(false);
@@ -4718,20 +4740,34 @@ export function ApplicantsClient({
    * Permanent delete. Optimistic: the row leaves the list immediately and is
    * put back if the server refuses, matching how stage changes behave.
    */
-  async function handleDelete(target: CompanyApplicantRow) {
+  async function handleDelete(target: CompanyApplicantRow, anyway = false) {
     setDeleting(true);
     let result: Awaited<ReturnType<typeof deleteApplication>>;
     try {
-      result = await deleteApplication(target.id);
+      // "Delete anyway" only ever from its own confirmation (#16): the flag is
+      // the recruiter's click, and the server checks it and the recorded failure.
+      result = anyway
+        ? await deleteApplicationAnyway(target.id, { acknowledgeCalendarEvent: true })
+        : await deleteApplication(target.id);
     } catch {
       result = { success: false, error: "Couldn't delete - please try again." };
     }
     setDeleting(false);
+    setAnywayTarget(null);
 
     if (!result.success) {
+      setDeleteTarget(null);
       setToast({ message: result.error, tone: "error" });
+      // The delete may have started (#16): the row and panel show it pending.
+      void refreshPendingDeletions();
       return;
     }
+    setPendingDeletions((prev) => {
+      if (!prev.has(target.id)) return prev;
+      const next = new Map(prev);
+      next.delete(target.id);
+      return next;
+    });
 
     // The row leaves the page at once, and the total comes down with it so the
     // pager and "of 143" do not keep counting someone who is gone. The refetch
@@ -5439,6 +5475,14 @@ export function ApplicantsClient({
         onShortlist: () => {
           void handleShortlist(splitRow);
         },
+        deletion: pendingDeletions.has(splitRow.id)
+          ? {
+              calendarFailed: pendingDeletions.get(splitRow.id) === true,
+              busy: deleting,
+              onFinish: () => void handleDelete(splitRow),
+              onDeleteAnyway: () => setAnywayTarget(splitRow),
+            }
+          : null,
       }
     : null;
 
@@ -5803,6 +5847,7 @@ export function ApplicantsClient({
                         isTop={topMatchIds.has(r.id)}
                         selected={(splitWide ? shownSplitId : (sheetId ?? openId)) === r.id}
                         onOpen={() => (splitWide ? selectSplit(r.id) : openSheet(r.id))}
+                        deletionPending={pendingDeletions.has(r.id)}
                       />
                     ))}
                   </div>
@@ -6182,6 +6227,48 @@ export function ApplicantsClient({
                 className="flex-1 rounded-xl bg-[var(--ai-danger)] py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
               >
                 {deleting ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {anywayTarget && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(20,16,32,0.4)] p-6 backdrop-blur-sm">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="confirm-delete-anyway"
+            data-delete-anyway-dialog
+            className="w-full max-w-sm overflow-hidden rounded-[20px] bg-white shadow-[0_40px_100px_rgba(0,0,0,0.35)] outline-none"
+          >
+            <div className="flex flex-col items-center p-8 text-center">
+              <h3
+                id="confirm-delete-anyway"
+                className="font-heading text-lg font-bold text-[var(--ai-t1)]"
+              >
+                {DELETE_ANYWAY_TITLE}
+              </h3>
+              <p className="m-0 mt-2 text-sm text-[var(--ai-t2)]">{DELETE_ANYWAY_BODY}</p>
+            </div>
+            <div className="flex gap-3 border-t border-[var(--ai-line)] px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setAnywayTarget(null)}
+                disabled={deleting}
+                className="flex-1 rounded-xl border border-[var(--ai-line)] py-2.5 text-sm font-medium text-[var(--ai-t2)] transition-colors hover:bg-[var(--ai-inset)] disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-delete-anyway-confirm
+                onClick={() => void handleDelete(anywayTarget, true)}
+                disabled={deleting}
+                aria-busy={deleting}
+                className="flex-1 rounded-xl bg-[var(--ai-danger)] py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {DELETE_ANYWAY}
               </button>
             </div>
           </div>

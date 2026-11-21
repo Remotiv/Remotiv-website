@@ -15,6 +15,7 @@ import {
   resolveHostEmail,
 } from "@/lib/calendar/bookings";
 import "@/lib/calendar/google";
+import { refuseIfBeingDeleted } from "@/lib/applicant-deletion";
 import { type CancelNotice, cancelNotice } from "@/lib/calendar/cancel-notice";
 import { sendCancellationNotices, sendFinalInterviewLinkEmail } from "@/lib/calendar/notify";
 import { onFinalBookingCancelled } from "@/lib/final-interviews/bots";
@@ -645,6 +646,12 @@ export async function scheduleFinalInterview(
   const gate = await gateApplication(ctx, service, input.applicationId);
   if (!gate.ok) return { success: false, error: gate.error };
   const { app, jobId } = gate;
+  // #16: no change for an applicant whose delete has started.
+  const deleting = await refuseIfBeingDeleted(service, {
+    applicationId: input.applicationId,
+    companyId: ctx.companyId,
+  });
+  if (deleting) return { success: false, error: deleting };
 
   // ── Input, before any read of who may take part ──
   if (!isInterviewType(input.interviewType)) {
@@ -753,6 +760,12 @@ export async function resendFinalInterviewLink(
   const gate = await gateFinalInterview(ctx, service, finalInterviewId);
   if (!gate.ok) return { success: false, error: gate.error };
   const { fi } = gate;
+  // #16: no change for an applicant whose delete has started.
+  const deleting = await refuseIfBeingDeleted(service, {
+    applicationId: fi.application_id,
+    companyId: ctx.companyId,
+  });
+  if (deleting) return { success: false, error: deleting };
   if (fi.status !== "active") {
     return {
       success: false,
@@ -784,6 +797,12 @@ export async function cancelFinalInterview(
   const gate = await gateFinalInterview(ctx, service, finalInterviewId);
   if (!gate.ok) return { success: false, error: gate.error };
   const { fi } = gate;
+  // #16: no change for an applicant whose delete has started.
+  const deleting = await refuseIfBeingDeleted(service, {
+    applicationId: fi.application_id,
+    companyId: ctx.companyId,
+  });
+  if (deleting) return { success: false, error: deleting };
   if (fi.status === "cancelled") {
     return { success: false, error: "This final interview is already cancelled." };
   }
@@ -1014,6 +1033,12 @@ export async function submitFinalEvaluation(
   const gate = await gateFinalInterview(ctx, service, input.finalInterviewId);
   if (!gate.ok) return { success: false, error: gate.error };
   const { fi } = gate;
+  // #16: no change for an applicant whose delete has started.
+  const deleting = await refuseIfBeingDeleted(service, {
+    applicationId: fi.application_id,
+    companyId: ctx.companyId,
+  });
+  if (deleting) return { success: false, error: deleting };
 
   if (fi.status === "cancelled") return { success: false, error: EVALUATIONS_CANCELLED };
   const started = finalInterviewStarted(
@@ -1090,6 +1115,12 @@ export async function setFinalInterviewOutcome(
   const gate = await gateFinalInterview(ctx, service, input.finalInterviewId);
   if (!gate.ok) return { success: false, error: gate.error };
   const { fi } = gate;
+  // #16: no change for an applicant whose delete has started.
+  const deleting = await refuseIfBeingDeleted(service, {
+    applicationId: fi.application_id,
+    companyId: ctx.companyId,
+  });
+  if (deleting) return { success: false, error: deleting };
 
   if (!mayMarkOutcome(ctx, fi)) return { success: false, error: NOT_AN_OUTCOME_ROLE };
   if (fi.status === "cancelled") {

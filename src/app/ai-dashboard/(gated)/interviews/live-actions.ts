@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
+import { refuseIfSessionApplicantBeingDeleted } from "@/lib/applicant-deletion";
 import { decideRestart, resendRestartLink } from "@/lib/interviews/live-restart-flow";
 import {
   runLiveRecovery,
@@ -43,6 +44,12 @@ export async function getLiveTurnAudioUrl(
 export async function runLiveReviewAction(request: LiveRecoveryRequest): Promise<LiveActionResult> {
   const ctx = await viewer();
   if (!ctx) return { ok: false, error: "Sign in to your workspace first." };
+  // #16: no change while the session's applicant is being deleted.
+  const deleting = await refuseIfSessionApplicantBeingDeleted(createServiceClient(), {
+    sessionId: request.sessionId,
+    companyId: ctx.companyId,
+  });
+  if (deleting) return { ok: false, error: deleting };
   const result = await runLiveRecovery(ctx, request);
   if (result.ok) revalidatePath(`/ai-dashboard/interviews/${request.sessionId}`);
   return result;

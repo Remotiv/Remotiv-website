@@ -5,6 +5,7 @@ import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import { canManageBookings } from "@/app/ai-dashboard/lib/company-roles";
 import { roleAllowsJobAction } from "@/app/ai-dashboard/lib/job-scope";
 import { normaliseInterviewDuration } from "@/app/ai-dashboard/lib/job-types";
+import { refuseIfBeingDeleted } from "@/lib/applicant-deletion";
 import {
   BOOKING_EXPIRY_DAYS,
   type BookingRow,
@@ -92,6 +93,9 @@ export async function sendBookingLink(
   if (!(await roleAllowsJobAction(ctx, app.job_id))) {
     return { success: false, error: NOT_YOURS };
   }
+  // #16: no new booking link for an applicant whose delete has started.
+  const deleting = await refuseIfBeingDeleted(service, { applicationId, companyId: ctx.companyId });
+  if (deleting) return { success: false, error: deleting };
 
   const to = (app.email ?? "").trim().toLowerCase();
   if (!to) return { success: false, error: "This applicant has no email address." };
@@ -369,6 +373,9 @@ export async function cancelBookingAsRecruiter(
   if (scopeError || !scopeRow || !(await roleAllowsJobAction(ctx, appJobId))) {
     return { success: false, error: NOT_YOURS };
   }
+  // #16: the delete has already cancelled their bookings; nothing to change here.
+  const deleting = await refuseIfBeingDeleted(service, { applicationId, companyId: ctx.companyId });
+  if (deleting) return { success: false, error: deleting };
 
   const { data } = await service
     .from("interview_bookings")

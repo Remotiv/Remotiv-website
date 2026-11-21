@@ -56,9 +56,16 @@ import {
   collectScoredApplicationIds,
   cvExpired,
 } from "@/lib/ai/rescore-collect";
+import {
+  type CloseResult,
+  closeApplicationForDeletion,
+  finishApplicationDeletion,
+  type PendingDeletion,
+  recordCalendarFailure,
+  refuseIfBeingDeleted,
+} from "@/lib/applicant-deletion";
 import { removeApplicationFiles } from "@/lib/application-files";
 import { cancelScreeningBookingsForDeletion } from "@/lib/calendar/bookings";
-import { activateCalendarCleanups } from "@/lib/calendar/cleanups";
 import {
   RESCORE_NO_ALLOWANCE_MESSAGE,
   readCvCapacity,
@@ -67,15 +74,15 @@ import {
 } from "@/lib/cv-allowance";
 import { capCvText, checkCvFile, cvRetentionDate } from "@/lib/cv-file";
 import { cancelPendingRejection, queueStageChange } from "@/lib/email/candidate/triggers";
-import { deleteApplicationInterviews } from "@/lib/interviews/application-deletion";
+import { removeInterviewFiles } from "@/lib/interviews/application-deletion";
 import { dismissShortlistFlag } from "@/lib/interviews/shortlist";
 import type { ScreeningAnswerSnapshot } from "@/lib/jobs";
+import { enqueue, JOB_TYPES } from "@/lib/jobs-queue";
 import { normalizeEmail } from "@/lib/normalize";
 import { notifyCompany, resolveHref } from "@/lib/notifications/company";
 import { extractPdfTextServer, type PdfTextResult, stripInvalidPgChars } from "@/lib/pdf-text";
 import { findSharedPaths } from "@/lib/shared-storage-refs";
 import { removeObjects } from "@/lib/storage-objects";
-import { pageAllByKey } from "@/lib/supabase/paging";
 import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 import { isValidEmail } from "@/lib/validators";
@@ -1599,6 +1606,9 @@ export async function updateApplicationStage(
   if (!(await roleAllowsJobAction(ctx, target.job_id ?? ""))) {
     return { success: false, error: "Applicant not found in your workspace." };
   }
+  // #16: an applicant whose delete has started cannot be changed.
+  const deleting = await refuseIfBeingDeleted(service, { applicationId, companyId: ctx.companyId });
+  if (deleting) return { success: false, error: deleting };
 
   const fromStage = (target.pipeline_stage as PipelineStage) ?? "applied";
 
@@ -1722,6 +1732,9 @@ async function assertAdjustableScore(
   if (!(await roleAllowsJobAction(ctx, target.job_id ?? ""))) {
     return { ok: false, error: "Applicant not found in your workspace." };
   }
+  // #16: an applicant whose delete has started cannot be changed.
+  const deleting = await refuseIfBeingDeleted(service, { applicationId, companyId: ctx.companyId });
+  if (deleting) return { ok: false, error: deleting };
 
   // Scoped by company_id too — the tenant boundary shouldn't rest on the
   // application lookup alone, same rule the stage history follows.
@@ -1908,6 +1921,9 @@ export async function dismissShortlistFlagAction(
   if (!target || !(await roleAllowsJobAction(ctx, target.job_id ?? ""))) {
     return { success: false, error: "Applicant not found in your workspace." };
   }
+  // #16: an applicant whose delete has started cannot be changed.
+  const deleting = await refuseIfBeingDeleted(service, { applicationId, companyId: ctx.companyId });
+  if (deleting) return { success: false, error: deleting };
 
   const outcome = await dismissShortlistFlag({
     applicationId,
@@ -1958,6 +1974,9 @@ export async function rescoreApplication(
   if (!(await roleAllowsJobAction(ctx, target.job_id ?? ""))) {
     return { success: false, error: "Applicant not found in your workspace." };
   }
+  // #16: an applicant whose delete has started cannot be changed.
+  const deleting = await refuseIfBeingDeleted(service, { applicationId, companyId: ctx.companyId });
+  if (deleting) return { success: false, error: deleting };
   if (!target.job_id) {
     return { success: false, error: "This application has no job to score against." };
   }
@@ -2081,6 +2100,9 @@ export async function attachApplicationCv(
   if (!(await roleAllowsJobAction(ctx, target.job_id ?? ""))) {
     return { success: false, error: "Applicant not found in your workspace." };
   }
+  // #16: an applicant whose delete has started cannot be changed.
+  const deleting = await refuseIfBeingDeleted(service, { applicationId, companyId: ctx.companyId });
+  if (deleting) return { success: false, error: deleting };
 
   /*
    * The direct consequence of inheriting the date: once it has passed, cv-purge
@@ -2674,17 +2696,25 @@ export async function rescoreJob(
 }
 
 /**
- * A delete that failed AFTER the interviews and files were removed (#60): the
- * applicant row is still there, so "nothing happened" would be false. Delete
- * again finishes it: removed files count as already gone, and every step
- * repeats safely. The same words as the admin delete (#93).
+ * #61, #16: Google, while connected, did not confirm an event was removed. The
+ * delete has started (071's Close: every link is closed) and stops here; the
+ * failure is recorded, so the panel now offers "Delete anyway" beside
+ * "Finish deletion".
  */
-const PARTLY_DELETED =
-  "Deletion was not completed. Some data may already have been removed. Refresh and try Delete again.";
+const DELETION_CALENDAR_PENDING =
+  "Deletion started. A calendar event could not be removed yet, so it is not finished. Try again.";
 
-/** #61: Google did not confirm the interview was removed, so nothing was deleted. */
-const CALENDAR_NOT_CLEARED =
-  "We couldn't remove this applicant's booked interview from Google Calendar, so nothing was deleted. Try again in a moment.";
+/** #16: the delete has started (every link is closed) but a later step did not finish. */
+const DELETION_PENDING =
+  "Deletion started but is not finished yet. Their links are closed. Try again.";
+
+/** "Delete anyway" without the recruiter's explicit acknowledgement. */
+const ANYWAY_NEEDS_ACK =
+  "Confirm that the calendar event may stay in the host's Google Calendar, then try again.";
+
+/** "Delete anyway" where no calendar failure has been recorded: the ordinary delete applies. */
+const ANYWAY_NOT_AVAILABLE =
+  "Delete anyway is only available after a calendar event could not be removed. Use Delete.";
 
 /**
  * After a delete that went ahead with a calendar event it could not reach
@@ -2714,41 +2744,35 @@ const CALENDAR_EVENT_LEFT =
  * deleted_by, deleted_at), NOT a flag on a row that still carries the person's
  * details.
  *
- * BOOKINGS (#61), before anything is removed: their upcoming screening calls
- * are cancelled, Google Calendar first and silently (no email to the
- * candidate, from us or from Google). If Google does not confirm, NOTHING is
- * deleted and the error says so; Delete again retries it.
- *
- * ORDER: storage object first, then the row. Deliberate — this order is
- * retry-safe. If the row delete fails, cv_path is still on the row so the
- * operation can simply be repeated (removing an already-gone object is a
- * no-op). Row-first would leave the PDF — the single largest piece of PII —
- * orphaned in the bucket with no record of its path outside the logs.
- *
- * BELLS (#88): the applicant's notifications_company rows go with them. Their
- * titles carry the person's name, and application_id is ON DELETE SET NULL,
- * so without this a bell outlives the applicant indefinitely (the #72A sweep
- * is manual and 30-day-gated). Two cleans, and the order is the point - do not
- * "tidy" them into one:
- *   - PRE-CLEAN, after the files and before the row, by application_id. While
- *     the row exists the bells still point at it, so this finds them all. If
- *     it fails the row is kept: a retry repeats it, files-first stays safe.
- *   - POST-CLEAN, after the row, for a bell written between the pre-clean and
- *     the row delete. The FK has nulled its pointer by then, so it is found by
- *     the href notifyCompany built for this applicant. If it fails, the
- *     applicant is already gone, so the delete is still reported done and the
- *     failure is logged by code; that bell is left for the manual sweep.
+ * IN ONE CLOSING STEP AND ONE FINISHING STEP (#16, migration 071), so a delete
+ * that fails half way can never leave a candidate's link open:
+ *   1. CLOSE, one transaction: the applicant is marked (deletion_started_at,
+ *      never cleared) and every link is closed: interviews cancelled and past
+ *      retention, open bookings of every purpose cancelled (event ids kept),
+ *      final interviews cancelled, queued transcription, scorecard and message
+ *      jobs failed. From here 071's guard refuses anything new for them: an
+ *      invite, a booking, a restart, a message claim.
+ *   2. GOOGLE (#61): each event removed, silently. A connected calendar that
+ *      does not confirm STOPS the delete and the failure is recorded
+ *      (deletion_calendar_failed_at); only then is "Delete anyway"
+ *      (deleteApplicationAnyway) offered, and only the recruiter's click takes
+ *      it. A disconnected calendar's event is recorded for the lasting alert
+ *      (#56) and the delete goes on.
+ *   3. STORAGE: interview folders, final-interview recordings, then the CV.
+ *      Files before the row, as before: nothing finds a file once the row is
+ *      gone, and a removed file counts as gone on a retry.
+ *   4. FINISH, one transaction: the sessions, the bells (#88: by the applicant,
+ *      and orphaned ones by the links that name them; the row lock holds back
+ *      a bell written meanwhile), the row with its cascades, and the calendar
+ *      cleanups' activation. All or nothing.
+ * Every step is safe to repeat: Delete again (the panel's "Finish deletion")
+ * resumes, and nothing reopens.
  */
 export async function deleteApplication(
   applicationId: string,
 ): Promise<MutationResult<{ calendarNote: string } | undefined>> {
   const ctx = await requireCompanyRole("owner", "admin", "recruiter");
   const service = createServiceClient();
-  // The interview-page link interview_expired writes. lib/interviews/expiry.ts
-  // builds it by hand (AVI-owned); delete-bells.test.ts holds the two equal.
-  const interviewPageHref = (sessionId: string) => `/ai-dashboard/interviews/${sessionId}`;
-  // Hrefs per late-clean DELETE, so a long session list stays a short URL.
-  const LATE_HREF_CHUNK = 100;
 
   // Ownership recheck. Not-found and not-yours return the SAME message so a
   // probe can't confirm another company's id exists. The column list is
@@ -2776,105 +2800,181 @@ export async function deleteApplication(
     return { success: false, error: "Applicant not found in your workspace." };
   }
 
-  // Their interview session ids, read before step 0 deletes the sessions (#88).
-  // An interview_expired bell links to the interview page, not the applicant,
-  // so the post-clean needs these hrefs to catch one that raced the delete.
-  // A failed read stops here, before anything is removed.
-  let sessionHrefs: string[];
-  try {
-    const sessions = await pageAllByKey<{ id: string }>(
-      () =>
-        service
-          .from("interview_sessions")
-          .select("id")
-          .eq("company_id", ctx.companyId)
-          .eq("application_id", applicationId),
-      { scope: "applicants", label: "delete: interview session ids" },
-    );
-    sessionHrefs = sessions.map((s) => interviewPageHref(s.id));
-  } catch (err) {
-    const code = ((err as { cause?: { code?: string } }).cause?.code ?? "error") as string;
-    return { success: false, error: actionIncomplete("read an applicant's interviews", code) };
+  // 1. CLOSE (071), one transaction: the applicant is marked, and every link
+  //    of theirs is closed, their queued jobs and messages failed. Nothing new
+  //    can start for them from here (071's guard). A failure changes nothing.
+  const closed = await closeApplicationForDeletion(service, ctx.companyId, applicationId);
+  if (closed.outcome === "not_found") {
+    return { success: false, error: "Applicant not found in your workspace." };
   }
-
-  // Their upcoming screening calls (#61), before anything is removed: a
-  // calendar Google will not clear keeps the applicant whole.
-  const bookings = await cancelScreeningBookingsForDeletion(ctx.companyId, applicationId);
-  if (!bookings.ok) {
-    return {
-      success: false,
-      error:
-        bookings.failure === "calendar"
-          ? CALENDAR_NOT_CLEARED
-          : actionIncomplete("cancel an applicant's bookings", "error"),
-    };
+  if (closed.outcome === "error") {
+    return { success: false, error: actionIncomplete("close an applicant's links", closed.code) };
   }
+  return completeDeletion(ctx, service, {
+    applicationId,
+    cvPath: target.cv_path,
+    jobId: target.job_id,
+    closed,
+    anyway: false,
+  });
+}
 
-  // 0. Their AI interviews and recordings (B7), first: if a file is left, the
-  //    delete stops here with nothing else removed, and a retry finishes it.
-  const interviews = await deleteApplicationInterviews(service, ctx.companyId, applicationId);
-  if (!interviews.ok) return { success: false, error: interviews.error };
-
-  // 1. Its final-interview recordings and its CV file (application-files.ts).
-  //    A file left stops here, before the row: nothing finds it once the row
-  //    is gone, and a retry finishes the job.
-  const files = await removeApplicationFiles(service, ctx.companyId, applicationId, target.cv_path);
-  if (!files.ok) return { success: false, error: files.error };
-
-  // 2. Their bells, while they still point at this row (#88, PRE-CLEAN; see
-  //    the docblock). A failure keeps the row: the code is logged, never the
-  //    database's message, and a retry repeats this step.
-  const { error: bellErr } = await service
-    .from("notifications_company")
-    .delete()
-    .eq("company_id", ctx.companyId)
-    .eq("application_id", applicationId);
-  if (bellErr) {
-    console.error(`[applicants] delete applicant: bell clean failed: ${bellErr.code ?? "error"}`);
-    return { success: false, error: PARTLY_DELETED };
-  }
-
-  // 3. The row. Scoped again on company_id_snapshot so the DELETE itself
-  //    cannot touch another tenant even if the check above were bypassed.
-  const { error: delErr } = await service
+/**
+ * "Delete anyway" (#16): the recruiter's explicit choice, after Google, while
+ * connected, could not remove an event of this applicant and that failure was
+ * recorded (deletion_calendar_failed_at). Never automatic: the ordinary
+ * delete stops at such a failure (#61) and only this action goes past it, by
+ * recording each event that still cannot be removed for the bell's lasting
+ * alert (070) and finishing the delete.
+ *
+ * Refused unless all four hold: the member belongs to this company with a
+ * role that may delete (requireCompanyRole, as deleteApplication) and is on
+ * the applicant's job (roleAllowsJobAction); `acknowledgeCalendarEvent` is
+ * exactly true; the failure was recorded. Google is still tried first, so an
+ * event that can be removed now is removed, with no alert.
+ */
+export async function deleteApplicationAnyway(
+  applicationId: string,
+  opts?: { acknowledgeCalendarEvent?: boolean },
+): Promise<MutationResult<{ calendarNote: string } | undefined>> {
+  const ctx = await requireCompanyRole("owner", "admin", "recruiter");
+  const service = createServiceClient();
+  const { data, error } = await service
     .from("job_applications")
-    .delete()
+    .select("id, cv_path, job_id, deletion_started_at, deletion_calendar_failed_at")
     .eq("id", applicationId)
-    .eq("company_id_snapshot", ctx.companyId);
+    .eq("company_id_snapshot", ctx.companyId)
+    .maybeSingle();
+  if (error) {
+    return { success: false, error: actionIncomplete("read the applicant", error.code ?? "error") };
+  }
+  const row = data as {
+    id: string;
+    cv_path: string | null;
+    job_id: string | null;
+    deletion_started_at: string | null;
+    deletion_calendar_failed_at: string | null;
+  } | null;
+  if (!row || !(await roleAllowsJobAction(ctx, row.job_id ?? ""))) {
+    return { success: false, error: "Applicant not found in your workspace." };
+  }
+  if (opts?.acknowledgeCalendarEvent !== true) return { success: false, error: ANYWAY_NEEDS_ACK };
+  if (!row.deletion_started_at || !row.deletion_calendar_failed_at) {
+    return { success: false, error: ANYWAY_NOT_AVAILABLE };
+  }
+  // Close again: safe to repeat, and it hands back the session ids.
+  const closed = await closeApplicationForDeletion(service, ctx.companyId, applicationId);
+  if (closed.outcome === "not_found") {
+    return { success: false, error: "Applicant not found in your workspace." };
+  }
+  if (closed.outcome === "error") {
+    return { success: false, error: actionIncomplete("close an applicant's links", closed.code) };
+  }
+  return completeDeletion(ctx, service, {
+    applicationId,
+    cvPath: row.cv_path,
+    jobId: row.job_id,
+    closed,
+    anyway: true,
+  });
+}
 
-  // The files above are already gone when this fails, so this is not a
-  // "nothing was changed" case; a retry finds them gone and deletes the row.
-  // The code only, never the message (#95).
-  if (delErr) {
-    console.error(`[applicants] delete applicant: row delete failed: ${delErr.code ?? "error"}`);
-    return { success: false, error: PARTLY_DELETED };
+/**
+ * The applicants of this company whose delete has started and not finished
+ * (#16), for the list's and the panel's "Deletion pending" state: ids, and
+ * whether a calendar failure was recorded (which offers "Delete anyway").
+ * Scoped like the list: a member on a hiring team sees their jobs' only.
+ * Before 071 is applied the columns do not exist: none are pending.
+ */
+export async function fetchPendingDeletions(): Promise<PendingDeletion[]> {
+  const ctx = await getCompanyContext();
+  const scope = await getJobScope(ctx);
+  if (scope.scoped && scope.jobIds.length === 0) return [];
+  const service = createServiceClient();
+  let q = service
+    .from("job_applications")
+    .select("id, deletion_calendar_failed_at")
+    .eq("company_id_snapshot", ctx.companyId)
+    .not("deletion_started_at", "is", null)
+    .limit(200);
+  if (scope.scoped) q = q.in("job_id", scope.jobIds);
+  const { data, error } = await q;
+  if (error) {
+    console.error(`[applicants] pending deletions read failed: ${error.code ?? "error"}`);
+    return [];
+  }
+  return ((data ?? []) as { id: string; deletion_calendar_failed_at: string | null }[]).map(
+    (r) => ({ id: r.id, calendarFailed: !!r.deletion_calendar_failed_at }),
+  );
+}
+
+/**
+ * Everything after the Close, shared by the delete and "Delete anyway"; every
+ * step is safe to repeat, and nothing here can reopen a link (the marker is
+ * never cleared).
+ *   2. Google: each event removed; a connected calendar that does not confirm
+ *      stops here and is recorded (unless `anyway`); the final-round bookings'
+ *      recording bots are told to stand down.
+ *   3. Storage: the interviews' folders, the final-interview recordings and
+ *      the CV. A file left stops here, before the row.
+ *   4. FINISH (071), one transaction: the sessions, the bells, the row, and
+ *      the calendar cleanups' activation.
+ */
+async function completeDeletion(
+  ctx: CompanyContext,
+  service: ReturnType<typeof createServiceClient>,
+  input: {
+    applicationId: string;
+    cvPath: string | null;
+    jobId: string | null;
+    closed: Extract<CloseResult, { outcome: "closed" }>;
+    anyway: boolean;
+  },
+): Promise<MutationResult<{ calendarNote: string } | undefined>> {
+  const { applicationId, closed } = input;
+
+  // A cancelled final-round booking's recording bot (Recall) stands down; the
+  // two-minute reconcile is the backstop if this enqueue does not land.
+  for (const bookingId of closed.finalBookingIds) {
+    await enqueue({
+      type: JOB_TYPES.FINAL_BOT_SYNC,
+      companyId: ctx.companyId,
+      payload: { action: "sync", bookingId },
+    });
   }
 
-  // 4. POST-CLEAN (#88): a bell written between step 2 and step 3 had its
-  //    pointer nulled by the FK. Found by href: the applicant link
-  //    notifyCompany builds (same helper, so the two cannot drift) and the
-  //    interview pages read above (interview_expired). Always scoped to this
-  //    company and to orphaned rows. Tried twice; the applicant is gone either
-  //    way, so a second failure is logged by code and not reported. That does
-  //    NOT mean the bell is gone: it waits for the manual sweep.
-  const applicantHref = resolveHref({ type: "stage_change", applicationId });
-  const lateHrefs = [...(applicantHref ? [applicantHref] : []), ...sessionHrefs];
-  for (let i = 0; i < lateHrefs.length; i += LATE_HREF_CHUNK) {
-    const chunk = lateHrefs.slice(i, i + LATE_HREF_CHUNK);
-    const lateClean = () =>
-      service
-        .from("notifications_company")
-        .delete()
-        .eq("company_id", ctx.companyId)
-        .is("application_id", null)
-        .in("href", chunk);
-    let { error: lateErr } = await lateClean();
-    if (lateErr) ({ error: lateErr } = await lateClean());
-    if (lateErr) {
-      console.error(
-        `[applicants] delete applicant: late bell clean failed: ${lateErr.code ?? "error"}`,
-      );
+  // 2. Google, first: a calendar that does not confirm stops the delete (#61)
+  //    and is recorded, which is what offers "Delete anyway" (#16).
+  const bookings = await cancelScreeningBookingsForDeletion(ctx.companyId, applicationId, {
+    anyway: input.anyway,
+  });
+  if (!bookings.ok) {
+    revalidatePath("/ai-dashboard/applicants");
+    if (bookings.failure === "calendar") {
+      await recordCalendarFailure(service, ctx.companyId, applicationId);
+      return { success: false, error: DELETION_CALENDAR_PENDING };
     }
+    return { success: false, error: DELETION_PENDING };
+  }
+
+  // 3. Storage: every file, or the row stays and a retry finishes the job.
+  const interviews = await removeInterviewFiles(service, closed.sessionIds);
+  if (!interviews.ok) return { success: false, error: DELETION_PENDING };
+  const files = await removeApplicationFiles(service, ctx.companyId, applicationId, input.cvPath);
+  if (!files.ok) return { success: false, error: DELETION_PENDING };
+
+  // 4. FINISH, one transaction. Bells go by the applicant and, for one written
+  //    without a pointer (interview_expired), by the links that name them.
+  const applicantHref = resolveHref({ type: "stage_change", applicationId });
+  const hrefs = [
+    ...(applicantHref ? [applicantHref] : []),
+    ...closed.sessionIds.map((id) => interviewPageHref(id)),
+  ];
+  const finished = await finishApplicationDeletion(service, ctx.companyId, applicationId, hrefs);
+  if (finished.outcome !== "deleted") {
+    const code = finished.outcome === "error" ? finished.code : finished.outcome;
+    console.error(`[applicants] delete applicant: finish failed: ${code}`);
+    return { success: false, error: DELETION_PENDING };
   }
 
   // Names nobody (#88): the bell outlives the applicant by design, so it must
@@ -2884,24 +2984,21 @@ export async function deleteApplication(
     type: "applicant_deleted",
     title: "An applicant was deleted",
     body: `${ctx.memberName} permanently removed them, their CV, and their interviews and recordings.`,
-    jobId: target.job_id,
-    // No application_id: the row it pointed at no longer exists, and a link to
-    // a deleted applicant is a dead end. Without one, notifyCompany routes this
-    // to the bare list rather than to a candidate who isn't there.
+    jobId: input.jobId,
     actorMemberId: ctx.memberId,
   });
 
   revalidatePath("/ai-dashboard/applicants");
-  // The delete went ahead; an event on a calendar that is no longer
-  // connected is the recruiter's to remove (#56). Its record, pending until
-  // now, becomes the bell's lasting alert only here, once everything above has
-  // succeeded. A failed activation is caught up by the worker's sweep.
+  // An event the delete could not reach is the recruiter's to remove (#56);
+  // its alert was activated by Finish, in the same transaction as the row.
   if (bookings.eventsLeft) {
-    await activateCalendarCleanups(ctx.companyId);
     return { success: true, data: { calendarNote: CALENDAR_EVENT_LEFT } };
   }
   return { success: true, data: undefined };
 }
+
+/** The interview-page link interview_expired writes; lib/interviews/expiry.ts builds it by hand. */
+const interviewPageHref = (sessionId: string) => `/ai-dashboard/interviews/${sessionId}`;
 
 // ── Team comments ────────────────────────────────────────────
 //
@@ -2996,6 +3093,9 @@ async function gateApplication(
   if (!(await roleAllowsJobAction(ctx, row.job_id ?? ""))) {
     return { ok: false, error: "Applicant not found in your workspace." };
   }
+  // #16: comments are changes too; none while the applicant's delete is pending.
+  const deleting = await refuseIfBeingDeleted(service, { applicationId, companyId: ctx.companyId });
+  if (deleting) return { ok: false, error: deleting };
   return { ok: true, ctx };
 }
 

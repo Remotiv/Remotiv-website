@@ -90,13 +90,20 @@ function fakeResend({ failFirst = 0, hang = false, dropAfterDelivery = false } =
   return { delivered, requests };
 }
 
-/** communication_logs with migration 067's claim, decided on one clock. */
-function fakeDb() {
+/**
+ * communication_logs with migration 067's claim, decided on one clock.
+ * #16: `guard` makes 071's trigger refuse the row (insert) or the claim with
+ * RD071; `markerFails` makes the pre-send marker read fail.
+ */
+function fakeDb({ guard = null, markerFails = false, markOnInsert = false } = {}) {
   const rows = [];
+  /** Applicants whose delete has started (#16). */
+  const marked = new Set();
   let n = 0;
   const now = () => Date.now();
   const service = fakeService((table, calls) => {
     if (table === "rpc:claim_failed_email_log") {
+      if (guard === "claim") return { data: null, error: { code: "RD071" } };
       const a = calls[0][1];
       const row = rows.find((r) => r.id === a.p_id && r.company_id === a.p_company_id);
       if (row?.channel !== "email") return { data: [{ out_outcome: "missing" }], error: null };
@@ -112,10 +119,22 @@ function fakeDb() {
         error: null,
       };
     }
+    // #16: the deletion marker, read immediately before every provider call.
+    if (table === "job_applications") {
+      if (markerFails) return { data: null, error: { code: "57014" } };
+      const id = calls.find((c) => c[0] === "eq" && c[1] === "id")?.[2];
+      return {
+        data: { id, deletion_started_at: marked.has(id) ? "2026-11-20T10:00:00.000Z" : null },
+        error: null,
+      };
+    }
     if (table !== "communication_logs") throw new Error(`unexpected table ${table}`);
     const op = calls[0][0];
     const eqs = Object.fromEntries(calls.filter((c) => c[0] === "eq").map((c) => [c[1], c[2]]));
     if (op === "insert") {
+      if (guard === "insert") return { data: null, error: { code: "RD071", message: "x" } };
+      // The claim lands, then the Close commits before the send.
+      if (markOnInsert) marked.add(calls[0][1].application_id);
       const row = {
         id: `log-${rows.length + 1}`,
         created_at: new Date(now()).toISOString(),
@@ -125,7 +144,14 @@ function fakeDb() {
       rows.push(row);
       return { data: { id: row.id }, error: null };
     }
-    if (op === "select") return { data: null, count: 0, error: null };
+    if (op === "select") {
+      // resendFailedEmail's pre-send read of the row's own applicant (#16).
+      if (calls.some((c) => c[0] === "maybeSingle")) {
+        const hit = rows.find((r) => Object.entries(eqs).every(([k, v]) => r[k] === v));
+        return { data: hit ? { application_id: hit.application_id ?? null } : null, error: null };
+      }
+      return { data: null, count: 0, error: null };
+    }
     if (op === "update") {
       const hit = rows.filter((r) => Object.entries(eqs).every(([k, v]) => r[k] === v));
       for (const r of hit) Object.assign(r, calls[0][1]);
@@ -133,7 +159,7 @@ function fakeDb() {
     }
     throw new Error(`unexpected ${op}`);
   });
-  return { service, rows };
+  return { service, rows, marked };
 }
 
 const message = (over = {}) => ({
@@ -302,4 +328,76 @@ test("59-7. a stale Retry cannot overwrite a newer outcome: its write is guarded
   };
   await resendFailedEmail(service, retryOf("log-x"));
   assert.notEqual(rows[0].status, "sent", "the write did not land on someone else's claim");
+});
+
+/* ── #16: the delivery race ───────────────────────────────────── */
+
+const NOT_SENT_DELETING = "Not sent: this applicant is being deleted.";
+
+test("16-1. claimed before the Close, sent after: the marker is read again just before Resend, and NOTHING is delivered", async () => {
+  const r = fakeResend();
+  // The row is written (the claim happened), then the Close commits.
+  const db = fakeDb({ markOnInsert: true });
+  const out = await deliverEmail(db.service, message());
+  assert.equal(out.ok, false);
+  assert.equal(out.kind, "deleting");
+  assert.equal(r.requests.length, 0, "Resend never called");
+  assert.equal(db.rows[0].status, "skipped");
+  assert.equal(db.rows[0].error, NOT_SENT_DELETING);
+});
+
+test("16-2. the guard refused the row (071, RD071): nothing written, nothing delivered, the reason named", async () => {
+  const r = fakeResend();
+  const db = fakeDb({ guard: "insert" });
+  const out = await deliverEmail(db.service, message());
+  assert.deepEqual(
+    [out.ok, out.kind, out.message],
+    [false, "deleting", "This applicant is being deleted, so nothing was sent."],
+  );
+  assert.equal(r.requests.length, 0);
+  assert.equal(db.rows.length, 0);
+});
+
+test("16-3. a Retry claimed before the Close, sent after: nothing delivered, the row skipped on its own stamp", async () => {
+  fakeResend({ failFirst: 1 });
+  const db = fakeDb();
+  await quiet(() => deliverEmail(db.service, message()));
+  assert.equal(db.rows[0].status, "failed");
+  const r = fakeResend();
+  db.marked.add(APP);
+  assert.deepEqual(await resendFailedEmail(db.service, retryOf(db.rows[0].id)), {
+    kind: "deleting",
+  });
+  assert.equal(r.requests.length, 0);
+  assert.equal(db.rows[0].status, "skipped");
+  assert.equal(db.rows[0].error, NOT_SENT_DELETING);
+});
+
+test("16-4. a Retry the guard refuses at the claim: deleting, nothing delivered", async () => {
+  fakeResend({ failFirst: 1 });
+  const db = fakeDb();
+  await quiet(() => deliverEmail(db.service, message()));
+  const r = fakeResend();
+  const db2 = { ...db, service: fakeDb({ guard: "claim" }).service };
+  assert.deepEqual(await resendFailedEmail(db2.service, retryOf(db.rows[0].id)), {
+    kind: "deleting",
+  });
+  assert.equal(r.requests.length, 0);
+});
+
+test("16-5. the marker cannot be read just before sending: not sent (fail closed), the row says why", async () => {
+  const r = fakeResend();
+  const db = fakeDb({ markerFails: true });
+  const out = await quiet(() => deliverEmail(db.service, message()));
+  assert.equal(out.ok, false);
+  assert.equal(r.requests.length, 0);
+  assert.equal(db.rows[0].status, "failed");
+  assert.match(db.rows[0].error, /could not confirm this applicant is not being deleted/);
+});
+
+test("16-6. not being deleted: sent exactly as before", async () => {
+  const r = fakeResend();
+  const db = fakeDb();
+  assert.equal((await deliverEmail(db.service, message())).ok, true);
+  assert.equal(r.delivered.length, 1);
 });

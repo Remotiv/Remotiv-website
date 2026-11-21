@@ -159,10 +159,23 @@ function deleteApplicationBody(src) {
 }
 
 test("B7 files wiring: both applicant deletions remove the files, and stop, before the row", () => {
-  for (const [label, rel] of [
-    ["company", "../app/ai-dashboard/(gated)/applicants/actions.ts"],
-    ["super admin", "../app/admin/applications/actions.ts"],
-  ]) {
+  // The company's (#16): interview files, application files, a stop on a file
+  // left, then 071's Finish, which deletes the row in the same transaction as
+  // the sessions and bells. No row delete in the app any more.
+  const company = source("../app/ai-dashboard/(gated)/applicants/actions.ts");
+  const flow = company.slice(
+    company.indexOf("export async function deleteApplication("),
+    company.indexOf("// ── Team comments"),
+  );
+  const interviews = flow.indexOf("removeInterviewFiles(");
+  const files = flow.indexOf("removeApplicationFiles(");
+  const stop = flow.indexOf("if (!files.ok) return { success: false, error: DELETION_PENDING };");
+  const finish = flow.indexOf("finishApplicationDeletion(");
+  assert.ok(interviews > 0 && files > interviews && stop > files && finish > stop, "company");
+  assert.doesNotMatch(flow, /\.from\("job_applications"\)\s*\.delete\(\)/);
+  const sql = source("supabase/migrations/071_application_deletion.sql");
+  assert.match(sql, /delete from public\.job_applications a/);
+  for (const [label, rel] of [["super admin", "../app/admin/applications/actions.ts"]]) {
     const body = deleteApplicationBody(source(rel));
     const files = body.indexOf("removeApplicationFiles(");
     const stop = body.indexOf("if (!files.ok) return { success: false, error: files.error };");

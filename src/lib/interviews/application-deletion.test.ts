@@ -416,10 +416,24 @@ function deleteApplicationBody(src) {
 }
 
 test("B7 wiring: the company's and the super admin's applicant delete both call the service before the row goes", () => {
-  for (const [label, src] of [
-    ["company", COMPANY],
-    ["super admin", ADMIN],
-  ]) {
+  // The company's (#16): 071's Close closed the sessions and failed their
+  // jobs; the app empties their folders (removeInterviewFiles) and stops on a
+  // file left; 071's Finish deletes the session rows and then the row.
+  assert.match(
+    COMPANY,
+    /import \{ removeInterviewFiles \} from "@\/lib\/interviews\/application-deletion";/,
+  );
+  const flow = COMPANY.slice(
+    COMPANY.indexOf("export async function deleteApplication("),
+    COMPANY.indexOf("// ── Team comments"),
+  );
+  const empties = flow.indexOf("removeInterviewFiles(service, closed.sessionIds)");
+  assert.ok(empties > 0 && flow.indexOf("finishApplicationDeletion(") > empties, "company");
+  assert.match(
+    flow,
+    /if \(!interviews\.ok\) return \{ success: false, error: DELETION_PENDING \};/,
+  );
+  for (const [label, src] of [["super admin", ADMIN]]) {
     assert.match(
       src,
       /import \{ deleteApplicationInterviews \} from "@\/lib\/interviews\/application-deletion";/,

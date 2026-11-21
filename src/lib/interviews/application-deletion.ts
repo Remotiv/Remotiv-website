@@ -228,3 +228,30 @@ export async function deleteInterviewSessions(
   console.log(`[application-deletion] ${whose}: ${ids.length} interview session(s) deleted`);
   return { ok: true, sessions: ids.length };
 }
+
+/**
+ * The applicant delete's storage step (#16). Migration 071's Close has already
+ * closed these sessions and failed their jobs in one transaction, and its
+ * Finish deletes the rows, so this empties their folders and nothing else.
+ * Every file, or not ok: the caller stops before Finish and a retry finds the
+ * same sessions, still there, and finishes the job. Safe to repeat.
+ */
+export async function removeInterviewFiles(
+  service: Service,
+  sessionIds: string[],
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  let left = 0;
+  for (const id of sessionIds) {
+    try {
+      const sweep = await removeSessionObjects(service, id);
+      if (!sweep.complete) left += 1;
+    } catch {
+      left += 1;
+    }
+  }
+  if (left > 0) {
+    console.error(`[application-deletion] files left in ${left} session folder(s); rows kept`);
+    return { ok: false, error: FILES_LEFT };
+  }
+  return { ok: true };
+}

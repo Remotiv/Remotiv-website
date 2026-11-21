@@ -115,7 +115,8 @@ test("'sooner if your application is deleted': the applicant delete removes the 
   assert.match(TEXT, /or sooner if your application is deleted/);
   assert.match(
     APPLICANT_ACTIONS,
-    /await removeApplicationFiles\(service, ctx\.companyId, applicationId, target\.cv_path\)/,
+    // #16: inside the delete's shared steps, with the applicant's own cv_path.
+    /await removeApplicationFiles\(service, ctx\.companyId, applicationId, input\.cvPath\)/,
   );
   // ...which removes this application's recordings, this company's only, from their bucket.
   const files = code(read("src/lib/application-files.ts"));

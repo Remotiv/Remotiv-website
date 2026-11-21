@@ -329,12 +329,13 @@ test("the applicant delete removes the recordings before the row, with its own c
     src.indexOf("export async function deleteApplication("),
     src.indexOf("// ── Team comments"),
   );
+  // #16: the row goes in 071's Finish, after this stop.
   const call = fn.indexOf(
-    "await removeApplicationFiles(service, ctx.companyId, applicationId, target.cv_path)",
+    "await removeApplicationFiles(service, ctx.companyId, applicationId, input.cvPath)",
   );
-  const stop = fn.indexOf("if (!files.ok) return { success: false, error: files.error };");
-  const rowDelete = fn.indexOf('.from("job_applications")\n    .delete()');
-  assert.ok(call > 0 && stop > call && rowDelete > stop, "removed, and stopped on, before the row");
+  const stop = fn.indexOf("if (!files.ok) return { success: false, error: DELETION_PENDING };");
+  const finish = fn.indexOf("finishApplicationDeletion(");
+  assert.ok(call > 0 && stop > call && finish > stop, "removed, and stopped on, before the row");
   const files = readFileSync(new URL("../application-files.ts", import.meta.url), "utf8");
   assert.match(files, /\.from\("final_interview_recordings"\)/);
   assert.match(files, /\.eq\("company_id", companyIdSnapshot\)/);

@@ -155,8 +155,10 @@ test("I4. where each traced value comes from", () => {
     new URL("app/ai-dashboard/(gated)/applicants/actions.ts", SRC),
     "utf8",
   );
-  assert.match(actions, /await activateCalendarCleanups\(ctx\.companyId\);/);
-  assert.match(actions, /cancelScreeningBookingsForDeletion\(ctx\.companyId, applicationId\)/);
+  // #16: the delete activates nothing itself (071's Finish does, in SQL, on its
+  // own p_company_id); the booking step still gets the action's ctx.
+  assert.doesNotMatch(actions, /activateCalendarCleanups\(/);
+  assert.match(actions, /cancelScreeningBookingsForDeletion\(ctx\.companyId, applicationId, \{/);
   assert.match(BOOKINGS, /await recordPendingCleanup\(service, companyId, applicationId, \{/);
   assert.match(
     CLEANUPS,

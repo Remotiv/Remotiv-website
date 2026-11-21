@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { type CompanyApplicantRow, showsWorthALook } from "@/app/ai-dashboard/lib/applicant-types";
+import { DeletionPendingPill } from "./_deletion-pending";
 import {
   AddedByTeamChip,
   FlagReasonLine,
@@ -62,6 +63,7 @@ export function SplitListItem({
   isTop,
   selected,
   onOpen,
+  deletionPending = false,
 }: {
   row: CompanyApplicantRow;
   /** The live score ring for this row, rendered by the client. */
@@ -72,6 +74,8 @@ export function SplitListItem({
   isTop: boolean;
   selected: boolean;
   onOpen: () => void;
+  /** #16: this applicant's delete has started and not finished. */
+  deletionPending?: boolean;
 }) {
   const tint = getTint(row.id);
   const flagged = showsWorthALook(row);
@@ -120,6 +124,7 @@ export function SplitListItem({
             </span>
           )}
           {flagged && <WorthALookChip />}
+          {deletionPending && <DeletionPendingPill />}
         </span>
         {flagged && <FlagReasonLine reason={row.shortlist.reason} />}
         {verdict ? (

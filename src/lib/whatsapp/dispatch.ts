@@ -1,8 +1,14 @@
 import "server-only";
+import {
+  DELETION_IN_PROGRESS,
+  deletionStartedFor,
+  NOT_SENT_DELETING,
+} from "@/lib/applicant-deletion";
 import { redactCandidateLinks } from "@/lib/candidate-links";
 import {
   confirmApplicationGone,
   dbFailure,
+  E12,
   finaliseOrphanedAttempt,
   insertFirstAttemptCommunicationLog,
   markOwnedFailed,
@@ -302,6 +308,11 @@ export async function handleWhatsAppMessage(job: {
       sentByName,
     });
     if (!written.ok) {
+      if (written.error?.code === DELETION_IN_PROGRESS) {
+        // #16: 071's guard refused the row; the applicant is being deleted.
+        console.log(`[whatsapp] ${event} for ${applicationId} not sent: ${E12}`);
+        return;
+      }
       throw new Error(`whatsapp: could not write communication_log: ${written.error?.message}`);
     }
     logId = written.id;
@@ -314,6 +325,11 @@ export async function handleWhatsAppMessage(job: {
         subject: null,
         body,
       });
+      if (inserted.kind === "deleting") {
+        // #16: 071's guard refused the row; nothing is ever sent.
+        console.log(`[whatsapp] ${event} for ${applicationId} not sent: ${E12}`);
+        return;
+      }
       if (inserted.kind === "foreign_key") {
         await confirmApplicationGone(service, { applicationId, companyId }, inserted.error);
         skipJob("send_message[whatsapp]", job.id, `application ${applicationId} was deleted`);
@@ -351,6 +367,9 @@ export async function handleWhatsAppMessage(job: {
   }
 
   // ── 7. Send ──
+  // #16: immediately before the provider call, the applicant's delete may have
+  // started since this row was claimed. Not sent then, now or later.
+  if (await stopIfBeingDeleted(service, { logId, companyId, applicationId })) return;
   const result = await sendTemplateMessage({
     toDigits: target.digits,
     template,
@@ -514,6 +533,12 @@ async function sendQueuedManual(
   });
   // Failing to know is not a send: the queue retries, and a claim that did land
   // comes back to the retry as 'uncertain', never as a second send.
+  // #16: 071's guard refused the claim, the applicant is being deleted. The
+  // row ends skipped (a write the guard allows), and nothing is ever sent.
+  if (claimError?.code === DELETION_IN_PROGRESS) {
+    await endAsBeingDeleted(service, { logId, companyId, applicationId }, "deleting");
+    return;
+  }
   if (claimError) throw dbFailure("the claim", claimError, claimStatus);
   const outcome = (
     (Array.isArray(claimData) ? claimData[0] : claimData) as {
@@ -543,6 +568,8 @@ async function sendQueuedManual(
   }
 
   const { vars } = await messageFor(service, app, companyId, payload, template);
+  // #16: immediately before the provider call, as for an automatic send.
+  if (await stopIfBeingDeleted(service, { logId, companyId, applicationId })) return;
   const result = await sendTemplateMessage({ toDigits: target.digits, template, vars });
 
   if (result.ok) {
@@ -741,4 +768,44 @@ async function writeLog(
 
   if (error || !data) return { ok: false, error, status };
   return { ok: true, id: (data as { id: string }).id };
+}
+
+/**
+ * #16: the applicant's delete has started (or its marker could not be read):
+ * the queued row ends without a send. A message Meta has already accepted
+ * cannot be recalled; this runs immediately before the provider call, the last
+ * point anything can stop one.
+ */
+async function endAsBeingDeleted(
+  service: ReturnType<typeof createServiceClient>,
+  row: { logId: string; companyId: string; applicationId: string },
+  marker: "deleting" | "unknown",
+): Promise<void> {
+  await service
+    .from("communication_logs")
+    .update({
+      status: marker === "deleting" ? "skipped" : "failed",
+      error:
+        marker === "deleting"
+          ? NOT_SENT_DELETING
+          : "Not sent: could not confirm this applicant is not being deleted.",
+    })
+    .eq("id", row.logId)
+    .eq("company_id", row.companyId)
+    .eq("status", "queued");
+  console.log(`[whatsapp] ${row.applicationId}: not sent, applicant ${marker}`);
+}
+
+/** True when the send must not happen: the marker is set, or could not be read. */
+async function stopIfBeingDeleted(
+  service: ReturnType<typeof createServiceClient>,
+  row: { logId: string; companyId: string; applicationId: string },
+): Promise<boolean> {
+  const marker = await deletionStartedFor(service, {
+    applicationId: row.applicationId,
+    companyId: row.companyId,
+  });
+  if (marker === "clear") return false;
+  await endAsBeingDeleted(service, row, marker);
+  return true;
 }

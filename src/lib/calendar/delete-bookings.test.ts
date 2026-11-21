@@ -194,11 +194,11 @@ test("61-e. nothing reachable to remove (no event id, or no connected calendar):
   assert.ok(!disconnected.calls.some((c) => c[0] === "delete"));
 });
 
-test("61-f. a call already started or past, a final round, another applicant's or company's, expired or completed: left alone", async () => {
-  // An invited row is no longer left alone: #56 C-2 cancels it (56-a).
+test("61-f. a call already started or past, another applicant's or company's, expired or completed: left alone", async () => {
+  // An invited row is no longer left alone: #56 C-2 cancels it (56-a). Nor is
+  // a final-round booking since #16 (16-a).
   const w = world([
     booking({ id: "b-past", scheduled_start: PAST }),
-    booking({ id: "b-final", purpose: "final", final_interview_id: "fi-1" }),
     booking({ id: "b-other-app", application_id: "a-other" }),
     booking({ id: "b-other-co", company_id: "other-co" }),
     booking({ id: "b-expired", status: "expired", provider_event_id: null }),
@@ -389,7 +389,7 @@ test("56-g. /book refuses a link whose applicant is gone, on every method (findB
   assert.ok(w);
 });
 
-test("56-h. the deletion step sends no email of its own and reads only this applicant's screening rows", async () => {
+test("56-h. the deletion step sends no email of its own and reads only this applicant's rows, of every purpose (#16)", async () => {
   const { readFileSync } = await import("node:fs");
   const src = readFileSync(new URL("./bookings.ts", import.meta.url), "utf8");
   const body = src.slice(
@@ -399,8 +399,9 @@ test("56-h. the deletion step sends no email of its own and reads only this appl
   assert.doesNotMatch(body, /Notices|sendEmail|deliverEmail|notifyCompany|resend/i);
   assert.match(
     body,
-    /\.eq\("company_id", companyId\)\s*\.eq\("application_id", applicationId\)\s*\.eq\("purpose", "interview"\)\s*\.in\("status", \["booked", "invited", "cancelled"\]\);/,
+    /\.eq\("company_id", companyId\)\s*\.eq\("application_id", applicationId\)\s*\.in\("status", \["booked", "invited", "cancelled"\]\);/,
   );
+  assert.doesNotMatch(body, /\.eq\("purpose"/, "no purpose filter: final rounds too");
 });
 
 test("56-i. disconnected: an event id is counted (the recruiter is told); no event id is a plain delete; connected-but-failing still blocks", async () => {
@@ -422,4 +423,78 @@ test("56-i. disconnected: an event id is counted (the recruiter is told); no eve
     ok: false,
     failure: "calendar",
   });
+});
+
+/* ── #16: final rounds, and "Delete anyway" ───────────────────────────── */
+
+const finalRound = (over = {}) =>
+  booking({
+    id: "b-final",
+    purpose: "final",
+    final_interview_id: "fi-1",
+    provider_event_id: "evt-final",
+    recording_notice_acknowledged_at: "2026-10-02T00:00:00.000Z",
+    recording_notice_version: "v1",
+    ...over,
+  });
+
+test("16-a. a final-round booking is cleared like a screening one: event removed silently, row cancelled", async () => {
+  const w = world([finalRound()]);
+  assert.deepEqual(await cancelScreeningBookingsForDeletion(CO, APP), { ok: true, cancelled: 1 });
+  const [del] = w.calls.filter((c) => c[0] === "delete");
+  assert.equal(del[1].eventId, "evt-final");
+  assert.equal(del[1].silent, true);
+  assert.equal(w.db.interview_bookings[0].status, "cancelled");
+  assert.equal(w.db.interview_bookings[0].provider_event_id, null);
+  // As 071's Close leaves it: already cancelled, event id kept. Cleared now.
+  const w2 = world([finalRound({ status: "cancelled" })]);
+  assert.deepEqual(await cancelScreeningBookingsForDeletion(CO, APP), { ok: true, cancelled: 0 });
+  assert.equal(w2.db.interview_bookings[0].provider_event_id, null);
+});
+
+test("16-b. connected, Google does not confirm, the ordinary delete: STOPPED, nothing recorded, nothing written (#61 kept)", async () => {
+  for (const opts of [{ removes: [false] }, { token: null }]) {
+    const w = world([finalRound({ status: "cancelled" }), booking({ id: "b-2" })], opts);
+    const before = structuredClone(w.db.interview_bookings);
+    assert.deepEqual(await quiet(() => cancelScreeningBookingsForDeletion(CO, APP)), {
+      ok: false,
+      failure: "calendar",
+    });
+    assert.deepEqual(w.db.calendar_cleanups, [], "no alert recorded: no silent bypass");
+    assert.deepEqual(w.db.interview_bookings, before);
+    // The default and an explicit false are the same thing.
+    const w2 = world([finalRound({ status: "cancelled" })], opts);
+    assert.equal(
+      (await quiet(() => cancelScreeningBookingsForDeletion(CO, APP, { anyway: false }))).ok,
+      false,
+    );
+    assert.deepEqual(w2.db.calendar_cleanups, []);
+  }
+});
+
+test("16-c. Delete anyway: each event Google still will not remove is recorded for the lasting alert, and the step goes on", async () => {
+  for (const opts of [{ removes: [false] }, { token: null }]) {
+    const w = world([finalRound({ status: "cancelled" }), booking({ id: "b-2" })], opts);
+    const out = await quiet(() => cancelScreeningBookingsForDeletion(CO, APP, { anyway: true }));
+    assert.deepEqual(out, { ok: true, cancelled: 1, eventsLeft: 2 });
+    assert.deepEqual(
+      w.db.calendar_cleanups.map((c) => [c.provider_event_id, c.status, c.pending_application_id]),
+      [
+        ["evt-final", "pending", APP],
+        ["evt-1", "pending", APP],
+      ],
+    );
+    // The event ids stay on the rows: the alert, not the row, now points at them.
+    assert.equal(w.db.interview_bookings[0].provider_event_id, "evt-final");
+  }
+});
+
+test("16-d. Delete anyway, but Google can remove it now: removed, no alert", async () => {
+  const w = world([finalRound({ status: "cancelled" })], { removes: [true] });
+  assert.deepEqual(await cancelScreeningBookingsForDeletion(CO, APP, { anyway: true }), {
+    ok: true,
+    cancelled: 0,
+  });
+  assert.deepEqual(w.db.calendar_cleanups, []);
+  assert.equal(w.db.interview_bookings[0].provider_event_id, null);
 });

@@ -96,6 +96,8 @@ function fakeResend(outcomes = []) {
 /** communication_logs with the partial unique index and 067's claim. */
 function fakeDb({ selectFails = false } = {}) {
   const rows = [];
+  /** Applicants whose delete has started (#16). */
+  const marked = new Set();
   let n = 0;
   const service = fakeService((table, calls) => {
     if (table === "rpc:claim_failed_email_log") {
@@ -111,6 +113,14 @@ function fakeDb({ selectFails = false } = {}) {
       row.error = null;
       return {
         data: [{ out_outcome: "claimed", out_attempt_started_at: row.attempt_started_at }],
+        error: null,
+      };
+    }
+    // #16: the deletion marker, read immediately before every provider call.
+    if (table === "job_applications") {
+      const id = calls.find((c) => c[0] === "eq" && c[1] === "id")?.[2];
+      return {
+        data: { id, deletion_started_at: marked.has(id) ? "2026-11-20T10:00:00.000Z" : null },
         error: null,
       };
     }
@@ -145,7 +155,10 @@ function fakeDb({ selectFails = false } = {}) {
       if (calls.some((c) => c[0] === "maybeSingle")) {
         if (selectFails) return { data: null, error: { code: "57014" } };
         const hit = rows.filter(match).sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
-        return { data: hit ? { id: hit.id } : null, error: null };
+        return {
+          data: hit ? { id: hit.id, application_id: hit.application_id ?? null } : null,
+          error: null,
+        };
       }
       return { data: null, count: 0, error: null }; // the daily cap count
     }
@@ -156,7 +169,7 @@ function fakeDb({ selectFails = false } = {}) {
     }
     throw new Error(`unexpected ${op}`);
   });
-  return { service, rows };
+  return { service, rows, marked };
 }
 
 /** One automatic message, rebuilt the same way on every attempt (the job's payload). */

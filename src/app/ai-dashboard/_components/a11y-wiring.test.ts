@@ -150,15 +150,13 @@ test("A6-26: recruiter surfaces render stored errors only through the safe-sente
   // The two deletes write something BEFORE the failing statement (the CV
   // object, the title snapshots), so they must not claim nothing changed.
   const applicants = src(`${G}applicants/actions.ts`);
-  // #60: a failed row delete after the files went says so in one fixed sentence.
+  // #60, #16: a delete that started and did not finish says so in one fixed
+  // sentence (its links are closed); the code only in the log.
   assert.match(
     applicants,
-    /row delete failed: \$\{delErr\.code \?\? "error"\}`\);\s*return \{ success: false, error: PARTLY_DELETED \};/,
+    /finish failed: \$\{code\}`\);\s*return \{ success: false, error: DELETION_PENDING \};/,
   );
-  assert.match(
-    applicants,
-    /Deletion was not completed\. Some data may already have been removed\./,
-  );
+  assert.match(applicants, /Deletion started but is not finished yet\. Their links are closed\./);
   assert.match(applicants, /rolledBack\n\s*\? actionFailed\("add that candidate", updateErr\)/);
   const jobs = src(`${G}jobs/actions.ts`);
   assert.match(jobs, /actionIncomplete\("delete that job", error\)/);

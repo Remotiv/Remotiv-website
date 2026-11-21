@@ -579,3 +579,42 @@ test("the tenant record's line for the companyId derivation points at the bindin
     /const applicationId = payload\?\.applicationId;/,
   );
 });
+
+/* ── #16: the applicant's delete started ──────────────────────── */
+
+test("16-A1. owned before the Close, sent after: the marker is read just before Meta, nothing sent, the row skipped", async () => {
+  const world = attemptDb({
+    beforeWrite: (db, patch) => {
+      if ("body" in patch) db.app = { ...db.app, deletion_started_at: "2026-11-20T10:00:00.000Z" };
+    },
+  });
+  const r = await run(world);
+  assert.equal(r.outcome.kind, "resolved");
+  assert.equal(r.metaCalls.length, 0);
+  assert.equal(r.db.logs[0].status, "skipped");
+  assert.equal(r.db.logs[0].error, "Not sent: this applicant is being deleted.");
+});
+
+test("16-A2. the guard refuses the first-attempt insert (RD071): nothing written, nothing sent, the job completes", async () => {
+  const world = attemptDb({
+    insert: () => ({ data: null, error: { code: "RD071", message: "x" }, status: 400 }),
+  });
+  const r = await run(world);
+  assert.equal(r.outcome.kind, "resolved");
+  assert.equal(r.metaCalls.length, 0);
+  assert.equal(r.db.logs.length, 0);
+});
+
+test("16-A3. the guard refuses the claim of a stale row (RD071): done with E12, nothing sent, never retried", async () => {
+  const world = attemptDb({
+    logs: [row({ stale: true })],
+    claim: () => ({ data: null, error: { code: "RD071", message: "x" }, status: 400 }),
+  });
+  const r = await run(world);
+  assert.equal(r.outcome.kind, "resolved");
+  assert.equal(r.metaCalls.length, 0);
+  assert.deepEqual(
+    A.decide({ from: "claim", result: { outcome: "deleting" } }, { rereads: 0 }, A.QUEUED_ONLY),
+    { kind: "done", reason: A.E12 },
+  );
+});

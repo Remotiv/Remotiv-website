@@ -7,6 +7,7 @@ import {
   showsWorthALook,
 } from "@/app/ai-dashboard/lib/applicant-types";
 import { type CompanyRole, canChangeStage } from "@/app/ai-dashboard/lib/company-roles";
+import { type DeletionPending, DeletionPendingBanner } from "./_deletion-pending";
 import {
   ApplicationCard,
   DetailsCard,
@@ -180,6 +181,8 @@ export type SplitPanelProps = {
   /** The last Shortlist attempt for this applicant failed: the sentence to show. */
   shortlistError: string | null;
   onShortlist: () => void;
+  /** #16: the delete has started and not finished; the banner and its buttons. */
+  deletion?: DeletionPending | null;
 };
 
 /**
@@ -225,6 +228,7 @@ export function SplitPanelContent({
   shortlisting,
   shortlistError,
   onShortlist,
+  deletion = null,
 }: SplitPanelProps) {
   const showShortlist = canShortlist(viewerRole, row.pipeline_stage);
   const screeningView = screeningCard(screening);
@@ -296,6 +300,7 @@ export function SplitPanelContent({
   return (
     <>
       <header className="shrink-0 border-b border-[var(--ai-line)] bg-[var(--ai-surface)] px-[22px] pt-4">
+        {deletion && <DeletionPendingBanner deletion={deletion} />}
         <div className="mb-3.5 flex items-center gap-[9px]">
           {showShortlist && (
             // The same stage write as the drawer's Stage control. Nothing

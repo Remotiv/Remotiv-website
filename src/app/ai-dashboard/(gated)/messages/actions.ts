@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { refuseIfBeingDeleted } from "@/lib/applicant-deletion";
 import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
@@ -1191,6 +1192,9 @@ export async function sendManualMessage(input: {
   if (!(await roleAllowsJobAction(ctx, app.job_id ?? ""))) {
     return { success: false, error: "That applicant isn't in your workspace." };
   }
+  // #16: nothing is sent to an applicant whose delete has started.
+  const deleting = await refuseIfBeingDeleted(service, { applicationId, companyId: ctx.companyId });
+  if (deleting) return { success: false, error: deleting };
 
   const to = (app.email ?? "").trim().toLowerCase();
   if (!to) return { success: false, error: "This applicant has no email address." };

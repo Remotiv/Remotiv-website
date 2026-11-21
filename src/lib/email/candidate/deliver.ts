@@ -1,5 +1,10 @@
 import "server-only";
 import { Resend } from "resend";
+import {
+  DELETION_IN_PROGRESS,
+  deletionStartedFor,
+  NOT_SENT_DELETING,
+} from "@/lib/applicant-deletion";
 import { redactCandidateLinks } from "@/lib/candidate-links";
 import {
   alertSendFailure,
@@ -158,6 +163,11 @@ export async function writeCommunicationLog(
 /** Postgres unique_violation. Raised by communication_logs_application_event_channel_uniq. */
 const UNIQUE_VIOLATION = "23505";
 
+/** #16: what the sender is told when the applicant is being deleted. */
+const DELETING_MESSAGE = "This applicant is being deleted, so nothing was sent.";
+/** #16: the marker could not be read just before sending; nothing was sent. */
+const MARKER_UNREAD = "Not sent: could not confirm this applicant is not being deleted.";
+
 /**
  * writeCommunicationLog, without the throw.
  *
@@ -182,7 +192,10 @@ const UNIQUE_VIOLATION = "23505";
 async function tryWriteLog(
   service: Service,
   row: Parameters<typeof writeCommunicationLog>[1],
-): Promise<{ ok: true; logId: string } | { ok: false; duplicate: boolean; message: string }> {
+): Promise<
+  | { ok: true; logId: string }
+  | { ok: false; duplicate: boolean; deleting: boolean; message: string }
+> {
   try {
     return { ok: true, logId: await writeCommunicationLog(service, row) };
   } catch (err) {
@@ -196,7 +209,8 @@ async function tryWriteLog(
      * an infrastructure failure and told the recruiter to try again.
      */
     const duplicate = code === UNIQUE_VIOLATION || message.includes(UNIQUE_VIOLATION);
-    return { ok: false, duplicate, message };
+    // 071's guard: a queued row for an applicant being deleted is refused (#16).
+    return { ok: false, duplicate, deleting: code === DELETION_IN_PROGRESS, message };
   }
 }
 
@@ -211,8 +225,11 @@ export type DeliveryOutcome =
        * 'duplicate' means this application already has a row for this event and
        * channel — the message has been sent before. It is a refusal, not a
        * fault, and is the ONE kind a caller should phrase rather than retry.
+       *
+       * 'deleting' (#16): the applicant is being deleted, so nothing is sent,
+       * now or later. A refusal too, never retried.
        */
-      kind: "cap" | "not_configured" | "provider" | "duplicate" | "log";
+      kind: "cap" | "not_configured" | "provider" | "duplicate" | "log" | "deleting";
       message: string;
       logId: string | null;
     };
@@ -372,6 +389,8 @@ async function retryFailedAutomatic(
       return { ok: true, logId, providerId: null };
     case "not_retried":
       return null;
+    case "deleting":
+      return { ok: false, kind: "deleting", message: DELETING_MESSAGE, logId };
     case "mismatch":
       return {
         ok: false,
@@ -476,6 +495,9 @@ export async function deliverEmail(
   });
 
   if (!written.ok) {
+    if (written.deleting) {
+      return { ok: false, kind: "deleting", message: DELETING_MESSAGE, logId: null };
+    }
     if (written.duplicate) {
       // An automatic message whose earlier attempt FAILED is retried on that
       // same row (#56 M-3); see retryFailedAutomatic.
@@ -521,6 +543,29 @@ export async function deliverEmail(
     };
   }
 
+  // #16: the applicant's delete may have started since this row was written
+  // (a claim made before the Close, sent after it). Read the marker now,
+  // immediately before the provider call. An email Resend has already
+  // accepted cannot be recalled; this is the last point anything can stop it.
+  const marker = await deletionStartedFor(service, {
+    applicationId: input.applicationId,
+    companyId: input.companyId,
+  });
+  if (marker !== "clear") {
+    await service
+      .from("communication_logs")
+      .update({
+        status: marker === "deleting" ? "skipped" : "failed",
+        error: marker === "deleting" ? NOT_SENT_DELETING : MARKER_UNREAD,
+      })
+      .eq("id", logId)
+      .eq("company_id", input.companyId)
+      .eq("status", "queued");
+    return marker === "deleting"
+      ? { ok: false, kind: "deleting", message: DELETING_MESSAGE, logId }
+      : { ok: false, kind: "log", message: MARKER_UNREAD, logId };
+  }
+
   const { data: sent, error } = await client.emails.send(resendRequest(input), {
     idempotencyKey: candidateEmailKey(logId),
   });
@@ -559,6 +604,8 @@ export type ResendOutcome =
   | { kind: "sent" }
   /** The claim refused (claim_failed_email_log, migration 067): nothing sent. */
   | { kind: "not_retried"; reason: "wrong_status" | "too_old" | "missing" }
+  /** #16: the applicant is being deleted; refused at the claim or just before the send. */
+  | { kind: "deleting" }
   /** Resend refused the key: this message is not the first one, so it was not sent again. */
   | { kind: "mismatch" }
   | { kind: "failed"; message: string }
@@ -606,6 +653,7 @@ export async function resendFailedEmail(
     p_id: input.logId,
     p_company_id: input.companyId,
   });
+  if (claimError?.code === DELETION_IN_PROGRESS) return { kind: "deleting" };
   if (claimError) return { kind: "failed", message: "The email could not be claimed." };
   const row = (Array.isArray(data) ? data[0] : data) as {
     out_outcome?: string;
@@ -617,6 +665,34 @@ export async function resendFailedEmail(
     return { kind: "not_retried", reason };
   }
   const stamp = row.out_attempt_started_at;
+
+  // #16: immediately before the provider call, as in deliverEmail. The row's
+  // own applicant, read on this company; a row with none was orphaned by a
+  // finished delete.
+  const { data: logRow } = await service
+    .from("communication_logs")
+    .select("application_id")
+    .eq("id", input.logId)
+    .eq("company_id", input.companyId)
+    .maybeSingle();
+  const appId = (logRow as { application_id: string | null } | null)?.application_id ?? null;
+  const marker = appId
+    ? await deletionStartedFor(service, { applicationId: appId, companyId: input.companyId })
+    : "deleting";
+  if (marker !== "clear") {
+    await service
+      .from("communication_logs")
+      .update({
+        status: marker === "deleting" ? "skipped" : "failed",
+        error: marker === "deleting" ? NOT_SENT_DELETING : MARKER_UNREAD,
+      })
+      .eq("id", input.logId)
+      .eq("company_id", input.companyId)
+      .eq("attempt_started_at", stamp);
+    return marker === "deleting"
+      ? { kind: "deleting" }
+      : { kind: "failed", message: MARKER_UNREAD };
+  }
 
   const { data: sent, error } = await client.emails.send(resendRequest(input), {
     idempotencyKey: candidateEmailKey(input.logId),

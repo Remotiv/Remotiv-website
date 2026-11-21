@@ -911,34 +911,37 @@ function deletionStepFor(row: BookingRow): "cancel" | "clear-event" | null {
 }
 
 /**
- * Before an applicant is deleted (#61, #56): nothing of theirs may be left on a
- * host's Google Calendar, and no booking link of theirs may keep working. With
- * no email to anyone.
+ * Before an applicant is deleted (#61, #56, #16): nothing of theirs may be left
+ * on a host's Google Calendar, and no booking link of theirs may keep working.
+ * With no email to anyone.
  *
- * The rows, all screening (purpose 'interview') bookings of this applicant:
+ * The rows, every booking of this applicant, screening and final round alike
+ * (#16). Migration 071's Close has already cancelled the open ones and KEPT
+ * their event ids, so here they are mostly "cancelled, still holding an event
+ * id"; the cancel step below stays for a Close that found nothing to do:
  *   - booked, still ahead (canCancel): the event is removed, then the row is
  *     cancelled;
- *   - invited, never booked (#56 C-2, #96): cancelled, so its link dies with
- *     the applicant (findBookingByToken also refuses a row whose applicant is
- *     gone);
- *   - cancelled but still holding an event id: a recruiter's cancel whose
- *     Google delete did not confirm (cancelBooking keeps the id for exactly
- *     this). The event is removed now and the id cleared.
- * A call already started or past, an expired or completed row, and final-round
- * bookings are left as they are.
+ *   - invited, never booked (#56 C-2, #96): cancelled, so its link dies;
+ *   - cancelled but still holding an event id: the event is removed now and
+ *     the id cleared.
+ * A call already started or past, and an expired or completed row, are left
+ * as they are.
  *
- * The calendar goes first and a calendar that does not confirm STOPS the
- * delete: the applicant is about to vanish, and an event left in the host's
- * diary would point at nobody, with no row left to cancel it from. So:
+ * The calendar goes first, and for each event:
  *   - no event id: nothing to remove; the row is just written;
- *   - an event id but no active calendar connection (or no provider): nothing
- *     we can reach. The delete goes ahead and the row is written, and the
- *     outcome counts it in `eventsLeft`, so the recruiter is told to remove
- *     the event from the host's calendar themselves;
- *   - a connected calendar whose token cannot be had, or whose delete does not
- *     confirm (google.ts deleteEvent: 410, or a 404 on a calendar it can read,
- *     is gone; a 404 on one it cannot read is not): refused there; that row
- *     and the ones after it are untouched, and a retry finishes them;
+ *   - no active calendar connection (or no provider): nothing we can reach.
+ *     The delete goes ahead and the event is recorded for the lasting alert
+ *     (#56, cleanups.ts), PENDING until the whole delete has succeeded. If it
+ *     cannot be recorded the delete stops, so an event never ends up with
+ *     nothing pointing at it; a retry records nothing twice;
+ *   - a CONNECTED calendar whose token cannot be had, or whose delete does
+ *     not confirm (google.ts deleteEvent: 410, or a 404 on a calendar it can
+ *     read, is gone; a 404 on one it cannot read is not): the delete STOPS
+ *     (#61), failure "calendar"; that row and the ones after it are
+ *     untouched, and a retry finishes them. Only `anyway`, the recruiter's
+ *     explicit "Delete anyway" after such a failure was recorded (#16, never
+ *     set by the ordinary delete), records the event for the lasting alert
+ *     instead, exactly as a disconnected calendar's, and goes on;
  *   - the event deleted SILENTLY (sendUpdates=none): no Google email to the
  *     candidate either.
  * Every confirmed delete clears provider_event_id in the same write.
@@ -949,6 +952,7 @@ function deletionStepFor(row: BookingRow): "cancel" | "clear-event" | null {
 export async function cancelScreeningBookingsForDeletion(
   companyId: string,
   applicationId: string,
+  opts: { anyway?: boolean } = {},
 ): Promise<DeletionBookingsOutcome> {
   const service = createServiceClient();
   const { data, error } = await service
@@ -956,7 +960,6 @@ export async function cancelScreeningBookingsForDeletion(
     .select(ROW_COLUMNS)
     .eq("company_id", companyId)
     .eq("application_id", applicationId)
-    .eq("purpose", "interview")
     .in("status", ["booked", "invited", "cancelled"]);
   if (error) {
     console.error(`[booking] applicant delete: bookings read failed: ${error.code ?? "error"}`);
@@ -985,21 +988,24 @@ export async function cancelScreeningBookingsForDeletion(
       }
       const conn = connRow as { provider: string; calendar_id: string | null } | null;
       const provider = conn ? getProvider(row.provider ?? conn.provider) : null;
+      let reached = false;
       if (conn && provider?.deleteEvent) {
         const accessToken = await getAccessToken(row.host_member_id, conn.provider as "google");
-        const removed = accessToken
+        reached = accessToken
           ? await provider.deleteEvent(accessToken, {
               calendarId: conn.calendar_id ?? "primary",
               eventId: row.provider_event_id,
               silent: true,
             })
           : false;
-        if (!removed) {
+        if (!reached && !opts.anyway) {
           console.error("[booking] applicant delete: calendar delete did not confirm", {
             bookingId: row.id,
           });
           return { ok: false, failure: "calendar" };
         }
+      }
+      if (reached) {
         eventGone = true;
         // Removed after all (e.g. reconnected before this retry): an earlier
         // attempt's pending record of it is no longer true (#56).
@@ -1012,11 +1018,8 @@ export async function cancelScreeningBookingsForDeletion(
           .eq("status", "pending");
         if (dropErr) return { ok: false, failure: "database" };
       } else {
-        // Not connected any more: nothing to call, so the delete goes ahead and
-        // the event is recorded for the lasting alert (#56, cleanups.ts):
-        // PENDING until the whole delete has succeeded. If it cannot be
-        // recorded the delete stops, so the event never ends up with nothing
-        // pointing at it; a retry records nothing twice.
+        // Not connected (the delete goes ahead, #56), or connected but not
+        // confirmed under "Delete anyway" (#16): recorded for the lasting alert.
         const recorded = await recordPendingCleanup(service, companyId, applicationId, {
           bookingId: row.id,
           hostMemberId: row.host_member_id,
@@ -1029,7 +1032,7 @@ export async function cancelScreeningBookingsForDeletion(
       }
     }
 
-    // A cancelled row whose event could not be reached (no connection): left as it is.
+    // A cancelled row whose event could not be reached: left as it is.
     if (step === "clear-event" && !eventGone) continue;
 
     const write =

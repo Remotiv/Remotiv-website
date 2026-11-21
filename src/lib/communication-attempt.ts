@@ -1,3 +1,4 @@
+import { DELETION_IN_PROGRESS } from "@/lib/applicant-deletion";
 import { redactCandidateLinks } from "@/lib/candidate-links";
 import { JobYield, TerminalJobError } from "@/lib/queue/failure-class";
 import type { createServiceClient } from "@/lib/supabase/server";
@@ -32,6 +33,7 @@ export const E4 =
 export const E9 = "Not re-sent: scheduled messages are not retried automatically (#85).";
 export const E10 = "Not re-sent: this send was interrupted before attempts were timed (#85).";
 export const E11 = "Not sent: the application was deleted before this attempt could send (#85).";
+export const E12 = "Not sent: the application is being deleted (#16).";
 // E5 ("carried a one-time link that is not kept on file") is not implemented:
 // no automatic template carries a one-time link, so it has no trigger.
 
@@ -205,7 +207,9 @@ export type ClaimResult =
   | { outcome: "too_fresh" | "too_old"; id: string; observed: AttemptStamp }
   | { outcome: "unclocked"; id: string; observed: null }
   | { outcome: "scheduled" | "wrong_status"; id: string; observed: AttemptStamp | null }
-  | { outcome: "missing" };
+  | { outcome: "missing" }
+  /** #16: 071's guard refused the claim; the applicant is being deleted. */
+  | { outcome: "deleting" };
 
 export function parseClaimRows(data: unknown): ClaimResult {
   const where = "claim_communication_log";
@@ -279,6 +283,7 @@ export async function claimCommunicationLog(
     p_channel: key.channel,
     p_from_status: fromStatus,
   });
+  if (error?.code === DELETION_IN_PROGRESS) return { outcome: "deleting" };
   if (error) throw dbFailure("claim_communication_log", error, status);
   return parseClaimRows(data);
 }
@@ -301,7 +306,9 @@ export type InsertResult =
   | { kind: "owned"; owned: OwnedAttempt }
   | { kind: "conflict" }
   /** 23503: the caller settles it with confirmApplicationGone. */
-  | { kind: "foreign_key"; error: DbError };
+  | { kind: "foreign_key"; error: DbError }
+  /** #16: 071's guard refused the row; the applicant is being deleted. */
+  | { kind: "deleting" };
 
 /**
  * The pre-send row of an automatic first attempt, stamped by the database.
@@ -331,6 +338,7 @@ export async function insertFirstAttemptCommunicationLog(
   });
   if (error?.code === UNIQUE_VIOLATION) return { kind: "conflict" };
   if (error?.code === FOREIGN_KEY_VIOLATION) return { kind: "foreign_key", error };
+  if (error?.code === DELETION_IN_PROGRESS) return { kind: "deleting" };
   if (error) throw dbFailure(where, error, status);
   const row = onlyRow(data, where);
   return {
@@ -525,6 +533,9 @@ export function decide(
             : { kind: "reread", after: "wrong_status" };
         case "missing":
           return { kind: "retry", message: E4 };
+        case "deleting":
+          // #16: never sent, now or on any retry; the job completes.
+          return { kind: "done", reason: E12 };
       }
       return { kind: "stop", message: "communication attempt: unhandled claim outcome" };
     }
