@@ -465,7 +465,7 @@ test("the mock provider refuses any input key outside CreateSessionInput (the ru
 test("routes: each live route is a thin wrapper with a rate limit; the key never appears in candidate code", () => {
   const route = (name) =>
     readFileSync(new URL(`../../app/api/interview/live/${name}/route.ts`, import.meta.url), "utf8");
-  assert.match(route("start"), /rateLimitByKey\(`live-start:/);
+  assert.match(route("start"), /limitInterview\("live-start", token\)/);
   assert.match(
     route("start"),
     /startLiveInterview\(body, \{ service: createServiceClient\(\) \}\)/,

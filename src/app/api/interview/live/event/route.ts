@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { rateLimitByKey } from "@/app/api/_lib/rate-limit";
+import { limitInterview } from "@/app/api/interview/_lib/limits";
 import { handleLiveEvent } from "@/lib/interviews/live-events";
 import { hashSessionToken } from "@/lib/interviews/tokens";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -37,7 +37,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ code: "bad_request", error: "Bad request." }, { status: 400 });
   }
   const token = String(body.token ?? "");
-  const rl = rateLimitByKey(`live-event:${token.slice(0, 64)}`, { max: 60, windowMs: 10 * 60_000 });
+  const rl = limitInterview("live-event", token);
   if (!rl.ok) {
     return NextResponse.json(
       { code: "rate_limited", error: `Too many requests. Try again in ${rl.retryAfter}s.` },

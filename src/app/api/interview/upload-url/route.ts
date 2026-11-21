@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { rateLimitByKey } from "@/app/api/_lib/rate-limit";
+import { limitInterview } from "@/app/api/interview/_lib/limits";
 import {
   asyncConsentGiven,
   CONSENT_REQUIRED,
@@ -70,10 +70,7 @@ export async function POST(request: Request) {
    * retries, and deliberately checked BEFORE the session lookup so a caller
    * cannot use this route to probe tokens cheaply.
    */
-  const rl = rateLimitByKey(`interview-upload-url:${token.slice(0, 64)}`, {
-    max: 40,
-    windowMs: 10 * 60_000,
-  });
+  const rl = limitInterview("interview-upload-url", token);
   if (!rl.ok) return fail(429, `Too many uploads. Try again in ${rl.retryAfter}s.`);
 
   const resolved = await resolveSessionByToken(token);

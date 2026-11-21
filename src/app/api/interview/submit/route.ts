@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { rateLimitByKey } from "@/app/api/_lib/rate-limit";
+import { limitInterview } from "@/app/api/interview/_lib/limits";
 import {
   asyncConsentGiven,
   CONSENT_REQUIRED,
@@ -34,10 +34,7 @@ export async function POST(request: Request) {
   const token = String(body.token ?? "");
   if (!token) return NextResponse.json({ error: "Missing session." }, { status: 400 });
 
-  const rl = rateLimitByKey(`interview-submit:${token.slice(0, 64)}`, {
-    max: 8,
-    windowMs: 10 * 60_000,
-  });
+  const rl = limitInterview("interview-submit", token);
   if (!rl.ok) {
     return NextResponse.json(
       { error: `Too many attempts. Try again in ${rl.retryAfter}s.` },

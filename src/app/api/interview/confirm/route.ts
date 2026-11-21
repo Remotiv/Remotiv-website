@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { rateLimitByKey } from "@/app/api/_lib/rate-limit";
+import { limitInterview } from "@/app/api/interview/_lib/limits";
 import {
   asyncConsentGiven,
   CONSENT_REQUIRED,
@@ -97,10 +97,7 @@ export async function POST(request: Request) {
   const token = String(body.token ?? "");
   if (!token) return fail(400, "Missing session.");
 
-  const rl = rateLimitByKey(`interview-confirm:${token.slice(0, 64)}`, {
-    max: 40,
-    windowMs: 10 * 60_000,
-  });
+  const rl = limitInterview("interview-confirm", token);
   if (!rl.ok) return fail(429, `Too many uploads. Try again in ${rl.retryAfter}s.`);
 
   const resolved = await resolveSessionByToken(token);

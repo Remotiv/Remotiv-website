@@ -93,13 +93,44 @@ export type RateLimitResult =
   | { ok: false; retryAfter: number };
 
 /**
+ * A limit's group, for its Redis error lines (#57). A grouped limit writes one
+ * line per Redis error, never throttled:
+ *
+ *   [rate-limit] redis-error route=<route> group=<group> outcome=open reason=<CODE>
+ *
+ * `route` is the key up to its first ":" (the constant part, never the token,
+ * id or IP after it); `outcome=open` because the request was decided from this
+ * instance's memory. Ungrouped limits keep the once-a-minute line until their
+ * group is moved over.
+ */
+export type RateLimitGroup = "interview";
+
+/** The constant route part of a key; "unknown" if it does not look like one. */
+function routeOf(key: string): string {
+  const route = key.split(":", 1)[0];
+  return /^[a-z0-9-]{1,64}$/.test(route) ? route : "unknown";
+}
+
+function groupFailureLog(key: string, group: RateLimitGroup): (err: unknown) => void {
+  return (err) =>
+    console.error(
+      `${LOG_PREFIX} redis-error route=${routeOf(key)} group=${group} outcome=open reason=${redisReasonCode(err)}`,
+    );
+}
+
+/**
  * Fire-and-forget: bump the shared counter for this (key, window) and fold
  * the global count back into the local bucket once the response arrives.
  * Errors never reach the request — Redis being unreachable must degrade to
  * per-instance limiting, never break the request path — but they are logged
  * as a reason code, at most once a minute (redis-diagnostics.ts).
  */
-function syncRemoteCount(key: string, windowMs: number, resetAt: number): void {
+function syncRemoteCount(
+  key: string,
+  windowMs: number,
+  resetAt: number,
+  onError: (err: unknown) => void,
+): void {
   const redis = redisClient();
   if (!redis) return;
   const redisKey = `rl:${key}:${resetAt}`;
@@ -109,17 +140,23 @@ function syncRemoteCount(key: string, windowMs: number, resetAt: number): void {
       if (remoteCount === 1) {
         // First increment in this window — self-cleaning TTL, with 1s slack
         // so the key outlives the window boundary.
-        redis.pexpire(redisKey, windowMs + 1_000).catch(logSyncFailure);
+        redis.pexpire(redisKey, windowMs + 1_000).catch(onError);
       }
       const bucket = buckets.get(key);
       if (bucket && bucket.resetAt === resetAt && remoteCount > bucket.count) {
         bucket.count = remoteCount;
       }
     })
-    .catch(logSyncFailure);
+    .catch(onError);
 }
 
-function check(key: string, max: number, windowMs: number): RateLimitResult {
+function check(
+  key: string,
+  max: number,
+  windowMs: number,
+  group?: RateLimitGroup,
+): RateLimitResult {
+  const onError = group ? groupFailureLog(key, group) : logSyncFailure;
   const now = Date.now();
   // Epoch-aligned window end so every instance derives the SAME Redis key
   // for the same wall-clock window. (A first-request-anchored window would
@@ -129,7 +166,7 @@ function check(key: string, max: number, windowMs: number): RateLimitResult {
 
   if (!bucket || bucket.resetAt !== resetAt) {
     buckets.set(key, { count: 1, resetAt });
-    syncRemoteCount(key, windowMs, resetAt);
+    syncRemoteCount(key, windowMs, resetAt, onError);
     return { ok: true };
   }
 
@@ -138,7 +175,7 @@ function check(key: string, max: number, windowMs: number): RateLimitResult {
   }
 
   bucket.count++;
-  syncRemoteCount(key, windowMs, resetAt);
+  syncRemoteCount(key, windowMs, resetAt, onError);
   return { ok: true };
 }
 
@@ -193,9 +230,9 @@ export function rateLimit(
  */
 export function rateLimitByKey(
   key: string,
-  opts?: { max?: number; windowMs?: number },
+  opts?: { max?: number; windowMs?: number; group?: RateLimitGroup },
 ): RateLimitResult {
-  return check(key, opts?.max ?? DEFAULT_MAX, opts?.windowMs ?? DEFAULT_WINDOW_MS);
+  return check(key, opts?.max ?? DEFAULT_MAX, opts?.windowMs ?? DEFAULT_WINDOW_MS, opts?.group);
 }
 
 // Periodic GC so the Map doesn't grow unbounded under steady traffic. Stored

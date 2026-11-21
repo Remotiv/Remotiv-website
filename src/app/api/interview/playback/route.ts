@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { rateLimitByKey } from "@/app/api/_lib/rate-limit";
+import { limitInterview } from "@/app/api/interview/_lib/limits";
 import { INTERVIEW_BUCKET, resolveSessionByToken } from "@/lib/interviews/session";
 
 export const runtime = "nodejs";
@@ -29,10 +29,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Bad request." }, { status: 400 });
   }
 
-  const rl = rateLimitByKey(`interview-playback:${token.slice(0, 64)}`, {
-    max: 60,
-    windowMs: 10 * 60_000,
-  });
+  const rl = limitInterview("interview-playback", token);
   if (!rl.ok) {
     return NextResponse.json(
       { error: `Too many requests. Try again in ${rl.retryAfter}s.` },

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { rateLimitByKey } from "@/app/api/_lib/rate-limit";
+import { limitInterview } from "@/app/api/interview/_lib/limits";
 import { agreeToLiveInterview } from "@/lib/interviews/live-start";
 import { createServiceClient } from "@/lib/supabase/server";
 
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ code: "bad_request", error: "Bad request." }, { status: 400 });
   }
   const token = String(body.token ?? "");
-  const rl = rateLimitByKey(`live-consent:${token.slice(0, 64)}`, { max: 10, windowMs: 60_000 });
+  const rl = limitInterview("live-consent", token);
   if (!rl.ok) {
     return NextResponse.json(
       { code: "rate_limited", error: `Too many attempts. Try again in ${rl.retryAfter}s.` },
