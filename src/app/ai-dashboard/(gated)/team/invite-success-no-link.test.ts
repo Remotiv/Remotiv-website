@@ -24,7 +24,8 @@ register(
 const STUBS = {
   "next/cache": "export function revalidatePath() {}",
   "@/lib/supabase/server": "export function createServiceClient() { return globalThis.__invService(); } export async function createClient() { return null; }",
-  "@/app/api/_lib/rate-limit": "export function rateLimitByKey() { return { ok: true }; }",
+  "@/app/api/_lib/rate-limit":
+    "export async function rateLimitClosedByKey() { return { ok: true }; } export const TRY_AGAIN_SOON = 'Please try again in a minute.';",
   "@/lib/notifications/company": "export async function notifyCompany() {}",
   "@/lib/email/send": "export async function sendEmail(m) { globalThis.__invSent.push(m); return { ok: true }; }",
   "@/lib/email/templates/company-invite": "export const companyInviteSubject = 'You are invited'; export function renderCompanyInviteEmail(d) { globalThis.__invRendered.push(d); return '<a href=\\"' + d.acceptUrl + '\\">Accept</a>'; }",

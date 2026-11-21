@@ -28,6 +28,7 @@ export async function GET(
 ) {
   const rl = rateLimit(request, {
     bucketKey: "cv-admin-batch",
+    group: "security",
     max: 60,
     windowMs: 60_000,
   });

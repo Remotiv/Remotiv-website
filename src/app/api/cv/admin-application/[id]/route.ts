@@ -37,6 +37,7 @@ export async function GET(
   //    generous for clicking through a list of CVs.
   const rl = rateLimit(request, {
     bucketKey: "cv-admin-application",
+    group: "security",
     max: 60,
     windowMs: 60_000,
   });

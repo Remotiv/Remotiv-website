@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { rateLimit } from "@/app/api/_lib/rate-limit";
+import { rateLimitClosed, TRY_AGAIN_SOON } from "@/app/api/_lib/rate-limit";
 import { hashClaimToken, looksLikeClaimToken } from "@/lib/claim-tokens";
 import { createServiceClient } from "@/lib/supabase/server";
 
@@ -16,12 +16,18 @@ export async function POST(request: Request) {
   // 10/min matches verify since pre-fill runs once per form mount alongside
   // verify in normal flows; a higher cap would let a tampered client probe
   // tokens at scale.
-  const rl = rateLimit(request, {
+  const rl = await rateLimitClosed(request, {
     bucketKey: "claim-prefill",
     max: 10,
     windowMs: 60_000,
   });
   if (!rl.ok) {
+    if (rl.reason === "unavailable") {
+      return NextResponse.json(
+        { error: TRY_AGAIN_SOON },
+        { status: 503, headers: { "Retry-After": "60" } },
+      );
+    }
     return NextResponse.json(
       { error: "Too many requests" },
       { status: 429, headers: { "Retry-After": String(rl.retryAfter) } },

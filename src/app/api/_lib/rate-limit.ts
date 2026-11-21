@@ -162,19 +162,21 @@ export type RateLimitResult =
  *   interview  the main database (slice 1)
  *   public     the public database only (publicRedisClient), never the main one
  *   local      no Redis at all: noisy buckets a shared count buys nothing for
+ *   security   the main database, failing OPEN to memory (slice 3: CV views,
+ *              talent unlock and save). The fail-CLOSED security limits do not
+ *              take a group: they call rateLimitClosed / rateLimitClosedByKey.
  *
- * Ungrouped limits (the security routes, until slice 3) count in the main
- * database and keep the once-a-minute redis-sync line. A grouped limit's Redis
- * errors are written per route, at most one line a minute, the next line
- * carrying how many were held back:
+ * A grouped limit's Redis errors are written per route, at most one line a
+ * minute, the next line carrying how many were held back:
  *
- *   [rate-limit] redis-error route=<route> group=<group> outcome=open reason=<CODE> [suppressed=<N>]
+ *   [rate-limit] redis-error route=<route> group=<group> outcome=<open|closed> reason=<CODE> [suppressed=<N>]
  *
  * `route` is the key up to its first ":" (the constant part, never the token,
- * id or IP after it); `outcome=open` because the request was decided from this
- * instance's memory. Never the token, IP, user id, URL or error text.
+ * id or IP after it). `outcome=open`: the request was decided from this
+ * instance's memory; `outcome=closed`: it was refused. Never the token, IP,
+ * user id, URL or error text.
  */
-export type RateLimitGroup = "interview" | "public" | "local";
+export type RateLimitGroup = "interview" | "public" | "local" | "security";
 
 /** The constant route part of a key; "unknown" if it does not look like one. */
 function routeOf(key: string): string {
@@ -186,7 +188,11 @@ const GROUP_LOG_INTERVAL_MS = 60_000;
 /** Per route: when its last line was written, and how many errors since were held back. */
 const groupLogs = new Map<string, { last: number; suppressed: number }>();
 
-function groupFailureLog(key: string, group: RateLimitGroup): (err: unknown) => void {
+function groupFailureLog(
+  key: string,
+  group: RateLimitGroup,
+  outcome: "open" | "closed" = "open",
+): (err: unknown) => void {
   return (err) => {
     const route = routeOf(key);
     const now = Date.now();
@@ -198,7 +204,7 @@ function groupFailureLog(key: string, group: RateLimitGroup): (err: unknown) => 
     const held = state?.suppressed ? ` suppressed=${state.suppressed}` : "";
     groupLogs.set(route, { last: now, suppressed: 0 });
     console.error(
-      `${LOG_PREFIX} redis-error route=${route} group=${group} outcome=open reason=${redisReasonCode(err)}${held}`,
+      `${LOG_PREFIX} redis-error route=${route} group=${group} outcome=${outcome} reason=${redisReasonCode(err)}${held}`,
     );
   };
 }
@@ -330,6 +336,105 @@ export function rateLimitByKey(
   return check(key, opts?.max ?? DEFAULT_MAX, opts?.windowMs ?? DEFAULT_WINDOW_MS, opts?.group);
 }
 
+/**
+ * FAIL-CLOSED limits (#57 slice 3): the security routes where every allowed
+ * call sends an email to a third party, tests a secret, or spends a paid model
+ * call (team invite send and resend, admin send-invite, accept per token, the
+ * three claim routes, the two admin CV extractions).
+ *
+ * Decided by the main database, not by this instance's memory: one atomic
+ * script per call counts the call and, only when the key has no expiry yet,
+ * sets one, so the window is fixed from its first call and a steady caller is
+ * let in again when it ends (no lockout). N instances share one count, so the
+ * limit is the limit, not the limit times the instances.
+ *
+ * When the main database cannot answer (an error, a timeout, a bad reply, or
+ * no client in production) the call is REFUSED with reason "unavailable"; the
+ * route shows TRY_AGAIN_SOON and sends nothing. One `outcome=closed` line,
+ * throttled like the other groups'. Outside production with no Redis set up,
+ * local development decides from memory.
+ *
+ * A call this instance has already seen refused in the current window is
+ * refused again without asking Redis, so a refused burst costs nothing.
+ *
+ * Always the main database; never publicRedisClient().
+ */
+export type ClosedLimitResult =
+  | { ok: true }
+  | { ok: false; reason: "limited"; retryAfter: number }
+  | { ok: false; reason: "unavailable" };
+
+/** What a fail-closed route says when the limit store cannot answer. */
+export const TRY_AGAIN_SOON = "Please try again in a minute.";
+
+const CLOSED_SCRIPT = `local n = redis.call('INCR', KEYS[1])
+local ttl = redis.call('PTTL', KEYS[1])
+if ttl < 0 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[1])
+  ttl = tonumber(ARGV[1])
+end
+return {n, ttl}`;
+const CLOSED_TIMEOUT_MS = 3_000;
+/** Keys this instance has seen refused, until their window ends. */
+const closedRefused = new Map<string, number>();
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    p,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(Object.assign(new Error("timeout"), { name: "TimeoutError" })),
+        ms,
+      );
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+export async function rateLimitClosedByKey(
+  key: string,
+  opts: { max: number; windowMs: number },
+): Promise<ClosedLimitResult> {
+  const now = Date.now();
+  const until = closedRefused.get(key);
+  if (until !== undefined && now < until) {
+    return { ok: false, reason: "limited", retryAfter: Math.ceil((until - now) / 1000) };
+  }
+  const closed = groupFailureLog(key, "security", "closed");
+  const redis = redisClient();
+  if (!redis) {
+    if (process.env.VERCEL_ENV === "production") {
+      closed(Object.assign(new Error("no store"), { name: "NoSharedStoreError" }));
+      return { ok: false, reason: "unavailable" };
+    }
+    const local = check(key, opts.max, opts.windowMs, "local");
+    return local.ok ? local : { ok: false, reason: "limited", retryAfter: local.retryAfter };
+  }
+  try {
+    const reply = await withTimeout(
+      redis.eval(CLOSED_SCRIPT, [`rlc:${key}`], [String(opts.windowMs)]),
+      CLOSED_TIMEOUT_MS,
+    );
+    const [count, ttl] = (Array.isArray(reply) ? reply : []).map(Number);
+    if (!Number.isFinite(count) || count < 1) throw new Error("unexpected reply");
+    if (count <= opts.max) return { ok: true };
+    const wait = Number.isFinite(ttl) && ttl > 0 ? ttl : opts.windowMs;
+    closedRefused.set(key, now + wait);
+    return { ok: false, reason: "limited", retryAfter: Math.max(1, Math.ceil(wait / 1000)) };
+  } catch (err) {
+    closed(err);
+    return { ok: false, reason: "unavailable" };
+  }
+}
+
+/** rateLimitClosedByKey per route and client IP, as rateLimit() keys it. */
+export function rateLimitClosed(
+  request: Request,
+  opts: { bucketKey: string; max: number; windowMs: number },
+): Promise<ClosedLimitResult> {
+  return rateLimitClosedByKey(`${opts.bucketKey}:${getClientIp(request)}`, opts);
+}
+
 // Periodic GC so the Map doesn't grow unbounded under steady traffic. Stored
 // on globalThis so HMR doesn't double-register the interval in dev.
 type RLGlobal = typeof globalThis & { __rateLimitCleanup?: NodeJS.Timeout };
@@ -339,6 +444,9 @@ if (!g.__rateLimitCleanup) {
     const now = Date.now();
     for (const [key, bucket] of buckets) {
       if (bucket.resetAt < now) buckets.delete(key);
+    }
+    for (const [key, until] of closedRefused) {
+      if (until < now) closedRefused.delete(key);
     }
   }, 5 * 60_000);
 }

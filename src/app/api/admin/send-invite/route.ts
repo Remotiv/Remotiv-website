@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { mintClaimToken } from "@/lib/claim-tokens";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/app/admin/lib/role-guards";
-import { rateLimit } from "@/app/api/_lib/rate-limit";
+import { rateLimitClosed, TRY_AGAIN_SOON } from "@/app/api/_lib/rate-limit";
 import { sendEmail } from "@/lib/email/send";
 import {
   claimInviteSubject,
@@ -28,12 +28,18 @@ type SkippedReason =
   | "internal_error";
 
 export async function POST(request: Request) {
-  const rl = rateLimit(request, {
+  const rl = await rateLimitClosed(request, {
     bucketKey: "send-invite",
     max: 20,
     windowMs: 60_000,
   });
   if (!rl.ok) {
+    if (rl.reason === "unavailable") {
+      return NextResponse.json(
+        { error: TRY_AGAIN_SOON },
+        { status: 503, headers: { "Retry-After": "60" } },
+      );
+    }
     return NextResponse.json(
       { error: "Too many requests" },
       { status: 429, headers: { "Retry-After": String(rl.retryAfter) } },

@@ -382,23 +382,27 @@ function census() {
         const src = readFileSync(p, "utf8")
           .replace(/\/\*[\s\S]*?\*\//g, "")
           .replace(/\/\/.*$/gm, "");
-        const re = /\b(rateLimit|rateLimitByKey|limitInterview)\(/g;
+        const re =
+          /\b(rateLimit|rateLimitByKey|limitInterview|rateLimitClosed|rateLimitClosedByKey)\(/g;
         for (let m = re.exec(src); m; m = re.exec(src)) {
           let depth = 1;
           let i = m.index + m[0].length;
           for (; depth > 0 && i < src.length; i++)
             depth += src[i] === "(" ? 1 : src[i] === ")" ? -1 : 0;
           const args = src.slice(m.index + m[0].length, i - 1);
+          const byRequest = m[1] === "rateLimit" || m[1] === "rateLimitClosed";
           const name =
             m[1] === "limitInterview"
               ? /"([a-z-]+)"/.exec(args)?.[1]
-              : m[1] === "rateLimit"
+              : byRequest
                 ? /bucketKey: "([a-z-]+)"/.exec(args)?.[1]
                 : /`([a-z-]+):/.exec(args)?.[1];
           const group =
             m[1] === "limitInterview"
               ? "interview"
-              : (/group: "([a-z]+)"/.exec(args)?.[1] ?? "UNGROUPED");
+              : m[1].startsWith("rateLimitClosed")
+                ? "security-closed"
+                : (/group: "([a-z]+)"/.exec(args)?.[1] ?? "UNGROUPED");
           out.push(`${rel}  ${name}  ${group}`);
         }
       }
@@ -409,30 +413,30 @@ function census() {
   return out.sort();
 }
 
-/** Every call site and its group. Security is still ungrouped until slice 3. */
+/** Every call site and its group. None is left ungrouped. */
 const EXPECTED = [
-  // Security (slice 3): 21, still ungrouped.
-  "app/ai-dashboard/(gated)/team/actions.ts  company-invite  UNGROUPED",
-  "app/ai-dashboard/(gated)/team/actions.ts  company-invite-resend  UNGROUPED",
-  "app/api/admin/send-invite/route.ts  send-invite  UNGROUPED",
-  "app/ai-dashboard/accept/actions.ts  company-accept  UNGROUPED",
-  "app/api/claim/initiate/route.ts  claim-initiate  UNGROUPED",
-  "app/api/claim/verify/route.ts  claim-verify  UNGROUPED",
-  "app/api/claim/pre-fill/route.ts  claim-prefill  UNGROUPED",
-  "app/api/admin/extract-cv/route.ts  admin-extract-cv  UNGROUPED",
-  "app/api/admin/extract-cv-basic/route.ts  extract-cv-basic  UNGROUPED",
-  "app/api/cv/browse/[id]/route.ts  cv-browse  UNGROUPED",
-  "app/api/cv/own/[source]/[id]/route.ts  cv-own  UNGROUPED",
-  "app/api/cv/company-application/[id]/route.ts  cv-company-application  UNGROUPED",
-  "app/api/cv/admin-application/[id]/route.ts  cv-admin-application  UNGROUPED",
-  "app/api/cv/admin-remote/[id]/route.ts  cv-admin-remote  UNGROUPED",
-  "app/api/cv/admin-talent/[id]/route.ts  cv-admin-talent  UNGROUPED",
-  "app/api/cv/admin-batch/[id]/route.ts  cv-admin-batch  UNGROUPED",
-  "app/api/cv/client-batch/[id]/route.ts  cv-client-batch  UNGROUPED",
-  "app/api/batch-candidate-cv/route.ts  batch-candidate-cv  UNGROUPED",
-  "app/api/cv/admin-application/availability/route.ts  cv-admin-availability  UNGROUPED",
-  "app/browse-talent/actions.ts  unlock  UNGROUPED",
-  "app/browse-talent/actions.ts  save  UNGROUPED",
+  // Security (slice 3): 9 fail closed, 12 fail open.
+  "app/ai-dashboard/(gated)/team/actions.ts  company-invite  security-closed",
+  "app/ai-dashboard/(gated)/team/actions.ts  company-invite-resend  security-closed",
+  "app/api/admin/send-invite/route.ts  send-invite  security-closed",
+  "app/ai-dashboard/accept/actions.ts  company-accept  security-closed",
+  "app/api/claim/initiate/route.ts  claim-initiate  security-closed",
+  "app/api/claim/verify/route.ts  claim-verify  security-closed",
+  "app/api/claim/pre-fill/route.ts  claim-prefill  security-closed",
+  "app/api/admin/extract-cv/route.ts  admin-extract-cv  security-closed",
+  "app/api/admin/extract-cv-basic/route.ts  extract-cv-basic  security-closed",
+  "app/api/cv/browse/[id]/route.ts  cv-browse  security",
+  "app/api/cv/own/[source]/[id]/route.ts  cv-own  security",
+  "app/api/cv/company-application/[id]/route.ts  cv-company-application  security",
+  "app/api/cv/admin-application/[id]/route.ts  cv-admin-application  security",
+  "app/api/cv/admin-remote/[id]/route.ts  cv-admin-remote  security",
+  "app/api/cv/admin-talent/[id]/route.ts  cv-admin-talent  security",
+  "app/api/cv/admin-batch/[id]/route.ts  cv-admin-batch  security",
+  "app/api/cv/client-batch/[id]/route.ts  cv-client-batch  security",
+  "app/api/batch-candidate-cv/route.ts  batch-candidate-cv  security",
+  "app/api/cv/admin-application/availability/route.ts  cv-admin-availability  security",
+  "app/browse-talent/actions.ts  unlock  security",
+  "app/browse-talent/actions.ts  save  security",
   // Public, own database (slice 2): 7.
   "app/api/apply/route.ts  apply  public",
   "app/api/talent/route.ts  talent  public",
@@ -459,9 +463,14 @@ const EXPECTED = [
   "app/api/interview/live/video-confirm/route.ts  live-video-confirm  interview",
 ].sort();
 
-test("census: all 42 limiter call sites have a group or are listed as still ungrouped (security, slice 3)", () => {
+test("census: all 42 limiter call sites have a group, none left ungrouped", () => {
   const found = census();
   assert.equal(EXPECTED.length, 42);
+  assert.deepEqual(
+    found.filter((l) => l.endsWith("UNGROUPED")),
+    [],
+    "every site needs a group",
+  );
   assert.deepEqual(found, EXPECTED, "a new or changed call site must be classified here");
 });
 

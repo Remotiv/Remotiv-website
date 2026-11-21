@@ -36,7 +36,8 @@ const STUBS = {
     "export async function createClient() { return globalThis.__teamAuthClient(); }",
     "export function createStatelessClient() { return globalThis.__teamStateless(); }",
   ].join("\\n"),
-  "@/app/api/_lib/rate-limit": "export function rateLimitByKey() { return { ok: true }; }",
+  "@/app/api/_lib/rate-limit":
+    "export async function rateLimitClosedByKey() { return { ok: true }; } export const TRY_AGAIN_SOON = 'Please try again in a minute.';",
   "@/lib/notifications/company": "export async function notifyCompany(input) { globalThis.__teamNotified.push(input); }",
   "@/lib/email/send": "export async function sendEmail() { return { ok: true }; }",
   "@/lib/email/templates/company-invite": "export const companyInviteSubject = 'x'; export function renderCompanyInviteEmail() { return ''; }",

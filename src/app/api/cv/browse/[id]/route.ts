@@ -26,6 +26,7 @@ export async function GET(
 ) {
   const rl = rateLimit(request, {
     bucketKey: "cv-browse",
+    group: "security",
     max: 100,
     windowMs: 60_000,
   });

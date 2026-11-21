@@ -45,6 +45,7 @@ function htmlError(status: number, title: string, body: string): NextResponse {
 export async function GET(request: Request, routeCtx: { params: Promise<{ id: string }> }) {
   const rl = rateLimit(request, {
     bucketKey: "cv-company-application",
+    group: "security",
     max: 30,
     windowMs: 60_000,
   });

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/app/admin/lib/role-guards";
-import { rateLimit } from "@/app/api/_lib/rate-limit";
+import { rateLimitClosed } from "@/app/api/_lib/rate-limit";
 import {
   extractBasicFieldsFromCv,
   type ExtractedBasicFields,
@@ -33,17 +33,19 @@ export async function POST(request: Request) {
   //    flows through, while abuse hits the cap immediately. Distinct bucket
   //    from "admin-extract-cv" (the rich Move-to-Talent endpoint, 20/min) so
   //    the two paths don't starve each other.
-  const rl = rateLimit(request, {
+  const rl = await rateLimitClosed(request, {
     bucketKey: "extract-cv-basic",
     max: 60,
     windowMs: 60_000,
   });
   if (!rl.ok) {
+    // The limit store could not answer: refused, nothing extracted (#57).
+    const unavailable = rl.reason === "unavailable";
     return NextResponse.json(
       { ok: false, error: "rate_limited" } satisfies ExtractCvBasicResponse,
       {
-        status: 429,
-        headers: { "Retry-After": String(rl.retryAfter) },
+        status: unavailable ? 503 : 429,
+        headers: { "Retry-After": unavailable ? "60" : String(rl.retryAfter) },
       },
     );
   }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { rateLimit } from "@/app/api/_lib/rate-limit";
+import { rateLimitClosed, TRY_AGAIN_SOON } from "@/app/api/_lib/rate-limit";
 import { isValidEmail } from "@/lib/validators";
 
 export const runtime = "nodejs";
@@ -44,12 +44,18 @@ const NEUTRAL_MESSAGE =
   "If we found a matching profile, you'll receive a 6-digit code shortly.";
 
 export async function POST(request: Request) {
-  const rl = rateLimit(request, {
+  const rl = await rateLimitClosed(request, {
     bucketKey: "claim-initiate",
     max: 5,
     windowMs: 60_000,
   });
   if (!rl.ok) {
+    if (rl.reason === "unavailable") {
+      return NextResponse.json(
+        { error: TRY_AGAIN_SOON },
+        { status: 503, headers: { "Retry-After": "60" } },
+      );
+    }
     return NextResponse.json(
       { error: "Too many requests" },
       { status: 429, headers: { "Retry-After": String(rl.retryAfter) } },

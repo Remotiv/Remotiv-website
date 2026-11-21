@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
 import { notifyCompany } from "@/lib/notifications/company";
 import { isValidEmail } from "@/lib/validators";
-import { rateLimitByKey } from "@/app/api/_lib/rate-limit";
+import { rateLimitClosedByKey, TRY_AGAIN_SOON } from "@/app/api/_lib/rate-limit";
 import { sendEmail } from "@/lib/email/send";
 import {
   companyInviteSubject,
@@ -454,14 +454,17 @@ export async function inviteMember(input: {
   const ctx = await requireCompanyRole("owner", "admin");
 
   // Server actions carry no Request, so rate-limit by company rather than IP.
-  const rl = rateLimitByKey(`company-invite:${ctx.companyId}`, {
+  const rl = await rateLimitClosedByKey(`company-invite:${ctx.companyId}`, {
     max: 20,
     windowMs: 60_000,
   });
   if (!rl.ok) {
     return {
       success: false,
-      error: `Too many invites. Try again in ${rl.retryAfter}s.`,
+      error:
+        rl.reason === "unavailable"
+          ? TRY_AGAIN_SOON
+          : `Too many invites. Try again in ${rl.retryAfter}s.`,
     };
   }
 
@@ -568,14 +571,17 @@ export async function inviteMember(input: {
 export async function resendInvite(inviteId: string): Promise<MutationResult<undefined>> {
   const ctx = await requireCompanyRole("owner", "admin");
 
-  const rl = rateLimitByKey(`company-invite-resend:${ctx.companyId}`, {
+  const rl = await rateLimitClosedByKey(`company-invite-resend:${ctx.companyId}`, {
     max: 10,
     windowMs: 60_000,
   });
   if (!rl.ok) {
     return {
       success: false,
-      error: `Too many resends. Try again in ${rl.retryAfter}s.`,
+      error:
+        rl.reason === "unavailable"
+          ? TRY_AGAIN_SOON
+          : `Too many resends. Try again in ${rl.retryAfter}s.`,
     };
   }
 

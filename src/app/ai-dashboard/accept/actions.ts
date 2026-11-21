@@ -2,7 +2,7 @@
 
 import { createHash } from "node:crypto";
 import type { CompanyRole } from "@/app/ai-dashboard/lib/company-roles";
-import { rateLimitByKey } from "@/app/api/_lib/rate-limit";
+import { rateLimitClosedByKey, TRY_AGAIN_SOON } from "@/app/api/_lib/rate-limit";
 import { isAlreadyRegistered } from "@/lib/company-identity";
 import { sendEmail } from "@/lib/email/send";
 import { inviteCodeSubject, renderInviteCodeEmail } from "@/lib/email/templates/invite-code";
@@ -104,12 +104,18 @@ async function checkInvite(
 
   // No Request object in a server action, so key the limiter on the token
   // hash — this throttles brute-forcing a single invite.
-  const rl = rateLimitByKey(`company-accept:${tokenHash}`, {
+  const rl = await rateLimitClosedByKey(`company-accept:${tokenHash}`, {
     max: 10,
     windowMs: 60_000,
   });
   if (!rl.ok) {
-    return { ok: false, error: `Too many attempts. Try again in ${rl.retryAfter}s.` };
+    return {
+      ok: false,
+      error:
+        rl.reason === "unavailable"
+          ? TRY_AGAIN_SOON
+          : `Too many attempts. Try again in ${rl.retryAfter}s.`,
+    };
   }
 
   // An old, revoked, superseded or already-accepted invitation is refused

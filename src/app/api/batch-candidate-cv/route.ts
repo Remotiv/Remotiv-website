@@ -72,7 +72,7 @@ async function rollbackUpload(
 }
 
 export async function POST(request: NextRequest) {
-  const rl = rateLimit(request, { bucketKey: "batch-candidate-cv" });
+  const rl = rateLimit(request, { bucketKey: "batch-candidate-cv", group: "security" });
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Too many requests. Please try again later." },

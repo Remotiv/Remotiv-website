@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/app/admin/lib/role-guards";
-import { rateLimit } from "@/app/api/_lib/rate-limit";
+import { rateLimitClosed } from "@/app/api/_lib/rate-limit";
 import { createServiceClient } from "@/lib/supabase/server";
 import {
   type CvExtractFailure,
@@ -119,17 +119,19 @@ function rowToPrefill(row: Record<string, unknown>): ExtractedTalentFields {
 
 export async function POST(request: Request) {
   // 1. Rate limit — same shape as /api/admin/send-invite.
-  const rl = rateLimit(request, {
+  const rl = await rateLimitClosed(request, {
     bucketKey: "admin-extract-cv",
     max: 20,
     windowMs: 60_000,
   });
   if (!rl.ok) {
+    // The limit store could not answer: refused, nothing extracted (#57).
+    const unavailable = rl.reason === "unavailable";
     return NextResponse.json(
       { ok: false, error: "rate_limited" } satisfies ExtractCvResponse,
       {
-        status: 429,
-        headers: { "Retry-After": String(rl.retryAfter) },
+        status: unavailable ? 503 : 429,
+        headers: { "Retry-After": unavailable ? "60" : String(rl.retryAfter) },
       },
     );
   }

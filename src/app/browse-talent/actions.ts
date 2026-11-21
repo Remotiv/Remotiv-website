@@ -110,7 +110,11 @@ export async function unlockCandidate(candidateId: string): Promise<UnlockResult
   // cold start, not shared across regions. Burst protection only; not a
   // hard global cap. Pair with a real WAF / Upstash Redis layer in front
   // for hard quotas.
-  const unlockRate = rateLimitByKey(`unlock:${user.id}`, { max: 30, windowMs: 60_000 });
+  const unlockRate = rateLimitByKey(`unlock:${user.id}`, {
+    max: 30,
+    windowMs: 60_000,
+    group: "security",
+  });
   if (!unlockRate.ok) {
     return {
       success: false,
@@ -252,7 +256,11 @@ export async function toggleSave(candidateId: string): Promise<{
 
   // K3: per-user rate limit. 60 saves/min cap. NOTE: in-memory limiter,
   // per-lambda. See K2 comment in unlockCandidate for caveats.
-  const saveRate = rateLimitByKey(`save:${user.id}`, { max: 60, windowMs: 60_000 });
+  const saveRate = rateLimitByKey(`save:${user.id}`, {
+    max: 60,
+    windowMs: 60_000,
+    group: "security",
+  });
   if (!saveRate.ok) {
     return {
       success: false,

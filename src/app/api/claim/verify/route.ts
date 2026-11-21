@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { hashClaimToken, looksLikeClaimToken } from "@/lib/claim-tokens";
 import { createServiceClient } from "@/lib/supabase/server";
-import { rateLimit } from "@/app/api/_lib/rate-limit";
+import { rateLimitClosed, TRY_AGAIN_SOON } from "@/app/api/_lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -14,12 +14,18 @@ type SourceTable = "talent_profiles" | "hire_remote_profiles";
 // and (b) trigger signInWithOtp on the linked profile's email so the
 // candidate receives an OTP code via Supabase.
 export async function POST(request: Request) {
-  const rl = rateLimit(request, {
+  const rl = await rateLimitClosed(request, {
     bucketKey: "claim-verify",
     max: 10,
     windowMs: 60_000,
   });
   if (!rl.ok) {
+    if (rl.reason === "unavailable") {
+      return NextResponse.json(
+        { error: TRY_AGAIN_SOON },
+        { status: 503, headers: { "Retry-After": "60" } },
+      );
+    }
     return NextResponse.json(
       { error: "Too many requests" },
       { status: 429, headers: { "Retry-After": String(rl.retryAfter) } },

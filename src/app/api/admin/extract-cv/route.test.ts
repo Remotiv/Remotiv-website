@@ -19,7 +19,7 @@ const STUBS = {
 };`,
   "@/app/admin/lib/role-guards":
     "export async function requireAdmin() { return { role: 'admin' }; }",
-  "@/app/api/_lib/rate-limit": "export function rateLimit() { return { ok: true }; }",
+  "@/app/api/_lib/rate-limit": "export async function rateLimitClosed() { return { ok: true }; }",
   "@/lib/admin-scope":
     'export async function adminApplicationScope() { return "company_id_snapshot.is.null"; }',
   "@/lib/supabase/server": `export function createServiceClient() {

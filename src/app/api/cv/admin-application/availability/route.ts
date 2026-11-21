@@ -29,7 +29,12 @@ const MAX_IDS = 50;
 const CONCURRENCY = 4;
 
 export async function POST(request: Request) {
-  const rl = rateLimit(request, { bucketKey: "cv-admin-availability", max: 60, windowMs: 60_000 });
+  const rl = rateLimit(request, {
+    bucketKey: "cv-admin-availability",
+    group: "security",
+    max: 60,
+    windowMs: 60_000,
+  });
   if (!rl.ok) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
 
   try {

@@ -46,7 +46,8 @@ const STUBS = {
     "export async function createClient() { return globalThis.__acceptAuthClient(); }",
     "export function createStatelessClient() { return globalThis.__acceptStateless(); }",
   ].join("\\n"),
-  "@/app/api/_lib/rate-limit": "export function rateLimitByKey() { return { ok: true }; }",
+  "@/app/api/_lib/rate-limit":
+    "export async function rateLimitClosedByKey() { return { ok: true }; } export const TRY_AGAIN_SOON = 'Please try again in a minute.';",
   "@/lib/company-identity": "export function isAlreadyRegistered(m) { return /already|exists|registered/i.test(m); }",
   "@/lib/notifications/company": "export async function notifyCompany(input) { globalThis.__acceptNotified.push(input); }",
   "@/lib/email/send": "export async function sendEmail(payload) { return globalThis.__acceptEmail(payload); }",
