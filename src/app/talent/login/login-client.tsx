@@ -4,29 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-
-const REASON_BANNER: Record<string, string> = {
-  unauthorized: "Please sign in to access the talent dashboard.",
-  expired:
-    "Your invite link has expired. Enter your email below to get a new code.",
-  invalid:
-    "We couldn't recognise that invite link. Enter your email below to continue.",
-  already_claimed:
-    "This profile is already claimed. If that's not you, contact talent@remotiv.work.",
-  email_conflict:
-    "This email is already registered as a client or admin. Please use a different email or contact support.",
-};
+import { initiateOutcome, REASON_BANNER, verifyOutcome } from "./claim-responses";
 
 type Step =
   | { kind: "email" }
   | { kind: "code"; email: string }
   | { kind: "error"; reason: string };
-
-// Token failures split two ways. Recoverable ones (bad/stale link) drop the
-// candidate back to the email step so they can self-serve a fresh code via the
-// existing /api/claim/initiate flow — the banner copy already promises that.
-// Terminal ones can't be fixed by a resend, so they stay a dead end.
-const TERMINAL_TOKEN_REASONS = new Set(["already_claimed", "email_conflict"]);
 
 export function TalentLoginClient({
   token,
@@ -52,6 +35,9 @@ export function TalentLoginClient({
   // verify button (reusing it would disable/relabel "Verify & sign in").
   const [resending, setResending] = useState(false);
   const [cooldown, setCooldown] = useState(0);
+  // A refused link check (#57): the link may be fine, so offer the check again.
+  const [verifyRun, setVerifyRun] = useState(0);
+  const [canRetryLink, setCanRetryLink] = useState(false);
 
   // Cooldown countdown. Cleanup is mandatory — this component unmounts on a
   // successful verify (router.replace), which would otherwise leak the timer.
@@ -63,10 +49,13 @@ export function TalentLoginClient({
 
   // Token path (admin invite): validate token, pre-fill email, trigger code send,
   // jump straight to code-entry step.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: verifyRun is the retry; changing it re-runs the link check
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
     setBusy(true);
+    setError(null);
+    setCanRetryLink(false);
     (async () => {
       try {
         const res = await fetch("/api/claim/verify", {
@@ -81,17 +70,24 @@ export function TalentLoginClient({
           email?: string;
         };
         if (cancelled) return;
-        if (!json.ok || !json.email) {
-          const reason = json.reason ?? "invalid";
-          if (TERMINAL_TOKEN_REASONS.has(reason)) {
-            setStep({ kind: "error", reason });
-          } else {
-            // expired / invalid / unknown → recoverable: land on the email
-            // step with the banner so the candidate can request a new code.
-            setStep({ kind: "email" });
-            setNotice(REASON_BANNER[reason] ?? REASON_BANNER.invalid ?? null);
-          }
-          setBusy(false);
+        const verified = verifyOutcome(res.status, json);
+        if (verified.kind === "refused") {
+          // Over the limit, or the limit store could not answer: not a bad
+          // link, so no invalid-link banner. Say so and offer the check again.
+          setStep({ kind: "email" });
+          setError(verified.message);
+          setCanRetryLink(true);
+          return;
+        }
+        if (verified.kind === "terminal") {
+          setStep({ kind: "error", reason: verified.reason });
+          return;
+        }
+        if (verified.kind === "recoverable") {
+          // expired / invalid / unknown: land on the email step with the
+          // banner so the candidate can request a new code.
+          setStep({ kind: "email" });
+          setNotice(verified.banner);
           return;
         }
         // Trigger the OTP code send on the verified email
@@ -99,18 +95,27 @@ export function TalentLoginClient({
           method: "POST",
           cache: "no-store",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: json.email }),
+          body: JSON.stringify({ email: verified.email }),
         });
         const initJson = (await initRes.json().catch(() => ({}))) as {
           ok?: boolean;
           reason?: string;
         };
         if (cancelled) return;
-        if (initJson.reason === "email_conflict") {
+        const sent = initiateOutcome(initRes.status, initJson);
+        if (sent.kind === "conflict") {
           setStep({ kind: "error", reason: "email_conflict" });
+        } else if (sent.kind === "sent") {
+          setStep({ kind: "code", email: verified.email });
+          setMessage(`We sent a 6-digit code to ${verified.email}.`);
         } else {
-          setStep({ kind: "code", email: json.email });
-          setMessage(`We sent a 6-digit code to ${json.email}.`);
+          // Nothing was sent: stay on the email step, email filled in, so
+          // "Send me a 6-digit code" is the retry.
+          setStep({ kind: "email" });
+          setEmail(verified.email);
+          setError(
+            sent.kind === "refused" ? sent.message : "Something went wrong. Please try again.",
+          );
         }
       } catch (e) {
         if (cancelled) return;
@@ -123,7 +128,7 @@ export function TalentLoginClient({
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [token, verifyRun]);
 
   // Shared by the email form and the code-step resend so both hit the same
   // endpoint with the same request shape. `status` is surfaced so callers can
@@ -159,19 +164,18 @@ export function TalentLoginClient({
     setMessage(null);
     setBusy(true);
     try {
-      const json = await requestCode(email.trim());
-      if (json.reason === "email_conflict") {
+      const r = await requestCode(email.trim());
+      const sent = initiateOutcome(r.status, r);
+      if (sent.kind === "conflict") {
         setError(REASON_BANNER.email_conflict ?? "Email conflict.");
-        return;
-      }
-      if (json.ok) {
+      } else if (sent.kind === "sent") {
+        setCanRetryLink(false);
         setStep({ kind: "code", email: email.trim().toLowerCase() });
         setMessage(
-          json.message ??
-            "If we found a matching profile, you'll receive a 6-digit code shortly.",
+          sent.message ?? "If we found a matching profile, you'll receive a 6-digit code shortly.",
         );
       } else {
-        setError("Something went wrong. Please try again.");
+        setError(sent.kind === "refused" ? sent.message : "Something went wrong. Please try again.");
       }
     } catch (err) {
       console.error("[talent-login] initiate failed:", err);
@@ -228,9 +232,10 @@ export function TalentLoginClient({
     setError(null);
     try {
       const r = await requestCode(targetEmail);
-      if (r.status === 429) {
-        setError("Please wait a moment before requesting another code.");
-      } else if (r.ok) {
+      const sent = initiateOutcome(r.status, r);
+      if (sent.kind === "refused") {
+        setError(sent.message);
+      } else if (sent.kind === "sent") {
         setMessage(`We sent a new 6-digit code to ${targetEmail}.`);
         setError(null);
         // The previous code is invalidated by the new send — clear the input
@@ -459,6 +464,16 @@ export function TalentLoginClient({
             <p className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               {error}
             </p>
+          )}
+          {step.kind === "email" && canRetryLink && (
+            <button
+              type="button"
+              onClick={() => setVerifyRun((n) => n + 1)}
+              disabled={busy}
+              className="mt-2 text-xs font-semibold text-remotiv-purple hover:underline disabled:opacity-50"
+            >
+              Try my invite link again
+            </button>
           )}
 
           <p className="mt-6 text-center text-xs text-gray-400">

@@ -364,8 +364,8 @@ export type ClosedLimitResult =
   | { ok: false; reason: "limited"; retryAfter: number }
   | { ok: false; reason: "unavailable" };
 
-/** What a fail-closed route says when the limit store cannot answer. */
-export const TRY_AGAIN_SOON = "Please try again in a minute.";
+/** What a fail-closed route says when the limit store cannot answer (shared with the pages). */
+export { TRY_AGAIN_SOON } from "@/lib/rate-limit-copy";
 
 const CLOSED_SCRIPT = `local n = redis.call('INCR', KEYS[1])
 local ttl = redis.call('PTTL', KEYS[1])

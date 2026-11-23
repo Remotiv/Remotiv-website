@@ -62,6 +62,7 @@ import {
 } from "@/app/admin/applications/actions";
 import { type UserRole, canDelete, canEdit } from "@/app/admin/lib/roles";
 import { isValidEmail } from "@/lib/validators";
+import { TRY_AGAIN_SOON } from "@/lib/rate-limit-copy";
 import { toWhatsAppDigits } from "@/lib/normalize";
 import {
   EditableCell,
@@ -1198,6 +1199,9 @@ export function ApplicationsDashboard({
     // admin learns whether to retry, fill the form, or call the tech team.
     let serverReturnedEmpty = false;
     let emptyReason: unknown;
+    // 503: the limit store could not answer and the route refused (#57). The
+    // modal still opens blank, as on a 429, and the toast says to wait.
+    let unavailable = false;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 60_000);
     try {
@@ -1207,6 +1211,7 @@ export function ApplicationsDashboard({
         body: JSON.stringify({ applicationId: app.id }),
         signal: controller.signal,
       });
+      unavailable = res.status === 503;
       const json = (await res.json().catch(() => null)) as
         | { ok: true; prefill: ExtractedTalentFields | null; reason?: unknown }
         | { ok: false }
@@ -1225,7 +1230,9 @@ export function ApplicationsDashboard({
       setExtractingId(null);
       setPrefillData(prefill);
       setMoveTarget(app);
-      if (serverReturnedEmpty) {
+      if (unavailable) {
+        setToast(TRY_AGAIN_SOON);
+      } else if (serverReturnedEmpty) {
         setToast(prefillFailureMessage(emptyReason));
       }
     }
@@ -2073,9 +2080,9 @@ function uid(): string {
 // /api/admin/extract-cv-basic and maps the snake_case endpoint shape
 // (first_name / linkedin_url) onto the camelCase ParsedCv shape
 // (firstName / linkedin) that the rest of the bulk loop already consumes.
-// Returns null on ANY failure path — auth, rate-limit (429), soft 200 with
-// prefill=null, malformed JSON, network throw. The caller falls back to
-// parseCvText's regex result whenever this returns null.
+// `fields` is null on ANY failure path — auth, rate-limit (429 or 503), soft
+// 200 with prefill=null, malformed JSON, network throw. The caller falls back
+// to parseCvText's regex result whenever it is null; `unavailable` marks a 503.
 type AiBasicResult = Partial<{
   firstName: string;
   lastName: string;
@@ -2084,14 +2091,17 @@ type AiBasicResult = Partial<{
   linkedin: string;
 }>;
 
-async function aiExtractBasic(cvText: string): Promise<AiBasicResult | null> {
+/** `unavailable`: the route answered 503 (#57); the caller tells the admin to wait. */
+type AiBasicReply = { fields: AiBasicResult | null; unavailable: boolean };
+
+async function aiExtractBasic(cvText: string): Promise<AiBasicReply> {
   try {
     const res = await fetch("/api/admin/extract-cv-basic", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ cvText }),
     });
-    if (!res.ok) return null;
+    if (!res.ok) return { fields: null, unavailable: res.status === 503 };
     const json = (await res.json()) as {
       ok?: boolean;
       prefill?: {
@@ -2102,17 +2112,20 @@ async function aiExtractBasic(cvText: string): Promise<AiBasicResult | null> {
         linkedin_url?: unknown;
       } | null;
     };
-    if (!json?.ok || !json.prefill) return null;
+    if (!json?.ok || !json.prefill) return { fields: null, unavailable: false };
     const p = json.prefill;
     return {
-      firstName: typeof p.first_name   === "string" ? p.first_name   : undefined,
-      lastName:  typeof p.last_name    === "string" ? p.last_name    : undefined,
-      email:     typeof p.email        === "string" ? p.email        : undefined,
-      phone:     typeof p.phone        === "string" ? p.phone        : undefined,
-      linkedin:  typeof p.linkedin_url === "string" ? p.linkedin_url : undefined,
+      fields: {
+        firstName: typeof p.first_name   === "string" ? p.first_name   : undefined,
+        lastName:  typeof p.last_name    === "string" ? p.last_name    : undefined,
+        email:     typeof p.email        === "string" ? p.email        : undefined,
+        phone:     typeof p.phone        === "string" ? p.phone        : undefined,
+        linkedin:  typeof p.linkedin_url === "string" ? p.linkedin_url : undefined,
+      },
+      unavailable: false,
     };
   } catch {
-    return null;
+    return { fields: null, unavailable: false };
   }
 }
 
@@ -2147,6 +2160,9 @@ function BulkUploadCVModal({
 
   // Review rows
   const [rows, setRows] = useState<BulkRow[]>([]);
+
+  // An AI field extraction was refused with a 503 during processing (#57).
+  const [aiExtractUnavailable, setAiExtractUnavailable] = useState(false);
 
   // Submitting
   const [submitting, setSubmitting] = useState(false);
@@ -2204,6 +2220,9 @@ function BulkUploadCVModal({
     setProcessedCount(0);
 
     const built: BulkRow[] = [];
+    // Any CV whose AI extraction got a 503 (#57): its fields came from the
+    // regex fallback, and the review screen says to wait before trying again.
+    let aiUnavailable = false;
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       try {
@@ -2212,7 +2231,9 @@ function BulkUploadCVModal({
         // both the AI call AND the regex parse below — the catch branch
         // pushes a status="error" row with the same message as before.
         const regexParsed = parseCvText(text);
-        const ai = await aiExtractBasic(text);
+        const reply = await aiExtractBasic(text);
+        const ai = reply.fields;
+        if (reply.unavailable) aiUnavailable = true;
         const parsed = {
           ...regexParsed,
           firstName: pickAi(ai?.firstName, regexParsed.firstName),
@@ -2284,6 +2305,7 @@ function BulkUploadCVModal({
     }
 
     setRows(built);
+    setAiExtractUnavailable(aiUnavailable);
     setStage("review");
   }
 
@@ -2550,6 +2572,15 @@ function BulkUploadCVModal({
             </div>
           ) : (
             <div className="flex flex-col gap-4">
+              {aiExtractUnavailable && (
+                <p
+                  role="status"
+                  data-ai-extract-unavailable
+                  className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-700"
+                >
+                  {TRY_AGAIN_SOON}
+                </p>
+              )}
               {/* Top toolbar */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3 text-xs text-gray-500">
