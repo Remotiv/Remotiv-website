@@ -206,7 +206,8 @@ export async function updateTalentStatus(
     }
   }
 
-  revalidatePath("/admin/talent");
+  // Not /admin/talent (#74): the Talent page updates its own list, and a
+  // re-render there re-reads every profile.
   revalidatePath("/browse-talent");
   return { success: true, data: undefined };
 }
@@ -284,7 +285,8 @@ export async function setTalentFlag(
     }
   }
 
-  revalidatePath("/admin/talent");
+  // Not /admin/talent (#74): the Talent page updates its own list, and a
+  // re-render there re-reads every profile.
   revalidatePath("/browse-talent");
   // Toggling the archived flag affects the move-button gate on
   // /admin/applications (archived rows no longer count as "in Talent"), so
@@ -307,7 +309,8 @@ export async function deleteTalentProfile(
     .eq("id", id);
 
   if (error) return { success: false, error: error.message };
-  revalidatePath("/admin/talent");
+  // Not /admin/talent (#74): the Talent page updates its own list, and a
+  // re-render there re-reads every profile.
   // Hard-deleting a talent row also frees the underlying applicant's email to
   // be moved again — refresh /admin/applications so the move-button gate
   // updates without a manual reload.
@@ -327,7 +330,8 @@ export async function saveTalentNote(
     .eq("id", id);
 
   if (error) return { success: false, error: error.message };
-  revalidatePath("/admin/talent");
+  // No revalidatePath (#74): the dashboard puts the saved note in its own
+  // list (withSavedNote), by this same trimToNull rule.
   return { success: true, data: undefined };
 }
 

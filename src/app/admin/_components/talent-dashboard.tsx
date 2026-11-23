@@ -10,7 +10,6 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
 import {
   Search as SearchIcon,
   X,
@@ -58,6 +57,7 @@ import {
   type TalentStatus,
 } from "@/app/admin/talent/actions";
 import { type Read, unavailable } from "@/lib/supabase/read";
+import { trimToNull } from "@/lib/validators";
 import { type UserRole } from "@/app/admin/lib/roles";
 import { friendlyError } from "@/app/admin/lib/errors";
 import { getAvatarUrl } from "@/lib/avatars";
@@ -529,6 +529,7 @@ function ProfileDrawer({
   onAddToBatch,
   onDelete,
   onToast,
+  onNoteSaved,
 }: {
   profile: TalentProfile;
   isSuperAdmin: boolean;
@@ -544,6 +545,8 @@ function ProfileDrawer({
   onAddToBatch: () => void;
   onDelete: () => void;
   onToast: (msg: string) => void;
+  /** After a successful save only: the list keeps the note, so a reopen shows it. */
+  onNoteSaved: (note: string) => void;
 }) {
   const fullName = `${profile.first_name} ${profile.last_name ?? ""}`.trim();
   const available = isAvailable(profile);
@@ -597,6 +600,7 @@ function ProfileDrawer({
     const result = await saveTalentNote(profile.id, note);
     setSavingNote(false);
     if (result.success) {
+      onNoteSaved(note);
       onToast("Note saved");
     } else {
       onToast(`Save failed: ${friendlyError(result.error)}`);
@@ -1290,6 +1294,20 @@ function FilterSheetGroup({
 
 // ── Component ────────────────────────────────────────────────
 
+/**
+ * The list after a note was saved (#74): that profile's note, stored by the
+ * server's own rule (trimToNull), so reopening the drawer shows it without the
+ * page re-reading every profile. Every other profile is the same object.
+ */
+export function withSavedNote(
+  profiles: TalentProfile[],
+  profileId: string,
+  note: string,
+): TalentProfile[] {
+  const notes = trimToNull(note);
+  return profiles.map((p) => (p.id === profileId ? { ...p, notes } : p));
+}
+
 export function TalentDashboard({
   email,
   userRole,
@@ -1303,7 +1321,6 @@ export function TalentDashboard({
   initialOpenId: string | null;
   initialSearch: string;
 }) {
-  const router = useRouter();
   const isSuperAdmin = userRole === "super_admin";
 
   const [profiles, setProfiles] = useState<TalentProfile[]>(initialProfiles);
@@ -1522,7 +1539,6 @@ export function TalentDashboard({
       if (openId === profile.id) setOpenId(null);
       setDeleteTarget(null);
       setToast("Talent removed");
-      router.refresh();
     } else {
       setToast(`Delete failed: ${friendlyError(result.error)}`);
     }
@@ -2000,6 +2016,9 @@ export function TalentDashboard({
           onAddToBatch={() => setAddToBatchTarget(openProfile)}
           onDelete={() => setDeleteTarget(openProfile)}
           onToast={setToast}
+          onNoteSaved={(note) =>
+            setProfiles((prev) => withSavedNote(prev, openProfile.id, note))
+          }
         />
       )}
 
@@ -2040,7 +2059,6 @@ export function TalentDashboard({
             onToast={(msg) => {
               setAddToBatchTarget(null);
               setToast(msg);
-              router.refresh();
             }}
           />
         );

@@ -8,7 +8,9 @@
  *                                  when none is installed, so the real guard
  *                                  (and its cookie-bound client) is never
  *                                  reached
- *   next/cache                  -> revalidatePath as a no-op
+ *   next/cache                  -> revalidatePath records each path on
+ *                                  globalThis.__revalidatedPaths when a test
+ *                                  installed that array, else does nothing
  *   next/headers                -> cookies() throws: nothing under test may
  *                                  read a real request
  *
@@ -26,7 +28,8 @@ const guard = (name) =>
 
 const STUBS = {
   "@/app/admin/lib/role-guards": [guard("requireAdmin"), guard("requireSuperAdmin")].join("\n"),
-  "next/cache": "export function revalidatePath() {}",
+  "next/cache":
+    "export function revalidatePath(path) { globalThis.__revalidatedPaths?.push(path); }",
   "next/headers": [
     "export async function cookies() {",
     '  throw new Error("test: no request cookies here");',
