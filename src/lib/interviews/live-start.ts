@@ -172,16 +172,17 @@ export async function startLiveInterview(
   const frozen = readFrozenQuestionSet(row);
   if (!settings || !frozen) return fail(409, "not_ready", "This interview isn't ready yet.");
 
+  // The first name only (#14): VoxAgent gets no CV, so the CV is not read.
   const { data: app, error: appErr } = await deps.service
     .from("job_applications")
-    .select("first_name, last_name, cv_text")
+    .select("first_name")
     .eq("id", row.application_id ?? "")
     .eq("job_id", row.job_id ?? "")
     .eq("company_id_snapshot", row.company_id)
     .maybeSingle();
   if (appErr) return fail(502, "unavailable", TRY_AGAIN_SHORTLY);
   if (!app) return fail(409, "not_ready", "This interview isn't ready yet.");
-  const a = app as { first_name: string | null; last_name: string | null; cv_text: string | null };
+  const a = app as { first_name: string | null };
 
   let input: CreateSessionInput;
   try {
@@ -191,8 +192,6 @@ export async function startLiveInterview(
       interviewMinutes: Math.max(1, Math.round(settings.max_session_seconds / 60)),
       questions: frozen,
       candidateFirstName: a.first_name,
-      candidateLastName: a.last_name,
-      cvText: a.cv_text,
       consent,
     });
   } catch (err) {

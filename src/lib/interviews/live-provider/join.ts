@@ -64,6 +64,8 @@ export function createMockJoinProvider(
       for (const key of Object.keys(input)) {
         if (!INPUT_KEYS.has(key)) throw new Error(`mock provider: unexpected input key ${key}`);
       }
+      // #14: VoxAgent gets no CV. The field stays, empty, until it can be dropped.
+      if (input.cv_text !== "") throw new Error("mock provider: a CV was sent");
       for (const q of input.questions) {
         for (const key of Object.keys(q)) {
           if (!QUESTION_KEYS.has(key))

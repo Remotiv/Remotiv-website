@@ -37,8 +37,11 @@ export type CreateSessionInput = {
   interview_minutes: number;
   questions: readonly ProviderQuestion[];
   candidate_first_name: string | null;
-  /** Already sanitised: no email, phone, link or address. For follow-ups only. */
-  cv_text: string;
+  /**
+   * Always "" (#14, 23 Nov): VoxAgent gets no CV. Kept only until Arham
+   * confirms the field can be dropped.
+   */
+  cv_text: "";
 };
 
 export type CreateSessionResult = { providerSessionId: string };

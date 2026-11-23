@@ -1,5 +1,3 @@
-import { removeCandidateName } from "@/lib/interviews/candidate-name";
-import { sanitizeCvForInterview } from "@/lib/interviews/cv-sanitize";
 import { type FrozenLiveQuestionSet, isFrozenQuestionSet } from "@/lib/interviews/frozen-questions";
 import { isLiveConsentProof, type LiveConsentProof } from "@/lib/interviews/live-consent-record";
 import type { CreateSessionInput } from "./types";
@@ -16,13 +14,18 @@ import type { CreateSessionInput } from "./types";
  * for exactly what scores well). Each question is rebuilt from `position` and
  * `text` alone, so a field added to the snapshot later is left behind too.
  *
- * ── The CV is sanitised here, every time ─────────────────────
+ * ── No CV, ever ──────────────────────────────────────────────
  *
- * Decision D1: Remotiv writes and freezes every question, job and CV; the
- * interviewer gets the CV only for follow-ups, and only with emails, phones,
- * links and addresses removed (cv-sanitize.ts). Sanitising is idempotent, so
- * a caller that already did it loses nothing.
+ * Decided 23 Nov (sheet 'AI Interview Pending task' #14): the interview asks
+ * the frozen questions in strict order and CV questions are on hold, so the
+ * provider gets no CV at all, not even a sanitised one. `cv_text` stays in the
+ * input as an EMPTY string only until Arham confirms VoxAgent works without
+ * the field; then drop it here, in types.ts and in join.ts's INPUT_KEYS.
+ * There is no CV parameter, so no caller can pass one in.
  */
+
+/** What VoxAgent receives for the CV: always nothing (#14). */
+const NO_CV = "";
 
 /**
  * ── Only frozen questions, and still only position and text ──
@@ -32,10 +35,10 @@ import type { CreateSessionInput } from "./types";
  * The set also carries each question's source, competency and private scoring
  * guide; none of them is copied.
  *
- * ── The name goes too ────────────────────────────────────────
+ * ── The first name only ──────────────────────────────────────
  *
- * The CV is sanitised, then the candidate's full name and surname are
- * removed (candidate-name.ts). The first name is sent on its own field.
+ * The candidate's first name is sent on its own field, for the greeting. No
+ * surname, no CV.
  *
  * ── Only after the candidate's consent is saved ──────────────
  *
@@ -59,8 +62,6 @@ export function buildCreateSessionInput(input: {
   interviewMinutes: number;
   questions: FrozenLiveQuestionSet;
   candidateFirstName: string | null;
-  candidateLastName: string | null;
-  cvText: string | null;
   consent: LiveConsentProof;
 }): CreateSessionInput {
   const sessionId = input.remotivSessionId.trim();
@@ -106,9 +107,6 @@ export function buildCreateSessionInput(input: {
     interview_minutes: input.interviewMinutes,
     questions,
     candidate_first_name: firstName,
-    cv_text: removeCandidateName(sanitizeCvForInterview(input.cvText).text, {
-      firstName: input.candidateFirstName,
-      lastName: input.candidateLastName,
-    }).text,
+    cv_text: NO_CV,
   };
 }

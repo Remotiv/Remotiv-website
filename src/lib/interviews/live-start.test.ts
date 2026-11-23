@@ -119,7 +119,11 @@ function world(over = {}) {
         company_id_snapshot: CO,
         first_name: "Alex",
         last_name: "Example",
-        cv_text: "Alex Example, alex@example.com, +44 7000 000000. Built a queue at Initech.",
+        // Long, and full of contact details: none of it may reach VoxAgent (#14).
+        cv_text: [
+          "Alex Example, alex@example.com, +44 7000 000000. Built a queue at Initech.",
+          ...Array.from({ length: 40 }, (_, i) => `Role ${i} at Initech. alex${i}@example.com`),
+        ].join("\n"),
       },
     ],
   });
@@ -306,7 +310,7 @@ test("start: the browser gets the join ticket and nothing else; the row is claim
   });
 });
 
-test("start: the provider gets position and text only, the CV cleaned of contact details and the name", async () => {
+test("start: the provider gets position and text only, and no CV (#14)", async () => {
   await withEnv(ON, async () => {
     const db = world();
     const p = recordingProvider();
@@ -326,8 +330,28 @@ test("start: the provider gets position and text only, the CV cleaned of contact
       { position: 3, text: "Made-up question 3?" },
     ]);
     assert.equal(input.interview_minutes, 20);
-    assert.doesNotMatch(input.cv_text, /alex@example|7000 000000|Example/);
+    assert.equal(input.cv_text, "", "VoxAgent gets no CV");
+    assert.doesNotMatch(JSON.stringify(input), /alex@example|7000 000000|Example|Initech/);
     assert.doesNotMatch(JSON.stringify(input), /SECRET GUIDE|Ownership|Probe a thin/);
+  });
+});
+
+test("start: the CV is not even read (#14): the applicant read asks for the first name only", async () => {
+  await withEnv(ON, async () => {
+    const db = world();
+    const p = recordingProvider();
+    const { result } = await logged(() => start(db, { provider: p.provider }));
+    assert.equal(result.status, 200, "the start still works");
+    assert.equal(p.seen.length, 1, "the provider session was created");
+    const appReads = db.service.queries.filter(
+      (q) => q.table === "job_applications" && q.calls[0]?.[0] === "select",
+    );
+    assert.equal(appReads.length, 1, "one applicant read");
+    assert.equal(appReads[0].calls[0][1], "first_name");
+    for (const q of db.service.queries) {
+      const select = q.calls.find((c) => c[0] === "select")?.[1] ?? "";
+      assert.doesNotMatch(String(select), /cv_text|cv_path|last_name/, `${q.table} read`);
+    }
   });
 });
 

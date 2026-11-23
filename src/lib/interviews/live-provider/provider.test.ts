@@ -113,11 +113,16 @@ const consentFor = (sessionId) =>
   );
 const CONSENT = await consentFor(SESSION);
 
+/** A long synthetic CV full of contact details: none of it may reach VoxAgent (#14). */
 const CV = [
   "Alex Example",
   "Backend Engineer | alex.example@example.com | +92 300 0000000 | linkedin.com/in/alex-example",
   "House 1, Street 1, Lahore",
-  "Northwind Logistics - Backend Engineer (2021 - Present)",
+  ...Array.from(
+    { length: 40 },
+    (_, i) =>
+      `Northwind Logistics ${i} - Backend Engineer (2021 - Present). Reach me at alex${i}@example.com or +92 300 00000${String(i).padStart(2, "0")}.`,
+  ),
 ].join("\n");
 
 function input(overrides = {}) {
@@ -127,8 +132,6 @@ function input(overrides = {}) {
     interviewMinutes: 30,
     questions: FROZEN,
     candidateFirstName: "Alex",
-    candidateLastName: "Example",
-    cvText: CV,
     consent: CONSENT,
     ...overrides,
   });
@@ -182,20 +185,25 @@ test("the input has exactly its six fields; questions sorted by position, text o
   assert.equal(built.candidate_first_name, "Alex");
 });
 
-test("the CV is always sanitised: no email, phone, link or address reaches the provider", () => {
-  const built = input();
-  assert.doesNotMatch(
-    built.cv_text,
-    /alex\.example@example\.com|\+92 300 0000000|linkedin\.com|House 1/,
-  );
-  assert.match(built.cv_text, /\[email\]/);
-  assert.match(built.cv_text, /\[phone\]/);
-  assert.match(built.cv_text, /\[link\]/);
-  assert.match(built.cv_text, /\[address\]/);
-  assert.match(built.cv_text, /Northwind Logistics - Backend Engineer \(2021 - Present\)/);
-  assert.ok(!built.cv_text.includes("Example"), "the full name and surname are removed");
-  assert.match(built.cv_text, /\[candidate\]/);
-  assert.equal(input({ cvText: null }).cv_text, "");
+test("#14: VoxAgent gets no CV: cv_text is empty, even when a caller tries to pass a long CV full of contact details", () => {
+  for (const built of [
+    input(),
+    // No CV parameter exists any more; one passed anyway is ignored.
+    input({ cvText: CV, candidateLastName: "Example" }),
+  ]) {
+    assert.equal(built.cv_text, "");
+    const json = JSON.stringify(built);
+    for (const fragment of [
+      "Northwind",
+      "alex.example@example.com",
+      "+92 300",
+      "linkedin",
+      "House 1",
+      "Example",
+    ]) {
+      assert.ok(!json.includes(fragment), `no part of the CV reaches the provider: ${fragment}`);
+    }
+  }
 });
 
 test("bad input is refused before anything is sent", () => {
