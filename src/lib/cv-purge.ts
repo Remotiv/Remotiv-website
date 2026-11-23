@@ -1,4 +1,5 @@
 import "server-only";
+import { cvObjectState } from "@/lib/cv-object";
 import { describeCvOrphanSweep, runCvOrphanSweep } from "@/lib/cv-orphan-sweep";
 import { findSharedPaths } from "@/lib/shared-storage-refs";
 import { removeObjects } from "@/lib/storage-objects";
@@ -106,76 +107,107 @@ const REMOVE_CHUNK = 100;
 /**
  * Wall-clock budget, matching the interview purge.
  *
- * Stopping early is safe and costs nothing: the selector is derived from
- * current state, and the cursor below lives only inside one run, so the next
- * run starts from the current state again without tracking progress anywhere.
- * What stopping early is NOT is invisible: the result says so (CvPurgeResult).
+ * Stopping early is safe and costs nothing: every selector is derived from
+ * current state, so the next run starts from the current state again without
+ * tracking progress anywhere. What stopping early is NOT is invisible: the
+ * result says so (CvPurgeResult).
  */
 const BUDGET_MS = 18_000;
 
+/**
+ * How the budget is shared (#60). The text pass is database-only and cheap,
+ * so it may use at most the first quarter. The storage pass then runs until
+ * three quarters: a GUARANTEED half of the budget at least, never leftovers.
+ * The comments and scores passes have the rest, and whatever the storage pass
+ * did not need.
+ */
+const TEXT_SHARE = 0.25;
+const STORAGE_UNTIL = 0.75;
+
+/** Existence checks in flight at once, for paths remove() did not confirm. */
+const CHECK_CONCURRENCY = 4;
+
 type DueRow = {
   id: string;
-  cv_path: string | null;
-  cv_text: string | null;
+  cv_path: string;
   cv_delete_after: string;
 };
 
-/** Where the last page ended: the last row READ, whatever happened to it. */
+/** A query the due filter can be applied to (select, update or count). */
+type DueFilterable<Q> = {
+  lte(column: string, value: string): Q;
+  not(column: string, operator: string, value: null): Q;
+};
+
+/** Where the storage pass's last page ended: the last row READ. */
 type Cursor = { deleteAfter: string; id: string };
 
 /**
- * What one run did, and whether it finished.
+ * What one run did, per pass, and whether ANY due work is left (#60).
  *
- * Two shapes on purpose (#55a). The run that left 237 of 1,200 due rows
- * unprocessed used to log `rows=481` as though it had finished, and nothing in
- * that line said otherwise. An incomplete run now carries different field
- * NAMES, so no number it reports can be read as a total: `examinedSoFar` is
- * not `examined`, and a reader who wants the total has to notice there is
- * none. `unconfirmed` is the rows whose storage object could not be confirmed
- * gone: text cleared, path kept, read again by the next run.
+ * `complete` is true only when every pass reached its end, nothing was held
+ * or left unattempted, and a final count finds no due row still holding a
+ * path or text. A run that cleared everything it touched but stopped for
+ * budget, or held a single file it could not confirm gone, is not complete.
+ *
+ *   text.cleared           due rows whose cv_text this run cleared
+ *   storage.removed        objects storage confirmed it deleted
+ *   storage.alreadyMissing paths storage reports do not exist: nothing left to
+ *                          delete, so the path is cleared (not held for ever)
+ *   storage.sharedKept     objects left because another row still names them
+ *   storage.heldError      rows whose object could not be confirmed gone (a
+ *                          storage error, an unknown answer, or an object still
+ *                          present): path kept, tried again next run
+ *   storage.notAttempted   rows read but not attempted, because the budget ran
+ *                          out mid-page: not a failure, and not "unconfirmed"
+ *   dueLeft                due rows still holding a path or text after the
+ *                          run, or null when that count could not be read
  */
-export type CvPurgeResult =
-  | {
-      complete: true;
-      examined: number;
-      cleared: number;
-      unconfirmed: number;
-      objectsRemoved: number;
-      objectsKept: number;
-      commentsDeleted: number;
-      scoresCleared: number;
-      elapsedMs: number;
-    }
-  | {
-      complete: false;
-      stoppedDuring: "applications" | "comments" | "scores";
-      budgetMs: number;
-      examinedSoFar: number;
-      clearedSoFar: number;
-      unconfirmedSoFar: number;
-      objectsRemoved: number;
-      objectsKept: number;
-      commentsDeletedSoFar: number;
-      scoresClearedSoFar: number;
-      elapsedMs: number;
-    };
+export type CvPurgeResult = {
+  complete: boolean;
+  budgetMs: number;
+  elapsedMs: number;
+  text: { cleared: number; finished: boolean };
+  storage: {
+    examined: number;
+    rowsCleared: number;
+    removed: number;
+    alreadyMissing: number;
+    sharedKept: number;
+    heldError: number;
+    notAttempted: number;
+    finished: boolean;
+  };
+  comments: { deleted: number; finished: boolean };
+  scores: { cleared: number; finished: boolean };
+  dueLeft: number | null;
+};
 
-/** The one log line, with the stop reason first so a scan of the logs sees it. */
+/** The one log line. COMPLETE only when nothing is left; otherwise what is, first. */
 export function describeCvPurge(jobId: string, r: CvPurgeResult): string {
+  const counts =
+    `text cleared=${r.text.cleared}; storage examined=${r.storage.examined} ` +
+    `rows cleared=${r.storage.rowsCleared} removed=${r.storage.removed} ` +
+    `already missing=${r.storage.alreadyMissing} shared kept=${r.storage.sharedKept} ` +
+    `held (error)=${r.storage.heldError} not attempted=${r.storage.notAttempted}; ` +
+    `comments=${r.comments.deleted} scores=${r.scores.cleared}`;
   if (r.complete) {
-    return (
-      `[cv-purge] job ${jobId}: COMPLETE in ${r.elapsedMs} ms: examined=${r.examined} ` +
-      `cleared=${r.cleared} unconfirmed=${r.unconfirmed} (text cleared, path kept, read again next run) ` +
-      `objects=${r.objectsRemoved} kept=${r.objectsKept} comments=${r.commentsDeleted} ` +
-      `scores=${r.scoresCleared}`
-    );
+    return `[cv-purge] job ${jobId}: COMPLETE in ${r.elapsedMs} ms, nothing due is left: ${counts}`;
   }
+  const unfinished = (["text", "storage", "comments", "scores"] as const).filter(
+    (k) => !r[k].finished,
+  );
+  const why = [
+    unfinished.length > 0
+      ? `budget of ${r.budgetMs} ms reached before the end of: ${unfinished.join(", ")}`
+      : null,
+    r.storage.heldError > 0 ? `${r.storage.heldError} held on a storage error` : null,
+    r.storage.notAttempted > 0 ? `${r.storage.notAttempted} not attempted` : null,
+    r.dueLeft === null ? "due rows left: unknown (count failed)" : `due rows left=${r.dueLeft}`,
+  ].filter(Boolean);
   return (
-    `[cv-purge] job ${jobId}: INCOMPLETE, budget of ${r.budgetMs} ms reached during ${r.stoppedDuring} ` +
-    `after ${r.elapsedMs} ms: examined so far=${r.examinedSoFar} cleared so far=${r.clearedSoFar} ` +
-    `unconfirmed so far=${r.unconfirmedSoFar} objects=${r.objectsRemoved} kept=${r.objectsKept} ` +
-    `comments so far=${r.commentsDeletedSoFar} scores so far=${r.scoresClearedSoFar}. ` +
-    `The rest of the due set was NOT examined; the next run starts again from the current state.`
+    `[cv-purge] job ${jobId}: INCOMPLETE after ${r.elapsedMs} ms: ${why.join("; ")}. ${counts}. ` +
+    `The next run starts again from the current state.`
   );
 }
 
@@ -278,16 +310,22 @@ export async function handleCvPurge(job: {
   id: string;
   payload: Record<string, unknown>;
 }): Promise<void> {
-  await runCvPurge(job);
-  // Last phase: CV files no row names any more (cv-orphan-sweep.ts). A dry run
-  // unless CV_ORPHAN_SWEEP_LIVE is "true"; never fails the purge above.
   try {
-    const sweep = await runCvOrphanSweep(createServiceClient());
-    const line = describeCvOrphanSweep(job.id, sweep);
-    if (sweep.stopped && sweep.stopped !== "cap" && sweep.stopped !== "budget") console.error(line);
-    else console.log(line);
-  } catch {
-    console.error(`[cv-orphan-sweep] job ${job.id}: the sweep threw; nothing more was deleted`);
+    await runCvPurge(job);
+  } finally {
+    // Last phase: CV files no row names any more (cv-orphan-sweep.ts). A dry
+    // run unless CV_ORPHAN_SWEEP_LIVE is "true". It runs even when the purge
+    // threw (#60), and never fails the job itself: the purge's own error, if
+    // any, is still the one the queue sees.
+    try {
+      const sweep = await runCvOrphanSweep(createServiceClient());
+      const line = describeCvOrphanSweep(job.id, sweep);
+      if (sweep.stopped && sweep.stopped !== "cap" && sweep.stopped !== "budget") {
+        console.error(line);
+      } else console.log(line);
+    } catch {
+      console.error(`[cv-orphan-sweep] job ${job.id}: the sweep threw; nothing more was deleted`);
+    }
   }
 }
 
@@ -305,202 +343,196 @@ export async function runCvPurge(
   const budgetMs = opts.budgetMs ?? BUDGET_MS;
   const startedAt = clock();
   const overBudget = () => clock() - startedAt > budgetMs;
+  const past = (share: number) => clock() - startedAt > budgetMs * share;
   const now = new Date().toISOString();
 
-  let objectsRemoved = 0;
-  let objectsKept = 0;
-  let rowsCleared = 0;
-  let textOnly = 0;
-  let examined = 0;
-  let stoppedDuring: "applications" | "comments" | "scores" | null = null;
+  /** The due set, both halves of the scope guard. See the banner. */
+  const due = <Q extends DueFilterable<Q>>(q: Q): Q =>
+    q.lte("cv_delete_after", now).not("company_id_snapshot", "is", null);
 
   /*
-   * ── Paged by KEY, not by offset (#55a) ────────────────────────
+   * ── First pass: the extracted text (#60) ─────────────────────
    *
-   * The previous loop ordered by cv_delete_after alone and advanced an offset
-   * by the number of rows it could not finish. The arithmetic was right for
-   * the filter and wrong for the heap: cv_delete_after is not a total order
-   * (everyone who applied in the same second shares one), and a concurrent
-   * UPDATE to an indexed column moves a tuple under the window. Reproduced on
-   * staging: with a second writer flipping pipeline_stage on rows the loop had
-   * not reached, one full run left 237, then 303, of 1,200 due rows untouched
-   * and logged a count that looked complete.
-   *
-   * The order is now (cv_delete_after, id), which is total because id is
-   * unique, and each page starts strictly after the last row the previous
-   * page READ, whatever happened to that row. A row that moves cannot cross
-   * that boundary: it keeps its key.
-   *
-   * What this does NOT change: a row whose storage object could not be
-   * confirmed gone keeps its path, stays in the filter, and is NOT read again
-   * in this run. It sits behind the cursor and the next run, a day later,
-   * reads it afresh. The offset version did exactly the same: counting a
-   * stuck row in the offset moved the window PAST it ("passed over once per
-   * run and retried on the next"). The cursor makes that one-attempt-per-run
-   * rule structural instead of arithmetical.
+   * Every due row's cv_text, cleared before any storage call. It lives in the
+   * database, its deletion cannot half-succeed, and nothing about the PDF
+   * should hold it back: a storage outage used to leave text and file
+   * together on the pages it stopped. A cleared row stops matching, so each
+   * page reads the next rows still holding text; a row that comes back after
+   * being cleared means the write did not land, and the pass stops rather
+   * than spin.
    */
-  let cursor: Cursor | null = null;
-
+  let textCleared = 0;
+  let textFinished = false;
+  const textDone = new Set<string>();
   for (;;) {
-    if (overBudget()) {
-      stoppedDuring = "applications";
-      break;
-    }
-
-    /*
-     * Idempotency, with no new column: a row is "already purged" precisely
-     * when it holds neither a path nor extracted text. Once both are null
-     * this stops matching, so a second run over the same application does no
-     * work and makes no storage calls — it never even reads the row.
-     *
-     * One `or` expression carries both that test and the cursor, as one
-     * `and(...)`, so PostgREST sees a single logical filter.
-     */
-    const notYetPurged = "cv_path.not.is.null,cv_text.not.is.null";
-    const afterCursor = cursor
-      ? `and(or(${notYetPurged}),or(cv_delete_after.gt.${cursor.deleteAfter},` +
-        `and(cv_delete_after.eq.${cursor.deleteAfter},id.gt.${cursor.id})))`
-      : notYetPurged;
-
-    const { data, error } = await service
-      .from("job_applications")
-      .select("id, cv_path, cv_text, cv_delete_after")
-      // ── The scope guard, both halves. See the banner. ──
-      .lte("cv_delete_after", now)
-      .not("company_id_snapshot", "is", null)
-      .or(afterCursor)
+    if (past(TEXT_SHARE)) break;
+    const { data, error } = await due(
+      service.from("job_applications").select("id, cv_delete_after"),
+    )
+      .not("cv_text", "is", null)
       .order("cv_delete_after", { ascending: true })
       .order("id", { ascending: true })
       .limit(DB_PAGE);
+    if (error) throw new Error(`cv purge: text page: ${error.message}`);
+    const ids = ((data ?? []) as { id: string }[]).map((r) => r.id);
+    if (ids.length === 0) {
+      textFinished = true;
+      break;
+    }
+    if (ids.some((id) => textDone.has(id))) {
+      console.error("[cv-purge] text pass: a cleared row came back; stopping the pass");
+      break;
+    }
+    const { error: textErr } = await due(
+      service.from("job_applications").update({ cv_text: null }),
+    ).in("id", ids);
+    if (textErr) throw new Error(`cv purge: clear text: ${textErr.message}`);
+    for (const id of ids) textDone.add(id);
+    textCleared += ids.length;
+    if (ids.length < DB_PAGE) {
+      textFinished = true;
+      break;
+    }
+  }
 
+  /*
+   * ── Second pass: the files (#60) ─────────────────────────────
+   *
+   * NEWEST due first, by (cv_delete_after, id) descending, paged by key. A row
+   * this pass cannot finish keeps its path and stays due; in the old oldest
+   * first order those held rows were read FIRST on every run and a large
+   * enough pile used the whole budget before any newer due row was reached.
+   * A held row is by construction older than every row that became due after
+   * it, so newest first reaches the new rows before the pile, and the pile is
+   * retried with what is left of this pass's share.
+   *
+   * A path is cleared only when its object is known gone: storage confirmed
+   * the delete, or an existence check says it does not exist, or another row
+   * still names it (kept on purpose). Anything else (an error, an unknown
+   * answer, an object still there) keeps the path: fail closed.
+   */
+  const storage = {
+    examined: 0,
+    rowsCleared: 0,
+    removed: 0,
+    alreadyMissing: 0,
+    sharedKept: 0,
+    heldError: 0,
+    notAttempted: 0,
+    finished: false,
+  };
+  const bucket = service.storage.from(CV_BUCKET);
+  let cursor: Cursor | null = null;
+  pages: for (;;) {
+    if (past(STORAGE_UNTIL)) break;
+    let page = due(service.from("job_applications").select("id, cv_path, cv_delete_after")).not(
+      "cv_path",
+      "is",
+      null,
+    );
+    if (cursor) {
+      page = page.or(
+        `cv_delete_after.lt.${cursor.deleteAfter},` +
+          `and(cv_delete_after.eq.${cursor.deleteAfter},id.lt.${cursor.id})`,
+      );
+    }
+    const { data, error } = await page
+      .order("cv_delete_after", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(DB_PAGE);
     if (error) {
       const at = cursor ? `after ${cursor.deleteAfter} / ${cursor.id}` : "at the start";
       throw new Error(`cv purge: ${at}: ${error.message}`);
     }
     const rows = (data ?? []) as DueRow[];
-    if (rows.length === 0) break;
-    examined += rows.length;
+    if (rows.length === 0) {
+      storage.finished = true;
+      break;
+    }
+    storage.examined += rows.length;
     const last = rows[rows.length - 1];
     cursor = { deleteAfter: last.cv_delete_after, id: last.id };
-
-    /*
-     * ── Why the row update is split ──
-     *
-     * Same reasoning as the interview purge, and the same hazard. cv_path IS
-     * the only record of where the PDF lives: clearing it after a failed
-     * delete strands the file permanently, with nothing left pointing at it
-     * and no sweep that would ever find it.
-     *
-     * So cv_text is cleared for every due row unconditionally — it lives in
-     * the database, its deletion cannot half-succeed — while cv_path is
-     * cleared ONLY for objects storage confirmed gone. Anything else keeps its
-     * path, still matches the `or(...)` selector above, and is retried on the
-     * next run.
-     */
-    const withPath = rows.filter((r): r is DueRow & { cv_path: string } => Boolean(r.cv_path));
-    const confirmed = new Set<string>();
-    const shared = new Set<string>();
     const self = { table: "job_applications", ids: new Set(rows.map((r) => r.id)) };
 
-    for (const batch of chunk(withPath, REMOVE_CHUNK)) {
-      if (overBudget()) {
-        stoppedDuring = "applications";
-        break;
+    const batches = chunk(rows, REMOVE_CHUNK);
+    for (let b = 0; b < batches.length; b++) {
+      if (past(STORAGE_UNTIL)) {
+        // Cut mid-page: the rest of this page was read but never tried.
+        storage.notAttempted += batches.slice(b).reduce((n, x) => n + x.length, 0);
+        break pages;
       }
+      const batch = batches[b];
       const paths = [...new Set(batch.map((r) => r.cv_path))];
+      const gone = new Set<string>();
 
       /*
-       * WHO ELSE HOLDS THESE KEYS — asked before anything is deleted.
-       *
-       * A storage object is not owned by the row that names it: the same key is
-       * COPIED, never re-uploaded, into talent_profiles and onward into
-       * client_batch_candidates. Deleting one here because this row expired
-       * would empty a CV that another record still advertises.
-       *
-       * Not strictly reachable while the scope guard above holds — a client
-       * company's application is not a row anything copies from. It stays
-       * because that is an argument, and this is a check: it costs one indexed
-       * read per batch, and the guard has come off once already.
-       *
-       * A failure to answer skips the batch whole rather than guessing. Both
-       * guesses lose data: "assume shared" clears rows and strands their files,
-       * "assume unshared" deletes a CV another row still advertises. These rows
-       * keep matching the selector and are retried next run.
+       * WHO ELSE HOLDS THESE KEYS: asked before anything is deleted. The same
+       * key is COPIED, never re-uploaded, into talent_profiles and onward, so
+       * deleting it because this row expired would empty a CV another record
+       * still advertises. A failure to answer holds the batch whole rather
+       * than guess; both guesses lose data.
        */
       let sharedHere: Set<string>;
       try {
         sharedHere = await findSharedPaths(service, "cv_path", paths, self);
       } catch (err) {
         console.error(
-          `[cv-purge] shared-reference check failed, batch skipped: ${(err as Error).message}`,
+          `[cv-purge] shared-reference check failed, batch held: ${(err as Error).message}`,
         );
+        storage.heldError += batch.length;
         continue;
       }
-      for (const path of sharedHere) shared.add(path);
-      objectsKept += sharedHere.size;
+      for (const p of sharedHere) gone.add(p);
+      storage.sharedKept += sharedHere.size;
 
       const removable = paths.filter((p) => !sharedHere.has(p));
-      if (removable.length === 0) continue;
-
-      let outcome: Awaited<ReturnType<typeof removeObjects>>;
-      try {
-        outcome = await removeObjects(service, CV_BUCKET, removable);
-      } catch (err) {
-        // Storage unreachable. Leave every path intact so the next run retries
-        // rather than clearing paths for objects that may still exist.
-        console.error(`[cv-purge] remove threw: ${(err as Error).message}`);
-        continue;
+      let confirmed = new Set<string>();
+      if (removable.length > 0) {
+        try {
+          const outcome = await removeObjects(service, CV_BUCKET, removable);
+          if (outcome.error) console.error(`[cv-purge] remove: ${outcome.error}`);
+          confirmed = outcome.removed;
+        } catch (err) {
+          console.error(`[cv-purge] remove threw: ${(err as Error).message}`);
+        }
       }
-      if (outcome.error) {
-        console.error(`[cv-purge] remove: ${outcome.error}`);
+      for (const p of confirmed) gone.add(p);
+      storage.removed += confirmed.size;
+
+      // Not confirmed: ask storage whether the object exists at all. Only its
+      // own "not found" settles it (cv-object.ts); an error or an object that
+      // is still there keeps the path.
+      const unsettled = removable.filter((p) => !confirmed.has(p));
+      let next = 0;
+      const lane = async () => {
+        while (next < unsettled.length) {
+          const p = unsettled[next++];
+          if ((await cvObjectState(bucket, p)).state === "missing") {
+            gone.add(p);
+            storage.alreadyMissing += 1;
+          }
+        }
+      };
+      await Promise.all(
+        Array.from({ length: Math.min(CHECK_CONCURRENCY, unsettled.length) }, lane),
+      );
+
+      const cleared = batch.filter((r) => gone.has(r.cv_path)).map((r) => r.id);
+      storage.heldError += batch.length - cleared.length;
+      if (cleared.length > 0) {
+        const { error: clearErr } = await service
+          .from("job_applications")
+          .update({ cv_path: null, cv_text: null })
+          .in("id", cleared);
+        if (clearErr) throw new Error(`cv purge: clear rows: ${clearErr.message}`);
+        storage.rowsCleared += cleared.length;
       }
-      for (const path of outcome.removed) confirmed.add(path);
-      objectsRemoved += outcome.removed.size;
     }
 
-    const cleared: string[] = [];
-    const textCleared: string[] = [];
-    for (const row of rows) {
-      /*
-       * Three ways a row is finished, and they are not the same thing:
-       *
-       *   no path        — nothing left in storage to lose. Absence is not
-       *                    failure.
-       *   confirmed gone — the object was deleted.
-       *   shared         — the object was deliberately LEFT, because another
-       *                    row still names it. The application still expires:
-       *                    its cv_path and cv_text go, the company no longer
-       *                    holds the document, and the file survives only for
-       *                    the other row's own retention period.
-       *
-       * A failed delete is none of these and must hold the row back — clearing
-       * cv_path then would strand the file with nothing naming it.
-       */
-      if (!row.cv_path || confirmed.has(row.cv_path) || shared.has(row.cv_path)) {
-        cleared.push(row.id);
-      } else {
-        textCleared.push(row.id);
-      }
+    if (rows.length < DB_PAGE) {
+      storage.finished = true;
+      break;
     }
-
-    if (cleared.length > 0) {
-      const { error: clearErr } = await service
-        .from("job_applications")
-        .update({ cv_path: null, cv_text: null })
-        .in("id", cleared);
-      if (clearErr) throw new Error(`cv purge: clear rows: ${clearErr.message}`);
-      rowsCleared += cleared.length;
-    }
-    if (textCleared.length > 0) {
-      const { error: textErr } = await service
-        .from("job_applications")
-        .update({ cv_text: null })
-        .in("id", textCleared);
-      if (textErr) throw new Error(`cv purge: clear text: ${textErr.message}`);
-      textOnly += textCleared.length;
-    }
-
-    if (stoppedDuring || rows.length < DB_PAGE) break;
   }
 
   /*
@@ -531,12 +563,9 @@ export async function runCvPurge(
    * due ids; without it the same predicate matches the whole table.
    */
   let commentsDeleted = 0;
+  let commentsFinished = false;
   for (;;) {
-    if (stoppedDuring) break;
-    if (overBudget()) {
-      stoppedDuring = "comments";
-      break;
-    }
+    if (overBudget()) break;
 
     const { data, error } = await service
       .from("application_team_comments")
@@ -547,7 +576,10 @@ export async function runCvPurge(
 
     if (error) throw new Error(`cv purge: due comments: ${error.message}`);
     const ids = ((data ?? []) as unknown as { id: string }[]).map((r) => r.id);
-    if (ids.length === 0) break;
+    if (ids.length === 0) {
+      commentsFinished = true;
+      break;
+    }
 
     /*
      * Replies go with their root by the composite FK's ON DELETE CASCADE, so a
@@ -563,7 +595,10 @@ export async function runCvPurge(
     if (delErr) throw new Error(`cv purge: delete comments: ${delErr.message}`);
     commentsDeleted += ids.length;
 
-    if (ids.length < DB_PAGE) break;
+    if (ids.length < DB_PAGE) {
+      commentsFinished = true;
+      break;
+    }
   }
 
   /*
@@ -586,13 +621,10 @@ export async function runCvPurge(
    * `!inner` is load-bearing here exactly as in the comments pass.
    */
   let scoresCleared = 0;
+  let scoresFinished = false;
   let scoreCursor: string | null = null;
   for (;;) {
-    if (stoppedDuring) break;
-    if (overBudget()) {
-      stoppedDuring = "scores";
-      break;
-    }
+    if (overBudget()) break;
 
     let page = service
       .from("application_scores")
@@ -607,7 +639,10 @@ export async function runCvPurge(
 
     if (error) throw new Error(`cv purge: due scores: ${error.message}`);
     const cards = (data ?? []) as unknown as ScoreWords[];
-    if (cards.length === 0) break;
+    if (cards.length === 0) {
+      scoresFinished = true;
+      break;
+    }
 
     for (const card of cards) {
       if (!scoreWordsLeft(card)) continue;
@@ -624,35 +659,42 @@ export async function runCvPurge(
     }
 
     scoreCursor = cards[cards.length - 1].application_id;
-    if (cards.length < DB_PAGE) break;
+    if (cards.length < DB_PAGE) {
+      scoresFinished = true;
+      break;
+    }
   }
 
+  /*
+   * ── What is left ─────────────────────────────────────────────
+   *
+   * One count over the due set, so COMPLETE is a statement about the table,
+   * not about what this run happened to touch. A count that cannot be read is
+   * unknown, and unknown is not complete.
+   */
+  const { count: left, error: leftErr } = await due(
+    service.from("job_applications").select("id", { count: "exact", head: true }),
+  ).or("cv_path.not.is.null,cv_text.not.is.null");
+  const dueLeft = leftErr ? null : (left ?? 0);
+
   const elapsedMs = clock() - startedAt;
-  const result: CvPurgeResult = stoppedDuring
-    ? {
-        complete: false,
-        stoppedDuring,
-        budgetMs,
-        examinedSoFar: examined,
-        clearedSoFar: rowsCleared,
-        unconfirmedSoFar: textOnly,
-        objectsRemoved,
-        objectsKept,
-        commentsDeletedSoFar: commentsDeleted,
-        scoresClearedSoFar: scoresCleared,
-        elapsedMs,
-      }
-    : {
-        complete: true,
-        examined,
-        cleared: rowsCleared,
-        unconfirmed: textOnly,
-        objectsRemoved,
-        objectsKept,
-        commentsDeleted,
-        scoresCleared,
-        elapsedMs,
-      };
+  const result: CvPurgeResult = {
+    complete:
+      textFinished &&
+      storage.finished &&
+      commentsFinished &&
+      scoresFinished &&
+      storage.heldError === 0 &&
+      storage.notAttempted === 0 &&
+      dueLeft === 0,
+    budgetMs,
+    elapsedMs,
+    text: { cleared: textCleared, finished: textFinished },
+    storage,
+    comments: { deleted: commentsDeleted, finished: commentsFinished },
+    scores: { cleared: scoresCleared, finished: scoresFinished },
+    dueLeft,
+  };
   console.log(describeCvPurge(job.id, result));
   return result;
 }

@@ -190,37 +190,35 @@ const REVERSIONS = [
     expect: "pin: the allowance read pages usage_events by key",
   },
 
-  /* ── #55a: the CV purge pages by key, and its report is honest ── */
+  /* ── #60: the CV purge's storage pass, and its report is honest ── */
   {
-    name: "#55a: the purge loses the id order key, so ties on cv_delete_after have no total order",
-    // The cursor predicate survives; the page order among ties does not, so a
-    // row moved by a writer crosses the cursor and is never read.
+    name: "#60: the storage pass goes back to OLDEST due first, so a held pile starves newer rows",
+    // Held rows keep their path and stay due; read oldest first, a big enough
+    // pile is re-read first on every run and a newer due row is never reached.
     file: CV_PURGE,
-    from: '      .order("cv_delete_after", { ascending: true })\n      .order("id", { ascending: true })\n',
-    to: '      .order("cv_delete_after", { ascending: true })\n',
+    from: '      .order("cv_delete_after", { ascending: false })\n      .order("id", { ascending: false })\n',
+    to: '      .order("cv_delete_after", { ascending: true })\n      .order("id", { ascending: true })\n',
     test: CV_PURGE_TEST,
-    expect:
-      "#55a: every clearable row is cleared and every unconfirmable row is held, with a writer moving unread rows under the loop",
+    expect: "#60: a pile of held rows across several runs never starves a newer due row",
   },
   {
-    name: "#55a: the cursor goes back to the last row PROCESSED instead of the last row read",
-    // The cursor lands on the last row CLEARED; a held row after it on the
-    // same page is read again by the next page, and the once-per-run test
-    // sees the repeat.
+    name: "#60: no existence check, so a file already missing from storage holds its row for ever",
+    // remove() lists only what it deleted; without asking storage whether the
+    // object exists, a missing file is never confirmed and never cleared.
     file: CV_PURGE,
-    from: "    const last = rows[rows.length - 1];\n    cursor = { deleteAfter: last.cv_delete_after, id: last.id };\n",
-    to: "    const last = rows[rows.length - 1];\n    cursor = { deleteAfter: last.cv_delete_after, id: (rows.filter((r) => !r.cv_path).at(-1) ?? last).id };\n",
+    from: '          if ((await cvObjectState(bucket, p)).state === "missing") {\n',
+    to: "          if (false as boolean) {\n",
     test: CV_PURGE_TEST,
-    expect: "#55a: an unconfirmable row is read ONCE per run, not retried within it",
+    expect: "#60: a file already missing from storage is cleared, not held for ever",
   },
   {
-    name: "#55a: a run stopped by the budget reports itself as complete",
+    name: "#60: the run says COMPLETE while due work is left (held rows, not attempted, due left)",
     file: CV_PURGE,
-    from: "  const result: CvPurgeResult = stoppedDuring\n",
-    to: "  const result: CvPurgeResult = null\n",
+    from: "      storage.heldError === 0 &&\n      storage.notAttempted === 0 &&\n      dueLeft === 0,\n",
+    to: "      true,\n",
     test: CV_PURGE_TEST,
     expect:
-      "#55a: a run that stops for budget says INCOMPLETE and reports 'so far' numbers, never a total",
+      "#60: a storage error stays held (fail closed): the path is kept and the run is not complete",
   },
 
   /* ── #91: an expired CV keeps its score and loses the AI's words about it ── */
