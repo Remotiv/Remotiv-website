@@ -51,9 +51,26 @@ export function supabaseHost(url: string): string {
 export type CspInput = {
   /** The single Supabase host every directive below is built around. */
   supabaseHost: string;
-  /** upgrade-insecure-requests ships in production only (breaks plain-HTTP localhost dev). */
+  /**
+   * upgrade-insecure-requests ships in production only (breaks plain-HTTP
+   * localhost dev), and 'unsafe-eval' in development only (#72).
+   */
   isProduction: boolean;
 };
+
+/**
+ * script-src. 'unsafe-eval' is development only (#72): Next's dev runtime
+ * needs it (node_modules/next/dist/docs/01-app/02-guides/content-security-policy.md),
+ * and nothing in the production client bundles calls eval. The only
+ * Function(...) left in them is the "return this" fallback for finding the
+ * global object, behind globalThis, window and self, so never reached in a
+ * browser. pdf.js 6 has no eval path at all. 'unsafe-inline' stays until the
+ * nonce or hash decision (#72, step 13).
+ */
+export function scriptSrc(isProduction: boolean): string {
+  const evalSource = isProduction ? "" : " 'unsafe-eval'";
+  return `script-src 'self' 'unsafe-inline'${evalSource} https://assets.calendly.com`;
+}
 
 /**
  * The base CSP directives, as an array. One Supabase host, spliced into
@@ -64,7 +81,7 @@ export function baseDirectives({ supabaseHost: host, isProduction }: CspInput): 
   const wss = `wss://${host}`;
   return [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://assets.calendly.com",
+    scriptSrc(isProduction),
     "style-src 'self' 'unsafe-inline' https://assets.calendly.com",
     `img-src 'self' data: blob: ${https} https://*.calendly.com`,
     "font-src 'self' data:",

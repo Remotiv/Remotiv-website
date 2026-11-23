@@ -13,6 +13,7 @@
  */
 // @ts-nocheck - Node's .ts specifier vs this tsconfig; same as the other staging tests.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   baseDirectives,
@@ -134,4 +135,34 @@ test("the image remotePattern follows the same single host", () => {
     hostname: STAGING_HOST,
     pathname: "/storage/v1/object/**",
   });
+});
+
+/* ─────────────── script-src: no 'unsafe-eval' in production (#72) ─────────────── */
+
+test("PRODUCTION script-src has no 'unsafe-eval', in the base and the media CSP alike", () => {
+  const host = supabaseHost(PRODUCTION_SUPABASE_URL);
+  for (const directives of [
+    baseDirectives({ supabaseHost: host, isProduction: true }),
+    mediaDirectives({ supabaseHost: host, isProduction: true }),
+  ]) {
+    assert.equal(
+      directives.find((d) => d.startsWith("script-src")),
+      "script-src 'self' 'unsafe-inline' https://assets.calendly.com",
+    );
+    assert.doesNotMatch(toCsp(directives), /unsafe-eval/);
+  }
+});
+
+test("DEVELOPMENT script-src keeps 'unsafe-eval' (Next's dev runtime needs it)", () => {
+  const dev = baseDirectives({ supabaseHost: STAGING_HOST, isProduction: false });
+  assert.equal(
+    dev.find((d) => d.startsWith("script-src")),
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://assets.calendly.com",
+  );
+});
+
+test("the headers are built with isProduction from NODE_ENV, so next start serves the production CSP", () => {
+  const config = readFileSync(new URL("../../../next.config.ts", import.meta.url), "utf8");
+  assert.match(config, /const isProduction = process\.env\.NODE_ENV === "production";/);
+  assert.match(config, /const cspInput = \{ supabaseHost: SUPABASE_HOST, isProduction \};/);
 });
