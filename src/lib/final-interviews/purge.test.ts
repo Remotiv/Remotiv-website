@@ -11,6 +11,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { register } from "node:module";
 import { test } from "node:test";
+import { companyDeleteSource } from "../../test-support/company-delete-source.mjs";
 import { fakeS3 } from "../../test-support/fake-s3.mjs";
 import {
   APP,
@@ -321,10 +322,7 @@ test("a storage or database error is reported, never thrown", async () => {
 test("the applicant delete removes the recordings before the row, with its own company, and stops on a file left", () => {
   // B7: the delete now goes through application-files.ts (recordings, then the CV), which
   // confirms each file gone; a file left stops the delete before the row, for a retry.
-  const src = readFileSync(
-    new URL("../../app/ai-dashboard/(gated)/applicants/actions.ts", import.meta.url),
-    "utf8",
-  );
+  const src = companyDeleteSource();
   const fn = src.slice(
     src.indexOf("export async function deleteApplication("),
     src.indexOf("// ── Team comments"),

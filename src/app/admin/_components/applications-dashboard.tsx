@@ -53,6 +53,7 @@ import {
   toggleApplicationTag,
   addComment,
   deleteApplication,
+  deleteApplicationAnyway,
   fetchComments,
   type ApplicationTag,
   type JobApplication,
@@ -61,6 +62,10 @@ import {
   type OpenJob,
 } from "@/app/admin/applications/actions";
 import { type UserRole, canDelete, canEdit } from "@/app/admin/lib/roles";
+import {
+  DELETE_ANYWAY,
+  DELETE_ANYWAY_BODY,
+} from "@/app/ai-dashboard/(gated)/applicants/_deletion-pending";
 import { isValidEmail } from "@/lib/validators";
 import { TRY_AGAIN_SOON } from "@/lib/rate-limit-copy";
 import { toWhatsAppDigits } from "@/lib/normalize";
@@ -1252,8 +1257,16 @@ export function ApplicationsDashboard({
   // ── Delete confirm ────────────────────────────────────────
   const [deleteTarget, setDeleteTarget] = useState<JobApplication | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // #69 step 4: Google, while connected, could not remove an event and the
+  // failure is recorded; only then is "Delete anyway" offered, by click.
+  const [anywayOffered, setAnywayOffered] = useState(false);
 
-  async function handleDelete() {
+  function closeDeleteDialog() {
+    setDeleteTarget(null);
+    setAnywayOffered(false);
+  }
+
+  async function handleDelete(anyway = false) {
     if (!deleteTarget) return;
     setDeleting(true);
     // Say so, on EVERY failure path (#95). The helper runs five steps, files
@@ -1269,7 +1282,9 @@ export function ApplicationsDashboard({
     // Nothing of a thrown value is logged beyond a code, if it carries one.
     let result: Awaited<ReturnType<typeof deleteApplication>>;
     try {
-      result = await deleteApplication(deleteTarget.id);
+      result = anyway
+        ? await deleteApplicationAnyway(deleteTarget.id, { acknowledgeCalendarEvent: true })
+        : await deleteApplication(deleteTarget.id);
     } catch (err) {
       console.error(
         `[admin] delete applicant threw: ${(err as { code?: string } | null)?.code ?? "error"}`,
@@ -1280,11 +1295,14 @@ export function ApplicationsDashboard({
     }
     if (result.success) {
       setApps((prev) => prev.filter((a) => a.id !== deleteTarget.id));
-      setDeleteTarget(null);
+      closeDeleteDialog();
+      // An event a disconnected calendar may still hold is the admin's to remove (#56).
+      if (result.data?.calendarNote) setToast(result.data.calendarNote);
     } else {
       // Every string the action returns is a fixed sentence (#95 fixed the
       // one raw database message at its source), so nothing needs mapping.
       setToast(`Delete failed: ${result.error}`);
+      if (result.anywayAvailable) setAnywayOffered(true);
     }
   }
 
@@ -1985,18 +2003,32 @@ export function ApplicationsDashboard({
                 , with their CV file and their interviews, including every recording and transcript.
                 This action cannot be undone.
               </p>
+              {anywayOffered && (
+                <div className="mt-4 w-full rounded-xl bg-amber-50 p-3 text-left">
+                  <p className="text-sm text-amber-900">{DELETE_ANYWAY_BODY}</p>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(true)}
+                    disabled={deleting}
+                    aria-busy={deleting}
+                    className="mt-3 w-full rounded-xl border border-red-200 bg-white py-2 text-sm font-semibold text-red-700 transition-colors hover:bg-red-50 disabled:opacity-50"
+                  >
+                    {DELETE_ANYWAY}
+                  </button>
+                </div>
+              )}
             </div>
             <div className="flex gap-3 border-t border-gray-100 px-6 py-4">
               <button
                 type="button"
-                onClick={() => setDeleteTarget(null)}
+                onClick={closeDeleteDialog}
                 className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
               >
                 Cancel
               </button>
               <button
                 type="button"
-                onClick={handleDelete}
+                onClick={() => handleDelete()}
                 disabled={deleting} aria-busy={deleting}
                 className="flex-1 rounded-xl bg-red-600 py-2.5 text-sm font-semibold text-white transition-opacity hover:bg-red-700 disabled:opacity-50"
               >

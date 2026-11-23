@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { register } from "node:module";
 import { test } from "node:test";
+import { companyDeleteSource } from "../../../../test-support/company-delete-source.mjs";
 
 register(new URL("../../../../test-support/node-resolve.mjs", import.meta.url));
 register(new URL("../../../../test-support/tsx-load.mjs", import.meta.url));
@@ -24,7 +25,7 @@ const { SplitListItem } = await import("./_split-list-item.tsx");
 
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
 const CLIENT = read("./_applicants-client.tsx");
-const ACTIONS = read("./actions.ts");
+const ACTIONS = companyDeleteSource();
 /** Code only: comments may name what the code must not do. */
 const code = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
 

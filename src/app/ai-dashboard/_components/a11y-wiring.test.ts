@@ -10,6 +10,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { companyDeleteSource } from "../../../test-support/company-delete-source.mjs";
 
 const src = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
 const G = "../(gated)/";
@@ -139,7 +140,7 @@ test("A6-26: recruiter surfaces render stored errors only through the safe-sente
     `${G}jobs/actions.ts`,
     `${G}messages/actions.ts`,
   ]) {
-    const s = src(rel);
+    const s = rel === `${G}applicants/actions.ts` ? companyDeleteSource() : src(rel);
     assert.doesNotMatch(
       s,
       /return \{ success: false, error: (updateErr|error|delErr|uploadErr|snapErr)\.message \}/,
@@ -149,7 +150,7 @@ test("A6-26: recruiter surfaces render stored errors only through the safe-sente
   }
   // The two deletes write something BEFORE the failing statement (the CV
   // object, the title snapshots), so they must not claim nothing changed.
-  const applicants = src(`${G}applicants/actions.ts`);
+  const applicants = companyDeleteSource();
   // #60, #16: a delete that started and did not finish says so in one fixed
   // sentence (its links are closed); the code only in the log.
   assert.match(

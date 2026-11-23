@@ -7,10 +7,14 @@ import { getAvatarUrl } from "@/lib/avatars";
 import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
 import { isValidEmail, trimRequired, trimToNull } from "@/lib/validators";
 import { adminApplicationScope } from "@/lib/admin-scope";
+import { actionIncomplete } from "@/app/ai-dashboard/lib/action-errors";
+import {
+  ANYWAY_NEEDS_ACK,
+  ANYWAY_NOT_AVAILABLE,
+  deleteForRemotiv,
+  type RemotivDeleteResult,
+} from "@/lib/applicant-deletion-complete";
 import { removeApplicationFiles } from "@/lib/application-files";
-import { deleteApplicationInterviews } from "@/lib/interviews/application-deletion";
-import { resolveHref } from "@/lib/notifications/company";
-import { pageAllByKey } from "@/lib/supabase/paging";
 import { deriveCvPathFromUrl } from "@/lib/cv-path";
 
 export type ApplicationStatus = "new" | "shortlisted" | "not_a_fit" | "maybe";
@@ -198,23 +202,41 @@ export async function addComment(
 }
 
 /**
- * A failure AFTER the interviews and files were removed (#93): the applicant
- * row is still there, so "nothing happened" would be false. Delete again
- * finishes it: the removed files count as already gone.
+ * A failure AFTER the files were removed (#93): the applicant row is still
+ * there, so "nothing happened" would be false. Delete again finishes it: the
+ * removed files count as already gone.
  */
 const PARTLY_DELETED =
   "Deletion was not completed. Some data may already have been removed. Refresh and try Delete again.";
 
-export async function deleteApplication(
-  id: string,
-): Promise<MutationResult<undefined>> {
+export type DeleteApplicationResult = RemotivDeleteResult;
+
+/**
+ * Permanently delete one application, as Remotiv's super admin (#69 step 4).
+ *
+ * Only what admin may see: adminApplicationScope() is Remotiv's own rows and
+ * its internal companies' rows, never a customer's. Two kinds of row:
+ *
+ *   - An internal company's applicant goes through the same safe delete as the
+ *     company's own (applicants/actions.ts, #16, migration 071), with the
+ *     APPLICATION'S company: Close (every link closed, nothing new can start),
+ *     then Google (that company's calendar hosts), then storage, then Finish
+ *     (sessions, bells, the row, the calendar cleanups, in one transaction).
+ *     A calendar that does not confirm stops it, recorded, and only an
+ *     explicit "Delete anyway" (deleteApplicationAnyway) goes past it.
+ *   - A Remotiv-owned row (no company snapshot) can hold no interview,
+ *     booking, final interview or company bell: each of those tables requires
+ *     a company. 071 matches by company, so it does not apply; the CV file
+ *     goes, then the row, as before.
+ */
+export async function deleteApplication(id: string): Promise<DeleteApplicationResult> {
   await requireSuperAdmin();
   const supabase = createServiceClient();
   // Remotiv must never delete a customer's applicant record: read it within scope first.
   const scope = await adminApplicationScope();
   const { data } = await supabase
     .from("job_applications")
-    .select("id, company_id_snapshot, cv_path")
+    .select("id, company_id_snapshot, cv_path, job_id")
     .eq("id", id)
     .or(scope)
     .maybeSingle();
@@ -222,126 +244,96 @@ export async function deleteApplication(
     id: string;
     company_id_snapshot: string | null;
     cv_path: string | null;
+    job_id: string | null;
   } | null;
   if (!target) return { success: false, error: "Application not found." };
 
-  // The interview-page link interview_expired writes (lib/interviews/expiry.ts
-  // builds it by hand; actions.test.ts holds the two equal), and the number of
-  // hrefs per late-clean DELETE.
-  const interviewPageHref = (sessionId: string) => `/ai-dashboard/interviews/${sessionId}`;
-  const LATE_HREF_CHUNK = 100;
-
-  // The interview session ids, read before the interviews are deleted (#88):
-  // an interview_expired bell links to the interview page, so the late clean
-  // below needs these. Skipped with no company snapshot, like the bell cleans
-  // (no company bell can exist). A failed read stops before anything is removed.
-  let sessionHrefs: string[] = [];
   if (target.company_id_snapshot) {
-    const company = target.company_id_snapshot;
-    try {
-      const sessions = await pageAllByKey<{ id: string }>(
-        () =>
-          supabase
-            .from("interview_sessions")
-            .select("id")
-            .eq("company_id", company)
-            .eq("application_id", target.id),
-        { scope: "admin", label: "delete: interview session ids" },
-      );
-      sessionHrefs = sessions.map((s) => interviewPageHref(s.id));
-    } catch (err) {
-      const code = ((err as { cause?: { code?: string } }).cause?.code ?? "error") as string;
-      console.error(`[admin] delete applicant: interview session read failed: ${code}`);
-      return {
-        success: false,
-        error: "Couldn't finish deleting this applicant. Refresh and try again.",
-      };
-    }
-  }
-
-  // As the company's delete does (B7): the AI interviews and their recordings,
-  // then the final-interview recordings and the CV file, then the row. A file
-  // left stops before the row, and a retry finishes the job.
-  if (target.company_id_snapshot) {
-    const interviews = await deleteApplicationInterviews(
+    const result = await deleteForRemotiv(
       supabase,
-      target.company_id_snapshot,
-      target.id,
+      {
+        applicationId: target.id,
+        applicationCompany: target.company_id_snapshot,
+        cvPath: target.cv_path,
+        jobId: target.job_id,
+        anyway: false,
+      },
+      "Application not found.",
     );
-    if (!interviews.ok) return { success: false, error: interviews.error };
+    revalidatePath("/admin/applications");
+    return result;
   }
-  const files = await removeApplicationFiles(
-    supabase,
-    target.company_id_snapshot,
-    target.id,
-    target.cv_path,
-  );
-  if (!files.ok) return { success: false, error: files.error };
 
-  /*
-   * The company's bells for this applicant (#88), the same two cleans as the
-   * company delete in applicants/actions.ts, in the same order - see its
-   * docblock, and do not merge them: PRE-CLEAN by application_id while the row
-   * still exists (a failure keeps the row), POST-CLEAN after the row by the
-   * href notifyCompany built (a failure is logged, the delete still stands).
-   *
-   * Skipped when company_id_snapshot is null. That is a Remotiv-owned row, and
-   * every bell writer sends the application's company: notifyCompany,
-   * notifyCompanyOnce and notifyCompanyMember return without writing when it
-   * is missing, and score_ready is written only under company_id_snapshot. So
-   * no company bell can point at a row with no company.
-   */
-  const bellCompany = target.company_id_snapshot;
-  if (bellCompany) {
-    const { error: bellErr } = await supabase
-      .from("notifications_company")
-      .delete()
-      .eq("company_id", bellCompany)
-      .eq("application_id", target.id);
-    if (bellErr) {
-      console.error(`[admin] delete applicant: bell clean failed: ${bellErr.code ?? "error"}`);
-      return { success: false, error: PARTLY_DELETED };
-    }
-  }
+  // Remotiv-owned: the CV file, then the row. A file left stops before the
+  // row, and a retry finishes the job.
+  const files = await removeApplicationFiles(supabase, null, target.id, target.cv_path);
+  if (!files.ok) return { success: false, error: files.error };
 
   const { error } = await supabase.from("job_applications").delete().eq("id", target.id).or(scope);
 
   if (error) {
     // The code only, never the message: no table, column or constraint name
     // reaches the browser (#95, the same defect class as #100's third part).
-    // The files above are already gone when this fails, so a retry finds them
+    // The file above is already gone when this fails, so a retry finds it
     // gone and deletes the row; the string says so.
     console.error(`[admin] delete applicant: row delete failed: ${error.code ?? "error"}`);
     return { success: false, error: PARTLY_DELETED };
   }
-
-  // Late clean: the applicant link and the interview pages, scoped to this
-  // company and to orphaned rows, tried twice. A second failure is logged by
-  // code; the delete still stands, but the bell is NOT gone: it waits for the
-  // manual sweep.
-  if (bellCompany) {
-    const applicantHref = resolveHref({ type: "stage_change", applicationId: target.id });
-    const lateHrefs = [...(applicantHref ? [applicantHref] : []), ...sessionHrefs];
-    for (let i = 0; i < lateHrefs.length; i += LATE_HREF_CHUNK) {
-      const chunk = lateHrefs.slice(i, i + LATE_HREF_CHUNK);
-      const lateClean = () =>
-        supabase
-          .from("notifications_company")
-          .delete()
-          .eq("company_id", bellCompany)
-          .is("application_id", null)
-          .in("href", chunk);
-      let { error: lateErr } = await lateClean();
-      if (lateErr) ({ error: lateErr } = await lateClean());
-      if (lateErr) {
-        console.error(
-          `[admin] delete applicant: late bell clean failed: ${lateErr.code ?? "error"}`,
-        );
-      }
-    }
-  }
   revalidatePath("/admin/applications");
   return { success: true, data: undefined };
+}
+
+/**
+ * "Delete anyway" for the super admin (#69 step 4), as the company's (#16):
+ * only after Google, while connected, could not remove an event of this
+ * applicant and that failure was recorded, and only with the explicit
+ * acknowledgement. Google is still tried first.
+ */
+export async function deleteApplicationAnyway(
+  id: string,
+  opts?: { acknowledgeCalendarEvent?: boolean },
+): Promise<DeleteApplicationResult> {
+  await requireSuperAdmin();
+  const supabase = createServiceClient();
+  const scope = await adminApplicationScope();
+  const { data, error } = await supabase
+    .from("job_applications")
+    .select(
+      "id, company_id_snapshot, cv_path, job_id, deletion_started_at, deletion_calendar_failed_at",
+    )
+    .eq("id", id)
+    .or(scope)
+    .maybeSingle();
+  if (error) {
+    return { success: false, error: actionIncomplete("read the applicant", error.code ?? "error") };
+  }
+  const row = data as {
+    id: string;
+    company_id_snapshot: string | null;
+    cv_path: string | null;
+    job_id: string | null;
+    deletion_started_at: string | null;
+    deletion_calendar_failed_at: string | null;
+  } | null;
+  // A Remotiv-owned row has no calendar, so there is nothing to go past.
+  if (!row?.company_id_snapshot) return { success: false, error: "Application not found." };
+  if (opts?.acknowledgeCalendarEvent !== true) return { success: false, error: ANYWAY_NEEDS_ACK };
+  if (!row.deletion_started_at || !row.deletion_calendar_failed_at) {
+    return { success: false, error: ANYWAY_NOT_AVAILABLE };
+  }
+  const result = await deleteForRemotiv(
+    supabase,
+    {
+      applicationId: row.id,
+      applicationCompany: row.company_id_snapshot,
+      cvPath: row.cv_path,
+      jobId: row.job_id,
+      anyway: true,
+    },
+    "Application not found.",
+  );
+  revalidatePath("/admin/applications");
+  return result;
 }
 
 export async function fetchComments(

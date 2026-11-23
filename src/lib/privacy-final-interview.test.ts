@@ -15,6 +15,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { companyDeleteSource } from "../test-support/company-delete-source.mjs";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const read = (rel) => readFileSync(join(ROOT, rel), "utf8");
@@ -42,7 +43,7 @@ const BOTS = read("src/lib/final-interviews/bots.ts");
 const IMPORT = read("src/lib/final-interviews/import.ts");
 const ALERTS = read("src/lib/final-interviews/alerts.ts");
 const ACTIONS = read("src/app/ai-dashboard/(gated)/applicants/final-interview-actions.ts");
-const APPLICANT_ACTIONS = read("src/app/ai-dashboard/(gated)/applicants/actions.ts");
+const APPLICANT_ACTIONS = companyDeleteSource();
 
 /** What a reader sees: tags dropped, entities decoded, whitespace collapsed. */
 const visible = (jsx) =>

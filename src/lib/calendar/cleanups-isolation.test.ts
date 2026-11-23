@@ -17,6 +17,7 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import ts from "typescript";
+import { companyDeleteSource } from "../../test-support/company-delete-source.mjs";
 
 const SRC = new URL("../../", import.meta.url);
 const TABLE = "calendar_cleanups";
@@ -151,10 +152,7 @@ const BOOKINGS = readFileSync(new URL("lib/calendar/bookings.ts", SRC), "utf8");
 
 test("I4. where each traced value comes from", () => {
   // `companyId` parameters: the delete action passes its ctx; the sweep the function's ids.
-  const actions = readFileSync(
-    new URL("app/ai-dashboard/(gated)/applicants/actions.ts", SRC),
-    "utf8",
-  );
+  const actions = companyDeleteSource();
   // #16: the delete activates nothing itself (071's Finish does, in SQL, on its
   // own p_company_id); the booking step still gets the action's ctx.
   assert.doesNotMatch(actions, /activateCalendarCleanups\(/);

@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { register } from "node:module";
 import { test } from "node:test";
+import { companyDeleteSource } from "../../test-support/company-delete-source.mjs";
 
 register(new URL("../../test-support/node-resolve.mjs", import.meta.url));
 register(
@@ -404,7 +405,7 @@ test("B7: an application with no interviews: nothing is written", async () => {
 /* ── both applicant deletions use it ─────────────────────────────── */
 
 const source = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
-const COMPANY = source("../../app/ai-dashboard/(gated)/applicants/actions.ts");
+const COMPANY = companyDeleteSource();
 const ADMIN = source("../../app/admin/applications/actions.ts");
 
 /** The body of `export async function deleteApplication(` in a file. */
@@ -433,28 +434,28 @@ test("B7 wiring: the company's and the super admin's applicant delete both call 
     flow,
     /if \(!interviews\.ok\) return \{ success: false, error: DELETION_PENDING \};/,
   );
-  for (const [label, src] of [["super admin", ADMIN]]) {
-    assert.match(
-      src,
-      /import \{ deleteApplicationInterviews \} from "@\/lib\/interviews\/application-deletion";/,
-      label,
-    );
-    const body = deleteApplicationBody(src);
-    const service = body.indexOf("deleteApplicationInterviews(");
-    const rowDelete = body.search(/\.from\("job_applications"\)\s*\.delete\(\)/);
-    assert.ok(service > 0 && rowDelete > service, `${label}: interviews first, then the row`);
-    assert.match(
-      body,
-      /if \(!interviews\.ok\) return \{ success: false, error: interviews\.error \};/,
-    );
-  }
-  // The super admin's also removes the CV file and the final-interview recordings now.
+  // #69 step 4: the super admin's internal-company applicant goes through the
+  // same pipeline (deleteForRemotiv: 071's Close, then completeDeletion, whose
+  // removeInterviewFiles stop is pinned above). A Remotiv-owned row can have
+  // no interviews (a session requires a company): its CV file, then the row.
   const admin = deleteApplicationBody(ADMIN);
+  const pipeline = admin.indexOf("deleteForRemotiv(");
   const rowDelete = admin.search(/\.from\("job_applications"\)\s*\.delete\(\)/);
   const files = admin.indexOf("removeApplicationFiles(");
+  assert.ok(
+    pipeline > 0 && pipeline < files,
+    "super admin: a company's applicant through the pipeline",
+  );
   assert.ok(files > 0 && files < rowDelete, "super admin: removeApplicationFiles before the row");
   // Scope first: the super admin reads the application within its scope before deleting anything.
-  assert.ok(admin.indexOf(".or(scope)") < admin.indexOf("deleteApplicationInterviews("));
+  assert.ok(admin.indexOf(".or(scope)") > 0 && admin.indexOf(".or(scope)") < pipeline);
+  const lib = source("../applicant-deletion-complete.ts");
+  const remotiv = lib.slice(lib.indexOf("export async function deleteForRemotiv("));
+  const close = remotiv.indexOf("closeApplicationForDeletion(");
+  assert.ok(
+    close > 0 && remotiv.indexOf("completeDeletion(") > close,
+    "Close, then the shared steps",
+  );
 });
 
 test("B7 wiring: the allowance is never touched by a deletion", () => {

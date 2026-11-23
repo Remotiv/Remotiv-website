@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { register } from "node:module";
 import { test } from "node:test";
+import { companyDeleteSource } from "../../test-support/company-delete-source.mjs";
 
 process.env.GOOGLE_CALENDAR_CLIENT_SECRET = "test-only-calendar-secret";
 
@@ -486,10 +487,7 @@ test("C14. the account key: an HMAC with the server secret, never the address or
 });
 
 test("C15. wired: the delete activates only at the very end; the callback and the worker call the backstops", () => {
-  const actions = readFileSync(
-    new URL("../../app/ai-dashboard/(gated)/applicants/actions.ts", import.meta.url),
-    "utf8",
-  );
+  const actions = companyDeleteSource();
   // #16: activated by 071's Finish, after the row delete, in the same
   // transaction; never by the app, so a failed delete can activate nothing.
   const fn = actions.slice(

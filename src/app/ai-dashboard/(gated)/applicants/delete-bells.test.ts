@@ -19,6 +19,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { register } from "node:module";
 import { test } from "node:test";
+import { companyDeleteSource } from "../../../../test-support/company-delete-source.mjs";
 
 register(new URL("../../../../test-support/node-resolve.mjs", import.meta.url));
 register(new URL("../../../../test-support/applicants-test-hook.mjs", import.meta.url));
@@ -240,7 +241,7 @@ function world({
   };
 }
 
-const SRC = readFileSync(new URL("./actions.ts", import.meta.url), "utf8");
+const SRC = companyDeleteSource();
 const constant = (name) => {
   const m = new RegExp(`const ${name} =\\s*"([^"]+)";`).exec(SRC);
   assert.ok(m, `${name} defined`);

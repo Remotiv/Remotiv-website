@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { register } from "node:module";
 import { test } from "node:test";
+import { companyDeleteSource } from "../test-support/company-delete-source.mjs";
 
 register(new URL("../test-support/node-resolve.mjs", import.meta.url));
 register(
@@ -162,7 +163,7 @@ test("B7 files wiring: both applicant deletions remove the files, and stop, befo
   // The company's (#16): interview files, application files, a stop on a file
   // left, then 071's Finish, which deletes the row in the same transaction as
   // the sessions and bells. No row delete in the app any more.
-  const company = source("../app/ai-dashboard/(gated)/applicants/actions.ts");
+  const company = companyDeleteSource();
   const flow = company.slice(
     company.indexOf("export async function deleteApplication("),
     company.indexOf("// ── Team comments"),
@@ -181,7 +182,14 @@ test("B7 files wiring: both applicant deletions remove the files, and stop, befo
     const stop = body.indexOf("if (!files.ok) return { success: false, error: files.error };");
     const row = body.search(/\.from\("job_applications"\)\s*\.delete\(\)/);
     assert.ok(files > 0 && stop > files && row > stop, `${label}: files, stop, then the row`);
-    assert.ok(body.indexOf("deleteApplicationInterviews(") < files, `${label}: interviews first`);
+    // #69 step 4: an internal company's applicant goes through the 071 pipeline
+    // (its interview files then its files, then Finish); this is the Remotiv-owned
+    // row's own file-then-row path after it.
+    const pipeline = body.indexOf("deleteForRemotiv(");
+    assert.ok(
+      pipeline > 0 && pipeline < files,
+      `${label}: a company's applicant through the pipeline`,
+    );
     assert.doesNotMatch(
       body,
       /\.from\(CV_BUCKET\)\s*\.remove|removeApplicationRecordings\(/,
