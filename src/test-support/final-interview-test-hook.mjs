@@ -11,9 +11,8 @@
  *                                             globalThis.__fiServiceForTests()
  *   @/app/ai-dashboard/lib/company-guards  -> getCompanyContext returning
  *                                             globalThis.__fiCtxForTests
- *   @/app/ai-dashboard/lib/job-scope       -> roleAllowsJobAction (and its
- *                                             deprecated alias canAccessJob) returning
- *                                             globalThis.__fiCanAccessJob ?? true
+ *   @/app/ai-dashboard/lib/job-scope       -> roleAllowsJobAction returning
+ *                                             globalThis.__fiRoleAllowsJobAction ?? true
  *   @/lib/email/candidate/deliver          -> deliverEmail recording to
  *                                             globalThis.__fiEmails and answering
  *                                             globalThis.__fiDeliverResult
@@ -47,10 +46,9 @@ const STUBS = {
   ].join("\n"),
   "@/app/ai-dashboard/lib/job-scope": [
     "export async function roleAllowsJobAction(ctx, jobId) {",
-    "  const f = globalThis.__fiCanAccessJob;",
+    "  const f = globalThis.__fiRoleAllowsJobAction;",
     "  return f ? f(ctx, jobId) : true;",
     "}",
-    "export const canAccessJob = roleAllowsJobAction;",
   ].join("\n"),
   "@/lib/email/candidate/deliver": [
     "export function buildCandidateHtml(body) { return body; }",

@@ -175,14 +175,6 @@ export async function roleAllowsJobAction(
 }
 
 /**
- * @deprecated Misleading name: this is NOT a tenancy guard. Use
- * roleAllowsJobAction. Kept only because src/lib/interviews/review.ts still
- * imports this name and that directory belongs to another session. Delete
- * this alias when that file is released. Do not add new callers. (#76)
- */
-export const canAccessJob = roleAllowsJobAction;
-
-/**
  * The application ids a viewer may see, or null when unrestricted.
  *
  * communication_logs has no job_id, so message scoping has to travel through

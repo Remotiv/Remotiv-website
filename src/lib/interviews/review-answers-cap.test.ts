@@ -27,7 +27,7 @@ const STUBS = {
     "export async function getJobScope() { return { scoped: false }; }",
     "export function isEmptyScope(s) { return s.scoped && s.jobIds.length === 0; }",
     "export function scopeJobIds(s) { return s.scoped ? s.jobIds : null; }",
-    "export async function canAccessJob() { return true; }",
+    "export async function roleAllowsJobAction() { return true; }",
   ].join("\\n"),
   "@/app/ai-dashboard/(gated)/applicants/actions": "export async function updateApplicationStage() { return { success: true }; }",
   "../actions": [

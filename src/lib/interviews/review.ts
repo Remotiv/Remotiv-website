@@ -1,9 +1,9 @@
 import "server-only";
 import type { CompanyContext } from "@/app/ai-dashboard/lib/company-roles";
 import {
-  canAccessJob,
   getJobScope,
   isEmptyScope,
+  roleAllowsJobAction,
   scopeJobIds,
 } from "@/app/ai-dashboard/lib/job-scope";
 import { plainDashes, plainDashesOrNull } from "@/app/ai-dashboard/lib/plain-dashes";
@@ -921,7 +921,7 @@ export async function loadInterviewSession(
         [row.id],
         new Set(evidenceDeleted ? [row.id] : []),
       ),
-      canAccessJob(ctx, row.job_id ?? ""),
+      roleAllowsJobAction(ctx, row.job_id ?? ""),
       /*
        * Notes SURVIVE the purge. They are a reviewer's own words about a
        * candidate, not the candidate's media — the six-month promise covers

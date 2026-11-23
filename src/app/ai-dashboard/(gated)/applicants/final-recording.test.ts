@@ -127,7 +127,7 @@ async function run(role, act, { db = makeDb(), roleAllowsJobAction, failing, sig
   };
   globalThis.__fiServiceForTests = () => service;
   globalThis.__fiCtxForTests = ctxFor(role);
-  globalThis.__fiCanAccessJob = roleAllowsJobAction;
+  globalThis.__fiRoleAllowsJobAction = roleAllowsJobAction;
   const quiet = console.error;
   const logged = [];
   console.error = (...a) => logged.push(a.join(" "));

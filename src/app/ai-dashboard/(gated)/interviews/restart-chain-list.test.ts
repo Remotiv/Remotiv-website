@@ -32,7 +32,6 @@ const STUBS = {
     "export function isEmptyScope(s) { return s.scoped && s.jobIds.length === 0; }",
     "export function scopeJobIds(s) { return s.scoped ? s.jobIds : null; }",
     "export async function roleAllowsJobAction() { return true; }",
-    "export const canAccessJob = roleAllowsJobAction;",
   ].join("\\n"),
   "@/lib/ai/interview-scoring": "export function scoringEnabled() { return false; }",
   "next/link": "export default function Link() { return null; }",

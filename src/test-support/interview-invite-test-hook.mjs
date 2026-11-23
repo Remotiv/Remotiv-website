@@ -13,8 +13,7 @@
  *                                            globalThis.__inviteServiceForTests()
  *   @/app/ai-dashboard/lib/company-guards -> getCompanyContext returning
  *                                            globalThis.__inviteCtxForTests
- *   @/app/ai-dashboard/lib/job-scope      -> roleAllowsJobAction returning true,
- *                                            plus its deprecated alias canAccessJob
+ *   @/app/ai-dashboard/lib/job-scope      -> roleAllowsJobAction returning true
  *   @/lib/email/candidate/deliver         -> deliverEmail calling
  *                                            globalThis.__inviteDeliverForTests
  *   @/lib/whatsapp/dispatch               -> queueManualWhatsApp calling
@@ -55,7 +54,7 @@ const STUBS = {
     "}",
   ].join("\n"),
   "@/app/ai-dashboard/lib/job-scope":
-    "export async function roleAllowsJobAction() { return true; } export const canAccessJob = roleAllowsJobAction;",
+    "export async function roleAllowsJobAction() { return true; }",
   "@/lib/email/candidate/deliver": [
     "export function buildCandidateHtml(body) { return body; }",
     "export async function deliverEmail(service, input) {",

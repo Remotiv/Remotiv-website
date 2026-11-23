@@ -66,11 +66,11 @@ const screeningBooking = (over) => ({
   ...over,
 });
 
-async function run(role, act, db, { canAccessJob } = {}) {
+async function run(role, act, db, { roleAllowsJobAction } = {}) {
   const service = finalInterviewWorld(db);
   globalThis.__fiServiceForTests = () => service;
   globalThis.__fiCtxForTests = ctxFor(role);
-  globalThis.__fiCanAccessJob = canAccessJob;
+  globalThis.__fiRoleAllowsJobAction = roleAllowsJobAction;
   globalThis.__fiDeliverResult = undefined;
   globalThis.__fiEmails = [];
   globalThis.__fiHostEmails = [];
@@ -119,7 +119,7 @@ test("an application drifted to another company is refused before the booking is
 /* ── #59b: scope is checked before anything is said about a booking ─────── */
 
 const NOT_YOURS = "Applicant not found in your workspace.";
-const outOfScope = { canAccessJob: () => false };
+const outOfScope = { roleAllowsJobAction: () => false };
 
 test("59b-1. a recruiter outside the job gets the SAME reply with and without a booking, and the booking is never read", async () => {
   const withBooking = makeDb();
@@ -152,7 +152,7 @@ test("59b-2. another company's applicant, or none at all: the same reply, with a
 
 test("59b-3. in scope and nothing booked: still told there is no booked interview", async () => {
   const r = await run("recruiter", () => cancelBookingAsRecruiter(APP), makeDb(), {
-    canAccessJob: (_ctx, jobId) => jobId === JOB,
+    roleAllowsJobAction: (_ctx, jobId) => jobId === JOB,
   });
   assert.deepEqual(r.result, { success: false, error: "There's no booked interview to cancel." });
 });
@@ -161,7 +161,7 @@ test("59b-4. in scope with a booking: cancels as before", async () => {
   const db = makeDb();
   db.interview_bookings.push(screeningBooking({}));
   const r = await run("recruiter", () => cancelBookingAsRecruiter(APP), db, {
-    canAccessJob: (_ctx, jobId) => jobId === JOB,
+    roleAllowsJobAction: (_ctx, jobId) => jobId === JOB,
   });
   assert.equal(r.result.success, true);
   assert.equal(r.db.interview_bookings[0].status, "cancelled");

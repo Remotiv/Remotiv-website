@@ -2,13 +2,9 @@
  * roleAllowsJobAction, called directly (#76): owner and admin pass on role alone
  * and issue no query; a recruiter or hiring manager needs a job_hiring_team row
  * matched on company, job AND member. This file pins that behaviour so the
- * rename (it was canAccessJob) and any later refactor cannot change it silently -
- * every other test that names roleAllowsJobAction only stubs it.
- *
- * The old name survives as a deprecated alias, `export const canAccessJob =
- * roleAllowsJobAction`, because src/lib/interviews/review.ts still imports it and
- * that directory belongs to another session. The last test here pins the alias to
- * the SAME function so it cannot drift into a second implementation.
+ * rename and any later refactor cannot change it silently - every other test
+ * that names roleAllowsJobAction only stubs it. Its old name, a deprecated alias,
+ * is gone: every caller uses roleAllowsJobAction (#76).
  *
  *   node --test "src/app/ai-dashboard/lib/job-scope.test.ts"
  *
@@ -27,7 +23,7 @@ register(new URL("../../../test-support/node-resolve.mjs", import.meta.url));
 register(new URL("../../../test-support/applicants-test-hook.mjs", import.meta.url));
 
 const { fakeService } = await import("../../../test-support/fake-postgrest.mjs");
-const { roleAllowsJobAction, canAccessJob } = await import("./job-scope.ts");
+const { roleAllowsJobAction } = await import("./job-scope.ts");
 
 const CO = "c0000000-0000-0000-0000-000000000001";
 const OTHER_CO = "c0000000-0000-0000-0000-000000000002";
@@ -177,11 +173,4 @@ test("an empty job id and a missing member id are refused for a scoped role with
   assert.equal(await roleAllowsJobAction(ctxFor(), ""), false);
   assert.equal(await roleAllowsJobAction(ctxFor({ memberId: null }), OWN_JOB), false);
   assert.equal(service.queries.length, 0);
-});
-
-// ── The deprecated alias ────────────────────────────────────
-
-test("the deprecated alias canAccessJob IS roleAllowsJobAction (same function object, not a second implementation)", () => {
-  assert.equal(typeof roleAllowsJobAction, "function");
-  assert.strictEqual(canAccessJob, roleAllowsJobAction);
 });

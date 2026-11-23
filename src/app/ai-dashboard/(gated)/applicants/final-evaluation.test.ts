@@ -123,7 +123,7 @@ async function as(memberId, act, db, { companyId = CO } = {}) {
   const service = finalInterviewWorld(db);
   globalThis.__fiServiceForTests = () => service;
   globalThis.__fiCtxForTests = ctxAs(memberId, companyId);
-  globalThis.__fiCanAccessJob = jobAccess(db);
+  globalThis.__fiRoleAllowsJobAction = jobAccess(db);
   globalThis.__fiEmails = [];
   globalThis.__fiHostEmails = [];
   globalThis.__fiBell = [];

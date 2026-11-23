@@ -13,7 +13,7 @@ import {
 import { refuseIfBeingDeleted } from "@/lib/applicant-deletion";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
-import { canAccessJob } from "@/app/ai-dashboard/lib/job-scope";
+import { roleAllowsJobAction } from "@/app/ai-dashboard/lib/job-scope";
 import { escapeHtml } from "@/lib/email/candidate/render";
 import { queueManualWhatsApp } from "@/lib/whatsapp/dispatch";
 import {
@@ -487,7 +487,7 @@ async function loadInviteTarget(
   const app = appData as unknown as InviteApplication | null;
 
   if (!app) return { ok: false, error: NOT_YOURS };
-  if (!(await canAccessJob(ctx, app.job_id ?? ""))) {
+  if (!(await roleAllowsJobAction(ctx, app.job_id ?? ""))) {
     return { ok: false, error: NOT_YOURS };
   }
 
@@ -969,7 +969,7 @@ export async function fetchInterviewPanel(
     .maybeSingle();
   const app = appData as { job_id: string | null } | null;
   if (!app) return NOTHING;
-  if (!(await canAccessJob(ctx, app.job_id ?? ""))) return NOTHING;
+  if (!(await roleAllowsJobAction(ctx, app.job_id ?? ""))) return NOTHING;
 
   /*
    * Read the job's switch even when a session already exists. An interview
@@ -1090,7 +1090,8 @@ export async function fetchInterviewPanel(
         : null;
     // The review page gates on the session's own job (live-review.ts gateLiveSession):
     // offer its link only where that gate opens. A restart keeps its first attempt's job.
-    session.reviewable = row.job_id === app.job_id || (await canAccessJob(ctx, row.job_id ?? ""));
+    session.reviewable =
+      row.job_id === app.job_id || (await roleAllowsJobAction(ctx, row.job_id ?? ""));
     // Set only when there is one, so an interview a restart has nothing to do with reads as before.
     const restartStatus = restart.ok
       ? await liveRestartStatus(service, ctx.companyId, restart.latestSessionId ?? row.id, restart)

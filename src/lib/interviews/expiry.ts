@@ -40,7 +40,7 @@ import { createServiceClient } from "@/lib/supabase/server";
  * The hiring team for that job, plus every owner and admin — notifyCompany's
  * standard rule, reused rather than reimplemented. That set necessarily
  * includes the person who sent the invite: sendInterviewInvite is gated by
- * canAccessJob, which either waves through an owner/admin or requires a
+ * roleAllowsJobAction, which either waves through an owner/admin or requires a
  * job_hiring_team row, and both are in the fan-out.
  *
  * The CANDIDATE is deliberately not told. A closed window is not something they

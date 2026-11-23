@@ -88,13 +88,13 @@ const FI = {
 
 async function run(
   act,
-  { db, role = "recruiter", deliver, resend, canAccessJob, memberName } = {},
+  { db, role = "recruiter", deliver, resend, roleAllowsJobAction, memberName } = {},
 ) {
   db.communication_logs ??= [];
   const service = finalInterviewWorld(db);
   globalThis.__fiServiceForTests = () => service;
   globalThis.__fiCtxForTests = ctxFor(role, memberName);
-  globalThis.__fiCanAccessJob = canAccessJob;
+  globalThis.__fiRoleAllowsJobAction = roleAllowsJobAction;
   globalThis.__fiDeliverResult = deliver;
   globalThis.__fiResendResult = resend;
   globalThis.__fiEmails = [];
@@ -297,7 +297,7 @@ test("59-R5. scope first: another job's recruiter, another company's booking, an
   };
   const outside = await run(() => retryCancellationNotice({ bookingId: "b-1", logId: "log-1" }), {
     db: base(),
-    canAccessJob: () => false,
+    roleAllowsJobAction: () => false,
   });
   assert.deepEqual(outside.result, { success: false, error: NOT_YOURS });
   assert.equal(outside.resends.length, 0);
@@ -349,7 +349,7 @@ test("59-E1. two cancels of ONE booking at the same moment: one cancels and emai
   const service = finalInterviewWorld(db);
   globalThis.__fiServiceForTests = () => service;
   globalThis.__fiCtxForTests = ctxFor("recruiter");
-  globalThis.__fiCanAccessJob = undefined;
+  globalThis.__fiRoleAllowsJobAction = undefined;
   globalThis.__fiDeliverResult = undefined;
   globalThis.__fiEmails = [];
   globalThis.__fiHostEmails = [];

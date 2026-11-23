@@ -26,7 +26,7 @@ register(new URL("../../test-support/interview-invite-test-hook.mjs", import.met
 register(
   `data:text/javascript,${encodeURIComponent(`
 const SCOPE = [
-  "export async function canAccessJob() { return true; }",
+  "export async function roleAllowsJobAction() { return true; }",
   "export async function getJobScope() { return { scoped: false, jobIds: [] }; }",
   "export function isEmptyScope() { return false; }",
   "export function scopeJobIds() { return null; }",

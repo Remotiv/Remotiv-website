@@ -51,7 +51,7 @@ async function run(
   const service = finalInterviewWorld(db);
   globalThis.__fiServiceForTests = () => service;
   globalThis.__fiCtxForTests = ctxFor(role);
-  globalThis.__fiCanAccessJob = roleAllowsJobAction;
+  globalThis.__fiRoleAllowsJobAction = roleAllowsJobAction;
   globalThis.__fiDeliverResult = deliver;
   globalThis.__fiEmails = [];
   globalThis.__fiHostEmails = [];
