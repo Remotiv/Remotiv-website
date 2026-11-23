@@ -90,6 +90,14 @@ type MutationResult<T = undefined> =
   | { success: true; data: T }
   | { success: false; error: string };
 
+/**
+ * Exactly what normaliseRow reads, plus photo_path for the avatar (#74).
+ * Never "*": that also pulled cv_text and search_vector for every profile on
+ * every render of the Talent page, and the dashboard reads neither.
+ */
+const ADMIN_TALENT_COLUMNS =
+  "id, first_name, last_name, email, phone, city, country, linkedin_url, github_url, job_title, role_category, years_experience, industry, degree, institution, skills, experience, summary, availability, work_type, notice_period, work_location, salary_min, salary_max, avatar_url, photo_path, cv_url, cv_path, status, is_shortlisted, is_placed, is_paused, is_archived, approved_at, claimed_at, user_id, notes, created_at";
+
 export async function fetchTalentProfiles(): Promise<TalentProfile[]> {
   await requireAdmin();
   const supabase = createServiceClient();
@@ -105,7 +113,7 @@ export async function fetchTalentProfiles(): Promise<TalentProfile[]> {
   for (;;) {
     const { data, error } = await supabase
       .from("talent_profiles")
-      .select("*")
+      .select(ADMIN_TALENT_COLUMNS)
       .order("created_at", { ascending: false })
       .range(from, from + PAGE - 1);
     if (error) {

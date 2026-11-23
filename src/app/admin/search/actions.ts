@@ -21,6 +21,17 @@ export type SearchHit = {
   headline: string | null;
 };
 
+/**
+ * What each result reads to score and render a hit (#74), never "*". Talent is
+ * matched in memory on these columns only, so it needs neither cv_text nor
+ * search_vector. Applications are matched in the database AND re-counted in
+ * memory over cv_text, which is why cv_text is the one large column kept.
+ */
+const APPLICATION_SEARCH_COLUMNS =
+  "id, first_name, last_name, email, phone, status, created_at, cv_text, notes, jobs(title)";
+const TALENT_SEARCH_COLUMNS =
+  "id, first_name, last_name, email, phone, job_title, summary, city, country, skills, status, created_at";
+
 export type SearchResults = {
   query: string;
   keywords: string[];
@@ -112,11 +123,13 @@ export async function searchCandidates(query: string): Promise<SearchResults> {
     APP_COLS.map((c) => `${c}.ilike.%${escapeIlike(k)}%`),
   ).join(",");
 
+  // Named columns, not "*" (#74). cv_text stays on purpose: the scoring below
+  // counts keyword matches in it, and a hit with no counted match is dropped,
+  // so an applicant matched only in their CV would vanish without it.
   const appQuery = supabase
     .from("job_applications")
-    .select("*, jobs(title)")
-    // Global admin search returns full applicant rows — company-owned
-    // applications are excluded outright.
+    .select(APPLICATION_SEARCH_COLUMNS)
+    // Global admin search: company-owned applications are excluded outright.
     .or(await adminApplicationScope())
     .or(appOr)
     .order("created_at", { ascending: false })
@@ -129,7 +142,7 @@ export async function searchCandidates(query: string): Promise<SearchResults> {
   // exact tokens, not partial words).
   const talentQuery = supabase
     .from("talent_profiles")
-    .select("*")
+    .select(TALENT_SEARCH_COLUMNS)
     .order("created_at", { ascending: false })
     .limit(500);
 
