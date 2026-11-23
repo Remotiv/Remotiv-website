@@ -7,6 +7,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
 import type { InviteStatus } from "@/lib/claim-status";
 import { deriveCvPathFromUrl } from "@/lib/cv-path";
+import { FILES_NOT_DELETED, removeRowFiles } from "@/lib/admin-row-files";
 
 export type RemoteTalentStatus =
   | "pending"
@@ -228,6 +229,31 @@ export async function deleteRemoteTalentProfile(
 ): Promise<MutationResult<undefined>> {
   await requireSuperAdmin();
   const supabase = createServiceClient();
+
+  // #69 step 7: the CV and photo go BEFORE the row, which is their only
+  // record; a key another row still names is kept (admin-row-files.ts).
+  const { data: row, error: readErr } = await supabase
+    .from("hire_remote_profiles")
+    .select("id, cv_path, photo_path")
+    .eq("id", id)
+    .maybeSingle();
+  if (readErr) return { success: false, error: readErr.message };
+  if (row) {
+    const r = row as { cv_path: string | null; photo_path: string | null };
+    const files = await removeRowFiles(
+      supabase,
+      [
+        { column: "cv_path", paths: [r.cv_path] },
+        { column: "photo_path", paths: [r.photo_path] },
+      ],
+      { table: "hire_remote_profiles", ids: new Set([id]) },
+    );
+    if (!files.ok) {
+      console.error(`[admin-remote-talent] delete: files not removed (${files.reason}); row kept`);
+      return { success: false, error: FILES_NOT_DELETED };
+    }
+  }
+
   const { error } = await supabase
     .from("hire_remote_profiles")
     .delete()

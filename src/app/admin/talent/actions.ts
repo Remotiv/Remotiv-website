@@ -9,6 +9,7 @@ import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
 import { trimToNull } from "@/lib/validators";
 import type { InviteMetrics, InviteStatus } from "@/lib/claim-status";
 import { getAvatarUrl } from "@/lib/avatars";
+import { FILES_NOT_DELETED, removeRowFiles } from "@/lib/admin-row-files";
 
 // Build the displayed avatar URL for an admin row. When the talent has
 // uploaded a real photo (photo_path is non-null), point at the public
@@ -303,6 +304,31 @@ export async function deleteTalentProfile(
 ): Promise<MutationResult<undefined>> {
   await requireSuperAdmin();
   const supabase = createServiceClient();
+
+  // #69 step 7: the CV and photo go BEFORE the row, which is their only
+  // record; a key another row still names is kept (admin-row-files.ts).
+  const { data: row, error: readErr } = await supabase
+    .from("talent_profiles")
+    .select("id, cv_path, photo_path")
+    .eq("id", id)
+    .maybeSingle();
+  if (readErr) return { success: false, error: readErr.message };
+  if (row) {
+    const r = row as { cv_path: string | null; photo_path: string | null };
+    const files = await removeRowFiles(
+      supabase,
+      [
+        { column: "cv_path", paths: [r.cv_path] },
+        { column: "photo_path", paths: [r.photo_path] },
+      ],
+      { table: "talent_profiles", ids: new Set([id]) },
+    );
+    if (!files.ok) {
+      console.error(`[admin-talent] delete: files not removed (${files.reason}); row kept`);
+      return { success: false, error: FILES_NOT_DELETED };
+    }
+  }
+
   const { error } = await supabase
     .from("talent_profiles")
     .delete()

@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { assertServiceClientAllowed } from "@/lib/supabase/guard";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireSuperAdmin } from "@/app/admin/lib/role-guards";
+import { FILES_NOT_DELETED, removeRowFiles } from "@/lib/admin-row-files";
+import { pageAll } from "@/lib/supabase/paging";
 import { isValidEmail, trimRequired } from "@/lib/validators";
 
 // ── Types ────────────────────────────────────────────────────
@@ -389,7 +391,49 @@ export async function deleteClient(id: string): Promise<MutationResult<undefined
     .maybeSingle();
   const userId = (row as { user_id: string | null } | null)?.user_id ?? null;
 
-  // Delete the clients row first; cascade in the schema removes batches and
+  // #69 step 7: the cascade below removes the client's batches and their
+  // candidates, so the candidates' CVs go FIRST, while their rows still name
+  // them. A key another row still names is kept (admin-row-files.ts).
+  let candidates: { id: string; cv_path: string | null }[];
+  try {
+    const batches = await pageAll<{ id: string }>(
+      (from, to) =>
+        supabase
+          .from("client_batches")
+          .select("id")
+          .eq("client_id", id)
+          .order("id")
+          .range(from, to),
+      { scope: "admin-client-delete", label: "batches" },
+    );
+    const batchIds = batches.map((b) => b.id);
+    candidates =
+      batchIds.length === 0
+        ? []
+        : await pageAll<{ id: string; cv_path: string | null }>(
+            (from, to) =>
+              supabase
+                .from("client_batch_candidates")
+                .select("id, cv_path")
+                .in("batch_id", batchIds)
+                .order("id")
+                .range(from, to),
+            { scope: "admin-client-delete", label: "candidates" },
+          );
+  } catch {
+    return { success: false, error: FILES_NOT_DELETED };
+  }
+  const files = await removeRowFiles(
+    supabase,
+    [{ column: "cv_path", paths: candidates.map((c) => c.cv_path) }],
+    { table: "client_batch_candidates", ids: new Set(candidates.map((c) => c.id)) },
+  );
+  if (!files.ok) {
+    console.error(`[admin-client] delete: files not removed (${files.reason}); client kept`);
+    return { success: false, error: FILES_NOT_DELETED };
+  }
+
+  // Delete the clients row; cascade in the schema removes batches and
   // candidates. If this fails, abort before touching the auth user.
   const { error: delErr } = await supabase.from("clients").delete().eq("id", id);
   if (delErr) return { success: false, error: delErr.message };

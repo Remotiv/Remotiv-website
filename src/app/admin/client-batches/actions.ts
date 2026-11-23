@@ -2,7 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient as createAuthClient, createServiceClient } from "@/lib/supabase/server";
-import { requireAdmin } from "@/app/admin/lib/role-guards";
+import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
+import { FILES_NOT_DELETED, removeRowFiles } from "@/lib/admin-row-files";
+import { pageAll } from "@/lib/supabase/paging";
 import { isValidEmail, trimToNull } from "@/lib/validators";
 import { notifyAllAdmins } from "@/lib/notifications";
 import { adminApplicationScope } from "@/lib/admin-scope";
@@ -420,8 +422,38 @@ export async function updateBatch(
 }
 
 export async function deleteBatch(id: string): Promise<MutationResult<undefined>> {
-  await requireAdmin();
+  // #69 step 7: deleting a whole batch (and every candidate's CV) is a
+  // super-admin action, like the other admin deletes.
+  await requireSuperAdmin();
   const supabase = createServiceClient();
+
+  // The candidates' CVs go BEFORE the rows that name them; the batch delete
+  // cascades to the candidates. A key another row still names is kept.
+  let candidates: { id: string; cv_path: string | null }[];
+  try {
+    candidates = await pageAll<{ id: string; cv_path: string | null }>(
+      (from, to) =>
+        supabase
+          .from("client_batch_candidates")
+          .select("id, cv_path")
+          .eq("batch_id", id)
+          .order("id")
+          .range(from, to),
+      { scope: "admin-batch-delete", label: "candidates" },
+    );
+  } catch {
+    return { success: false, error: FILES_NOT_DELETED };
+  }
+  const files = await removeRowFiles(
+    supabase,
+    [{ column: "cv_path", paths: candidates.map((c) => c.cv_path) }],
+    { table: "client_batch_candidates", ids: new Set(candidates.map((c) => c.id)) },
+  );
+  if (!files.ok) {
+    console.error(`[admin-batch] delete: files not removed (${files.reason}); batch kept`);
+    return { success: false, error: FILES_NOT_DELETED };
+  }
+
   const { error } = await supabase.from("client_batches").delete().eq("id", id);
   if (error) return { success: false, error: error.message };
 
