@@ -1,7 +1,8 @@
 /**
- * Live settings v2: the question mix frozen at invite (lib/interviews/live-settings.ts)
+ * Live settings v3: the question mix frozen at invite (lib/interviews/live-settings.ts)
  * and read back from the frozen copy (readLiveSettings in lib/interviews/types.ts).
- * The database is a fake; nothing leaves the machine.
+ * v3 (#13, 23 Nov): every job question, no CV questions. v1 and v2 rows still
+ * read as they were written. The database is a fake; nothing leaves the machine.
  *
  *   node --test src/lib/interviews/live-settings.test.ts
  */
@@ -30,32 +31,47 @@ const { gateLiveInterviewInvite, FOLLOW_UP_RULES, FOLLOW_UP_RULES_VERSION } = aw
 );
 const { readLiveSettings, LIVE_SETTINGS_VERSION, INTERVIEW_LENGTHS, MIN_QUESTIONS, MAX_QUESTIONS } =
   await import("./types.ts");
-const { questionMixFor, QUESTION_MIX_POLICY_VERSION } = await import("./question-mix.ts");
+const { questionMixFor, QUESTION_MIX_POLICY_VERSION, TABLE_POLICY_VERSION } = await import(
+  "./question-mix.ts"
+);
 const { fakeService } = await import("../../test-support/fake-postgrest.mjs");
 
 const CO = "7aad434d-0000-4000-8000-000000000001";
 const JOB = "2d4a8cde-0000-4000-8000-000000000002";
 
-/** The gate's settings for a job with the toggle on and a name, the company allowlisted. */
-async function frozenAtInvite() {
+/** The gate's result for a job with `questions` questions, the toggle on and a name, the company allowlisted. */
+async function gateFor(questions = 6, questionsError = null) {
   const before = process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS;
   process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS = CO;
   try {
-    const service = fakeService((table) =>
-      table === "jobs"
-        ? {
-            data: { avatar_interview_enabled: true, avatar_interviewer_name: "Sarah" },
-            error: null,
-          }
-        : { data: null, error: null },
-    );
+    const service = fakeService((table) => {
+      if (table === "jobs") {
+        return {
+          data: { avatar_interview_enabled: true, avatar_interviewer_name: "Sarah" },
+          error: null,
+        };
+      }
+      if (table === "interview_questions") {
+        if (questionsError) return { data: null, error: questionsError };
+        return {
+          data: Array.from({ length: questions }, (_, i) => ({ id: `q-${i}` })),
+          error: null,
+        };
+      }
+      return { data: null, error: null };
+    });
     const gate = await gateLiveInterviewInvite(service, { jobId: JOB, companyId: CO });
-    assert.equal(gate.ok, true, gate.error);
-    return gate.settings;
+    return { gate, service };
   } finally {
     if (before === undefined) delete process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS;
     else process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS = before;
   }
+}
+
+async function frozenAtInvite(questions = 6) {
+  const { gate } = await gateFor(questions);
+  assert.equal(gate.ok, true, gate.error);
+  return gate.settings;
 }
 
 /** A stored v1 row, as written before this commit. */
@@ -75,27 +91,83 @@ const V1_ROW = {
 
 /* ── frozen at invite ─────────────────────────────────────────── */
 
-test("an invite freezes v2, with the mix for the session's length", async () => {
-  const settings = await frozenAtInvite();
-  assert.equal(LIVE_SETTINGS_VERSION, 2);
-  assert.equal(settings.v, 2);
-  assert.deepEqual(settings.question_mix, {
-    policy_version: QUESTION_MIX_POLICY_VERSION,
-    session_minutes: 30,
-    job_questions: 4,
-    cv_questions: 4,
-    total: 8,
-  });
-  assert.deepEqual(settings.question_mix, questionMixFor(settings.max_session_seconds / 60));
+test("an invite freezes v3: every one of the job's questions, no CV questions", async () => {
+  assert.equal(LIVE_SETTINGS_VERSION, 3);
+  for (const n of [4, 6, 8]) {
+    const settings = await frozenAtInvite(n);
+    assert.equal(settings.v, 3);
+    assert.deepEqual(settings.question_mix, {
+      policy_version: QUESTION_MIX_POLICY_VERSION,
+      session_minutes: 30,
+      job_questions: n,
+      cv_questions: 0,
+      total: n,
+    });
+  }
+  assert.equal(QUESTION_MIX_POLICY_VERSION, "question-mix-v2");
+  const settings = await frozenAtInvite(6);
   assert.equal(settings.interviewer_name, "Sarah");
   assert.equal(settings.follow_up_rules_version, FOLLOW_UP_RULES_VERSION);
   assert.deepEqual(settings.follow_up_rules, FOLLOW_UP_RULES);
+});
+
+test("a count outside 4..8 is stored as it is, never cut or padded: the freeze refuses it", async () => {
+  for (const n of [3, 9]) {
+    const settings = await frozenAtInvite(n);
+    assert.equal(settings.question_mix.job_questions, n);
+    assert.equal(settings.question_mix.cv_questions, 0);
+  }
+});
+
+test("the count is read for this job in this company only; a failed read refuses the send", async () => {
+  const { service } = await gateFor(6);
+  const q = service.queries.find((x) => x.table === "interview_questions");
+  assert.ok(q, "the job's questions are counted");
+  assert.deepEqual(
+    q.calls.filter((c) => c[0] === "eq"),
+    [
+      ["eq", "job_id", JOB],
+      ["eq", "company_id", CO],
+    ],
+  );
+  const failed = await gateFor(6, { message: "boom" });
+  assert.deepEqual(failed.gate, { ok: false, error: "Couldn't send - please try again." });
+});
+
+test("the follow-up limit is still 2, frozen at invite, and a row claiming more is refused", async () => {
+  const settings = await frozenAtInvite(6);
+  assert.equal(settings.max_follow_ups_per_base_question, 2);
+  const logs = [];
+  const orig = console.error;
+  console.error = (...a) => logs.push(a.join(" "));
+  try {
+    assert.equal(
+      readLiveSettings({ ...settings, max_follow_ups_per_base_question: 3 }, "s-fu"),
+      null,
+    );
+  } finally {
+    console.error = orig;
+  }
 });
 
 test("what was frozen reads back exactly, through the JSON the column stores", async () => {
   const settings = await frozenAtInvite();
   const stored = JSON.parse(JSON.stringify(settings));
   assert.deepEqual(readLiveSettings(stored, "s-1"), settings);
+});
+
+test("a v2 row invited under the table keeps its meaning: 4 job + 4 CV, policy v1", () => {
+  const v2 = { ...V1_ROW, v: 2, question_mix: questionMixFor(30) };
+  const read = readLiveSettings(JSON.parse(JSON.stringify(v2)), "s-v2");
+  assert.equal(read.v, 2);
+  assert.deepEqual(read.question_mix, {
+    policy_version: TABLE_POLICY_VERSION,
+    session_minutes: 30,
+    job_questions: 4,
+    cv_questions: 4,
+    total: 8,
+  });
+  assert.equal(TABLE_POLICY_VERSION, "question-mix-v1");
 });
 
 test("a frozen session keeps its own counts: a later policy change never reaches it", () => {
@@ -128,7 +200,7 @@ test("a v1 row still reads, with no question mix", () => {
   );
 });
 
-test("a v2 row with a missing or broken mix is refused, and the session id is logged", () => {
+test("a v2 or v3 row with a missing or broken mix is refused, and the session id is logged", () => {
   const logs = [];
   const orig = console.error;
   console.error = (...a) => logs.push(a.join(" "));
@@ -145,13 +217,15 @@ test("a v2 row with a missing or broken mix is refused, and the session id is lo
       { ...good, policy_version: "" },
       { ...good, session_minutes: 0 },
     ]) {
-      assert.equal(readLiveSettings({ ...V1_ROW, v: 2, question_mix: mix }, "s-bad"), null);
+      for (const v of [2, 3]) {
+        assert.equal(readLiveSettings({ ...V1_ROW, v, question_mix: mix }, "s-bad"), null);
+      }
     }
-    assert.equal(readLiveSettings({ ...V1_ROW, v: 3 }, "s-v3"), null, "an unknown version");
+    assert.equal(readLiveSettings({ ...V1_ROW, v: 4 }, "s-v4"), null, "an unknown version");
   } finally {
     console.error = orig;
   }
-  assert.ok(logs.every((l) => l.includes("s-bad") || l.includes("s-v3")));
+  assert.ok(logs.every((l) => l.includes("s-bad") || l.includes("s-v4")));
   assert.ok(logs.some((l) => /question_mix/.test(l)));
 });
 

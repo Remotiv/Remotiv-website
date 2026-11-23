@@ -14,7 +14,12 @@ import { test } from "node:test";
 register(new URL("../../test-support/node-resolve.mjs", import.meta.url));
 
 const {
+  CV_QUESTIONS_PER_INTERVIEW,
   describeQuestionMix,
+  jobQuestionMix,
+  MAX_JOB_QUESTIONS,
+  MIN_JOB_QUESTIONS,
+  TABLE_POLICY_VERSION,
   MIN_CV_CHARS_FOR_CV_QUESTIONS,
   MINUTES_PER_FOLLOWED_UP_QUESTION,
   QUESTION_MIX_POLICY_VERSION,
@@ -36,8 +41,24 @@ const REAL_CV = sanitizeCvForInterview(
   ].join("\n"),
 ).text;
 
+test("today (#13, 23 Nov): every job question, 4 to 8, no CV questions, a new policy version", () => {
+  assert.equal(QUESTION_MIX_POLICY_VERSION, "question-mix-v2");
+  assert.notEqual(QUESTION_MIX_POLICY_VERSION, TABLE_POLICY_VERSION);
+  assert.deepEqual([MIN_JOB_QUESTIONS, MAX_JOB_QUESTIONS, CV_QUESTIONS_PER_INTERVIEW], [4, 8, 0]);
+  for (const n of [3, 4, 6, 8, 9]) {
+    assert.deepEqual(jobQuestionMix(n, 30), {
+      policy_version: QUESTION_MIX_POLICY_VERSION,
+      session_minutes: 30,
+      job_questions: n,
+      cv_questions: 0,
+      total: n,
+    });
+  }
+  assert.equal(MAX_JOB_QUESTIONS, questionMixFor(30).total, "the 30-minute budget");
+});
+
 test("the table: each length gives its counts, half and half, an odd question to the job", () => {
-  assert.equal(QUESTION_MIX_POLICY_VERSION, "question-mix-v1");
+  assert.equal(TABLE_POLICY_VERSION, "question-mix-v1");
   const expected = {
     15: { job_questions: 2, cv_questions: 1, total: 3 },
     20: { job_questions: 3, cv_questions: 2, total: 5 },
@@ -45,7 +66,7 @@ test("the table: each length gives its counts, half and half, an odd question to
   };
   for (const [minutes, counts] of Object.entries(expected)) {
     assert.deepEqual(questionMixFor(Number(minutes)), {
-      policy_version: QUESTION_MIX_POLICY_VERSION,
+      policy_version: TABLE_POLICY_VERSION,
       session_minutes: Number(minutes),
       ...counts,
     });
@@ -123,7 +144,7 @@ test("the CV minimum is the CV scorer's: a CV too short to score is too short to
   assert.equal(MIN_CV_CHARS_FOR_CV_QUESTIONS, scorerMin);
 });
 
-test("the wizard's line", () => {
+test("the wizard's line: unchanged in #13 (its wording is the next step)", () => {
   assert.equal(
     describeQuestionMix(questionMixFor(30)),
     "30 min interview: 4 job questions + 4 CV-based questions, same for every candidate.",

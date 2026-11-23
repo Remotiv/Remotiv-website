@@ -18,20 +18,30 @@ import {
   writeLiveQuestions,
 } from "@/lib/interviews/live-questions";
 import { readScoringSnapshot } from "@/lib/interviews/question-meta";
+import {
+  MAX_JOB_QUESTIONS,
+  MIN_JOB_QUESTIONS,
+  QUESTION_MIX_POLICY_VERSION,
+} from "@/lib/interviews/question-mix";
 import { readLiveSettings } from "@/lib/interviews/types";
 import { createServiceClient } from "@/lib/supabase/server";
 
 /**
  * Write and freeze an AI Video Interview's questions, once, before it starts.
  *
- * ── Job questions: the job's own, word for word ──────────────
+ * ── Every job question, word for word (23 Nov, #13) ─────────
  *
- * The first job-slot-many questions (4 for 30 minutes) are the job's authored
- * interview questions, taken in the job's order from the snapshot the live
- * invite froze, with their own competency, rubric and weight. They are never
- * rewritten, so every candidate invited under the same questions hears the
- * same text in the same order. A job with fewer authored questions than job
- * slots is refused before any model call: the model never fills a job slot.
+ * ALL of the job's authored interview questions, taken from the snapshot the
+ * live invite froze, in the recruiter's order (position, then question id for
+ * a tie, so two candidates' snapshots always come out in the same order), with
+ * their own competency, rubric and weight. They are never rewritten, so every
+ * candidate invited under the same questions hears the same text in the same
+ * order. Fewer than MIN_JOB_QUESTIONS or more than MAX_JOB_QUESTIONS is
+ * refused before any model call, nothing written: never cut, never padded.
+ * The count must also equal the one frozen in the mix at invite.
+ *
+ * The job's live interview_questions rows are never read here: a recruiter's
+ * edit after the invite reaches neither this freeze nor a set already frozen.
  *
  * Every question is frozen with a private scoring guide. A job question the
  * recruiter gave no rubric gets the JOB's guide (live-guides.ts): written once
@@ -39,10 +49,15 @@ import { createServiceClient } from "@/lib/supabase/server";
  * guide_source 'ai'. A recruiter's rubric is frozen with guide_source
  * 'recruiter'.
  *
- * ── CV slots: written per candidate ──────────────────────────
+ * ── CV slots: ON HOLD, none written ──────────────────────────
  *
- * live-questions.ts writes only the CV slots, from the CV with contact details
- * and the name removed, seeing the job questions only to avoid overlap.
+ * The mix carries CV_QUESTIONS_PER_INTERVIEW (question-mix.ts), which is 0, so
+ * the block marked "CV slots" in prepareLiveQuestions never runs: no CV read,
+ * no call to writeLiveQuestions, so no CV or general experience question and
+ * no cvSupportsQuestions check. That block, the CV read and live-questions.ts
+ * are kept, unchanged, for when CV questions come back; until then they are
+ * unreachable. A session invited under the table's split (question-mix-v1,
+ * 4 job + 4 CV) is refused, never re-read as all-job.
  *
  * ── Once, and the same set for every caller ──────────────────
  *
@@ -61,10 +76,11 @@ import { createServiceClient } from "@/lib/supabase/server";
  *
  * ── Not wired yet ────────────────────────────────────────────
  *
- * Live links stay locked (session.ts resolves a live session as not open).
- * The candidate-screen commit calls this before creating the provider session.
- * The live invite freezes the job's questions (applicants/interview-actions.ts);
- * this keeps the first job-slot-many of them and adds the CV slots.
+ * Live links stay locked (session.ts resolves a live session as not open),
+ * and nothing calls this yet: the start path does not freeze before it
+ * creates the provider session. Until it does, the lock at invite is the
+ * invite's own questions_snapshot (applicants/interview-actions.ts), which
+ * this freezes as it stands.
  *
  * ── Never logged ─────────────────────────────────────────────
  *
@@ -73,6 +89,9 @@ import { createServiceClient } from "@/lib/supabase/server";
  */
 
 type Service = ReturnType<typeof createServiceClient>;
+
+/** The marker's prompt and model when no question was written by the model. */
+const NO_WRITER = "none";
 
 export type PrepareDeps = {
   service: Service;
@@ -86,8 +105,12 @@ export type PrepareErrorCode =
   | "not_live"
   | "already_started"
   | "no_question_mix"
+  | "question_mix_superseded"
   | "frozen_unreadable"
-  | "not_enough_job_questions"
+  | "job_question_unreadable"
+  | "too_few_job_questions"
+  | "too_many_job_questions"
+  | "job_question_count_mismatch"
   | "job_not_found"
   | "application_not_found"
   | "freeze_lost"
@@ -141,24 +164,44 @@ function frozenOf(row: SessionRow): FrozenLiveQuestionSet | null {
   return set;
 }
 
+/** Question ids in a fixed order, independent of locale. */
+function compareIds(a: string, b: string): number {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
+
+type InviteQuestions =
+  | { ok: true; questions: FrozenLiveQuestion[] }
+  | { ok: false; code: "job_question_unreadable" };
+
 /**
- * The first `count` questions the live invite froze, in the job's order,
- * renumbered 1..count, with the marking fields frozen beside them. Null when
- * the invite froze fewer, or one has no text.
+ * Every question the live invite froze, in the recruiter's order (position,
+ * then id for a tie), renumbered 1..n, with the marking fields frozen beside
+ * them. Refused when the snapshot is not a list, or a question has no text or
+ * id.
  */
-function jobQuestionsFromInvite(row: SessionRow, count: number): FrozenLiveQuestion[] | null {
-  if (!Array.isArray(row.questions_snapshot)) return null;
-  const asked = (row.questions_snapshot as Record<string, unknown>[])
-    .filter((q) => q && typeof q.position === "number")
-    .sort((a, b) => (a.position as number) - (b.position as number))
-    .slice(0, count);
-  if (asked.length < count) return null;
+function jobQuestionsFromInvite(row: SessionRow): InviteQuestions {
+  const unreadable = { ok: false, code: "job_question_unreadable" } as const;
+  if (!Array.isArray(row.questions_snapshot)) return unreadable;
+  const entries = row.questions_snapshot as unknown[];
+  const asked: Record<string, unknown>[] = [];
+  for (const q of entries) {
+    if (!q || typeof q !== "object" || typeof (q as { position?: unknown }).position !== "number") {
+      return unreadable;
+    }
+    asked.push(q as Record<string, unknown>);
+  }
+  asked.sort(
+    (a, b) =>
+      (a.position as number) - (b.position as number) ||
+      compareIds(String(a.id ?? ""), String(b.id ?? "")),
+  );
   const marking = readScoringSnapshot(row.scoring_snapshot);
   const out: FrozenLiveQuestion[] = [];
   for (const [i, q] of asked.entries()) {
     const text = typeof q.question === "string" ? q.question.trim() : "";
     const id = typeof q.id === "string" ? q.id : "";
-    if (!text || !id) return null;
+    if (!text || !id) return unreadable;
     // By question id first; position only when the snapshot carries no id match.
     const m =
       marking.find((s) => s.question_id === id) ?? marking.find((s) => s.position === q.position);
@@ -173,7 +216,7 @@ function jobQuestionsFromInvite(row: SessionRow, count: number): FrozenLiveQuest
       weight: m?.weight ?? null,
     });
   }
-  return out;
+  return { ok: true, questions: out };
 }
 
 function defaultDeps(): PrepareDeps {
@@ -200,10 +243,25 @@ export async function prepareLiveQuestions(
   }
   const mix = readLiveSettings(row.live_settings, row.id)?.question_mix;
   if (!mix) throw new PrepareLiveQuestionsError("no_question_mix", sessionId);
+  // A session invited under the table's split keeps that meaning: it is
+  // refused, never frozen as if it were all-job.
+  if (mix.policy_version !== QUESTION_MIX_POLICY_VERSION) {
+    throw new PrepareLiveQuestionsError("question_mix_superseded", sessionId);
+  }
 
-  // The job slots: the job's own questions as the invite froze them.
-  const jobQuestions = jobQuestionsFromInvite(row, mix.job_questions);
-  if (!jobQuestions) throw new PrepareLiveQuestionsError("not_enough_job_questions", sessionId);
+  // Every job question, as the invite froze them. Refused, never cut or padded.
+  const invite = jobQuestionsFromInvite(row);
+  if (!invite.ok) throw new PrepareLiveQuestionsError(invite.code, sessionId);
+  const jobQuestions = invite.questions;
+  if (jobQuestions.length < MIN_JOB_QUESTIONS) {
+    throw new PrepareLiveQuestionsError("too_few_job_questions", sessionId);
+  }
+  if (jobQuestions.length > MAX_JOB_QUESTIONS) {
+    throw new PrepareLiveQuestionsError("too_many_job_questions", sessionId);
+  }
+  if (jobQuestions.length !== mix.job_questions) {
+    throw new PrepareLiveQuestionsError("job_question_count_mismatch", sessionId);
+  }
 
   const { data: job, error: jobErr } = await deps.service
     .from("jobs")
@@ -239,35 +297,45 @@ export async function prepareLiveQuestions(
     }
   }
 
-  const { data: app, error: appErr } = await deps.service
-    .from("job_applications")
-    .select("first_name, last_name, cv_text")
-    .eq("id", row.application_id)
-    .eq("job_id", row.job_id)
-    .eq("company_id_snapshot", row.company_id)
-    .maybeSingle();
-  if (appErr) throw new PrepareLiveQuestionsError("db_error", sessionId);
-  if (!app) throw new PrepareLiveQuestionsError("application_not_found", sessionId);
-  const a = app as { first_name: string | null; last_name: string | null; cv_text: string | null };
-  const name = { firstName: a.first_name, lastName: a.last_name };
+  // CV slots: ON HOLD (23 Nov). mix.cv_questions is CV_QUESTIONS_PER_INTERVIEW
+  // (question-mix.ts), 0, so this block never runs: no CV read, no question
+  // writer. Kept, unchanged, for when CV questions come back.
+  let written: Awaited<ReturnType<typeof writeLiveQuestions>> | null = null;
+  if (mix.cv_questions > 0) {
+    const { data: app, error: appErr } = await deps.service
+      .from("job_applications")
+      .select("first_name, last_name, cv_text")
+      .eq("id", row.application_id)
+      .eq("job_id", row.job_id)
+      .eq("company_id_snapshot", row.company_id)
+      .maybeSingle();
+    if (appErr) throw new PrepareLiveQuestionsError("db_error", sessionId);
+    if (!app) throw new PrepareLiveQuestionsError("application_not_found", sessionId);
+    const a = app as {
+      first_name: string | null;
+      last_name: string | null;
+      cv_text: string | null;
+    };
+    const name = { firstName: a.first_name, lastName: a.last_name };
 
-  // Contact details first, then the name: nothing that identifies the
-  // candidate reaches the question writer.
-  const cvText = removeCandidateName(sanitizeCvForInterview(a.cv_text).text, name).text;
-  const written = await writeLiveQuestions(
-    {
-      job: job as Parameters<typeof writeLiveQuestions>[0]["job"],
-      jobQuestions: jobQuestions.map((q) => q.text),
-      cvText,
-      cvSlots: mix.cv_questions,
-      name,
-    },
-    { client: deps.client },
-  );
+    // Contact details first, then the name: nothing that identifies the
+    // candidate reaches the question writer.
+    const cvText = removeCandidateName(sanitizeCvForInterview(a.cv_text).text, name).text;
+    written = await writeLiveQuestions(
+      {
+        job: job as Parameters<typeof writeLiveQuestions>[0]["job"],
+        jobQuestions: jobQuestions.map((q) => q.text),
+        cvText,
+        cvSlots: mix.cv_questions,
+        name,
+      },
+      { client: deps.client },
+    );
+  }
 
   const questions: FrozenLiveQuestion[] = [
     ...guided,
-    ...written.questions.map((q) => ({
+    ...(written?.questions ?? []).map((q) => ({
       question_id: deps.newId(),
       position: mix.job_questions + q.slot,
       text: q.text,
@@ -278,16 +346,18 @@ export async function prepareLiveQuestions(
       weight: null,
     })),
   ];
+  // With no CV slots the question writer is never called: its prompt and
+  // model are recorded as "none", its counts as 0.
   const marker: QuestionsFrozenMarker = {
     at: new Date(deps.now()).toISOString(),
-    prompt_version: LIVE_QUESTIONS_PROMPT_VERSION,
+    prompt_version: written ? LIVE_QUESTIONS_PROMPT_VERSION : NO_WRITER,
     policy_version: mix.policy_version,
-    model: written.model,
-    calls: written.calls,
-    input_tokens: written.input_tokens,
-    output_tokens: written.output_tokens,
-    rewritten: written.rewritten,
-    replaced: written.replaced,
+    model: written?.model ?? NO_WRITER,
+    calls: written?.calls ?? 0,
+    input_tokens: written?.input_tokens ?? 0,
+    output_tokens: written?.output_tokens ?? 0,
+    rewritten: written?.rewritten ?? 0,
+    replaced: written?.replaced ?? 0,
   };
   const snapshots = snapshotsFor(questions);
   const liveSettings = {

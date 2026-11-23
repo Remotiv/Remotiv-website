@@ -68,9 +68,11 @@ export const INTERVIEW_KIND_LABELS: Record<InterviewKind, string> = {
 export type LiveSettings = {
   /**
    * Snapshot format. Bump when a reader could misread an older row.
-   * 1: before the question mix. 2: with question_mix (AVI commit 3).
+   * 1: before the question mix. 2: with question_mix (AVI commit 3), the
+   * table's split (question-mix-v1). 3: question_mix is the job's own question
+   * count, every one asked, no CV questions (question-mix-v2, 23 Nov, #13).
    */
-  v: 1 | 2;
+  v: 1 | 2 | 3;
   interviewer_name: string;
   language: string;
   max_follow_ups_per_base_question: number;
@@ -99,8 +101,8 @@ export type LiveSettings = {
   question_mix: QuestionMix | null;
 };
 
-/** The current snapshot format, written by every new invite. v1 rows are still read. */
-export const LIVE_SETTINGS_VERSION = 2;
+/** The current snapshot format, written by every new invite. v1 and v2 rows are still read, as written. */
+export const LIVE_SETTINGS_VERSION = 3;
 
 /** The stored question mix, narrowed: whole numbers, job + CV = total, at least one question. */
 function readQuestionMix(raw: unknown): QuestionMix | null {
@@ -162,7 +164,7 @@ export function readLiveSettings(raw: unknown, sessionId: string): LiveSettings 
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return bad("is not an object");
   const o = raw as Record<string, unknown>;
 
-  if (o.v !== 1 && o.v !== LIVE_SETTINGS_VERSION) {
+  if (o.v !== 1 && o.v !== 2 && o.v !== LIVE_SETTINGS_VERSION) {
     return bad(`has version ${JSON.stringify(o.v)}`);
   }
   const version: LiveSettings["v"] = o.v;
@@ -207,7 +209,8 @@ export function readLiveSettings(raw: unknown, sessionId: string): LiveSettings 
     never.push(line);
   }
 
-  // v2 rows must carry a usable mix; a v1 row predates it and reads as null.
+  // v2 and v3 rows must carry a usable mix, read back exactly as frozen; a v1
+  // row predates it and reads as null.
   const questionMix = version === 1 ? null : readQuestionMix(o.question_mix);
   if (version !== 1 && !questionMix) return bad("has no usable question_mix");
 

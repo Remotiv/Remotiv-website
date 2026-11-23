@@ -2,17 +2,34 @@ import { ADDRESS_TAG, EMAIL_TAG, LINK_TAG, PHONE_TAG } from "./cv-sanitize";
 
 /**
  * How many job questions and how many CV-based questions an AI Video
- * Interview has. One table, the same rule for every candidate: no company or
- * job overrides it. Writing the CV questions is not done here.
+ * Interview has. The same rule for every candidate: no company or job
+ * overrides it. Writing the CV questions is not done here.
  *
- * ── Keyed by the live session's length ───────────────────────
+ * ── Today: every job question, no CV questions (23 Nov, #13) ─
  *
- * A live interview's length is the frozen live_settings.max_session_seconds,
- * which is MAX_SESSION_SECONDS (30 minutes) for everyone today. It is NOT
- * jobs.interview_duration_minutes: that column is the Team Call's length, for
- * human final interviews booked through the calendar.
+ * Decided 23 Nov 2026 (Waleed): an interview asks ALL of the job's own
+ * interview questions, word for word, in the recruiter's order, the same for
+ * every candidate of the job; at least MIN_JOB_QUESTIONS and at most
+ * MAX_JOB_QUESTIONS of them; up to 2 follow-ups each (unchanged, types.ts).
+ * CV questions are ON HOLD: CV_QUESTIONS_PER_INTERVIEW is 0.
  *
- * ── The numbers: sized on the AVERAGE question, provisional ──
+ * jobQuestionMix is that rule, copied into live_settings v3 at invite with the
+ * job's own count (live-settings.ts). The questions themselves are frozen by
+ * lib/interviews/live-question-freeze.ts, which refuses a count outside
+ * MIN..MAX rather than cutting or padding.
+ *
+ * ── Before: the table below (question-mix-v1) ────────────────
+ *
+ * Sessions invited before 23 Nov carry the table's split (live_settings v2,
+ * 4 job + 4 CV for 30 minutes) and keep it when read: readers use the frozen
+ * copy. The freeze no longer runs that split and refuses those sessions.
+ *
+ * questionMixFor and describeQuestionMix still give the table's numbers ONLY
+ * because the job wizard's read-only line is built from them
+ * (jobs/new/_wizard-client.tsx), and its wording changes in its own step. No
+ * invite uses questionMixFor any more.
+ *
+ * ── The table: sized on the AVERAGE question, provisional ────
  *
  * PROVISIONAL (decision D3). These rows rely on the time rule: when the
  * session is short of time, follow-ups are dropped so every base question is
@@ -31,32 +48,39 @@ import { ADDRESS_TAG, EMAIL_TAG, LINK_TAG, PHONE_TAG } from "./cv-sanitize";
  *
  * At the observed worst (4.0 minutes a question) 8 questions take about 34
  * minutes with the greeting: over the 30. That is the case the time rule
- * covers.
+ * covers. The same 8 is MAX_JOB_QUESTIONS today.
  *
- * Half and half, with an odd question going to the job: job questions are the
- * ones every candidate on the job shares. question-mix.test.ts checks each row
- * against the formula, so a row edited past the budget fails.
+ * Half and half, with an odd question going to the job. question-mix.test.ts
+ * checks each row against the formula, so a row edited past the budget fails.
  *
- * ── CV slots never become job slots ──────────────────────────
+ * ── CV slots, when they come back ────────────────────────────
  *
- * The split is the same for every candidate: always this many job slots and
- * this many CV slots. A CV slot is filled with a CV question, or, when the CV
- * is too thin to support one, a general experience question of similar
- * difficulty and the same kind of scoring guide (lib/interviews/live-questions.ts).
- * It never turns into another job question. "Too thin" starts at
- * MIN_CV_TEXT_CHARS in lib/ai/cv-scoring.ts, the length below which a CV is
- * not scored; restated here because the wizard imports this module and must
- * not pull in the scorer, and pinned equal to it by a test.
+ * A CV slot is filled with a CV question, or, when the CV is too thin to
+ * support one, a general experience question of similar difficulty and the
+ * same kind of scoring guide (lib/interviews/live-questions.ts). It never
+ * turns into another job question. "Too thin" starts at MIN_CV_TEXT_CHARS in
+ * lib/ai/cv-scoring.ts, the length below which a CV is not scored; restated
+ * here because the wizard imports this module and must not pull in the
+ * scorer, and pinned equal to it by a test.
  *
  * ── Versioned, and frozen per session ────────────────────────
  *
- * The mix is copied onto each live session at invite (live_settings v2). A
- * later change to this table must bump QUESTION_MIX_POLICY_VERSION, and never
- * changes a session already sent: readers use the frozen copy.
+ * The mix is copied onto each live session at invite. A later change to the
+ * rule must bump QUESTION_MIX_POLICY_VERSION, and never changes a session
+ * already sent: readers use the frozen copy.
  */
 
-export const QUESTION_MIX_POLICY_VERSION = "question-mix-v1";
+/** The current rule: every job question, no CV questions (23 Nov). */
+export const QUESTION_MIX_POLICY_VERSION = "question-mix-v2";
+/** The table's rule, 4 job + 4 CV for 30 minutes: sessions invited before 23 Nov. */
+export const TABLE_POLICY_VERSION = "question-mix-v1";
 
+/** A live interview asks at least this many of the job's own questions. */
+export const MIN_JOB_QUESTIONS = 4;
+/** And at most this many: the 30-minute row's total. */
+export const MAX_JOB_QUESTIONS = 8;
+/** ON HOLD (23 Nov): no CV questions. live-question-freeze.ts writes none while this is 0. */
+export const CV_QUESTIONS_PER_INTERVIEW = 0;
 /** Measured on the provider's sample: a base question with two follow-ups, on AVERAGE (worst seen: 4.0). */
 export const MINUTES_PER_FOLLOWED_UP_QUESTION = 3.05;
 /** Greeting and close. */
@@ -84,9 +108,27 @@ export type QuestionMix = {
 };
 
 /**
- * The policy's mix for a session of this many minutes: the nearest row at or
- * below it, or the shortest row when it is below every row or not a number.
- * Never throws.
+ * The mix frozen at invite (live_settings v3): all of the job's questions, as
+ * many as the job has, and CV_QUESTIONS_PER_INTERVIEW CV questions. The count
+ * is stored as it is, never cut or padded: a count outside
+ * MIN_JOB_QUESTIONS..MAX_JOB_QUESTIONS is refused where the questions are
+ * frozen. Never throws.
+ */
+export function jobQuestionMix(jobQuestionCount: number, sessionMinutes: number): QuestionMix {
+  return {
+    policy_version: QUESTION_MIX_POLICY_VERSION,
+    session_minutes: sessionMinutes,
+    job_questions: jobQuestionCount,
+    cv_questions: CV_QUESTIONS_PER_INTERVIEW,
+    total: jobQuestionCount + CV_QUESTIONS_PER_INTERVIEW,
+  };
+}
+
+/**
+ * The TABLE's mix (question-mix-v1) for a session of this many minutes: the
+ * nearest row at or below it, or the shortest row when it is below every row
+ * or not a number. Never throws. Kept for the wizard's line only; no invite
+ * uses it.
  */
 export function questionMixFor(sessionMinutes: number): QuestionMix {
   const rows = [...QUESTION_MIX_TABLE].sort((a, b) => a.minutes - b.minutes);
@@ -95,7 +137,7 @@ export function questionMixFor(sessionMinutes: number): QuestionMix {
     for (const r of rows) if (r.minutes <= sessionMinutes) row = r;
   }
   return {
-    policy_version: QUESTION_MIX_POLICY_VERSION,
+    policy_version: TABLE_POLICY_VERSION,
     session_minutes: row.minutes,
     job_questions: row.job,
     cv_questions: row.cv,

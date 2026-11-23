@@ -2,7 +2,7 @@ import "server-only";
 import { JOB_INTERVIEWER_NAME_MAX } from "@/app/ai-dashboard/lib/job-types";
 import type { createServiceClient } from "@/lib/supabase/server";
 import { liveInterviewsAvailableFor } from "./live-availability";
-import { questionMixFor } from "./question-mix";
+import { jobQuestionMix } from "./question-mix";
 import {
   LIVE_SETTINGS_VERSION,
   type LiveSettings,
@@ -141,7 +141,23 @@ export async function gateLiveInterviewInvite(
         "AI Video Interviews are switched off for this job. Turn them on under More options in the job's settings, then send again.",
     };
   }
-  return buildLiveSettings({ interviewerName: row.avatar_interviewer_name });
+
+  // How many questions the job has, for the mix (23 Nov, #13): every one is
+  // asked. Read the way the invite reads its questions_snapshot. A job saved
+  // between the two reads can make them differ; the freeze compares them and
+  // refuses a mismatch (live-question-freeze.ts), so neither is trusted alone.
+  const { data: questions, error: questionsErr } = await service
+    .from("interview_questions")
+    .select("id")
+    .eq("job_id", input.jobId)
+    .eq("company_id", input.companyId)
+    .limit(50);
+  if (questionsErr) return { ok: false, error: "Couldn't send - please try again." };
+
+  return buildLiveSettings({
+    interviewerName: row.avatar_interviewer_name,
+    jobQuestionCount: (questions ?? []).length,
+  });
 }
 
 /**
@@ -177,6 +193,8 @@ export async function gateLiveInterviewInvite(
 function buildLiveSettings(input: {
   /** jobs.avatar_interviewer_name, as stored. Null when never set. */
   interviewerName: string | null;
+  /** The job's interview questions, counted at invite. */
+  jobQuestionCount: number;
 }): BuildLiveSettingsResult {
   const name = (input.interviewerName ?? "").trim().slice(0, JOB_INTERVIEWER_NAME_MAX);
   if (!name) {
@@ -197,12 +215,11 @@ function buildLiveSettings(input: {
       max_session_seconds: MAX_SESSION_SECONDS,
       follow_up_rules_version: FOLLOW_UP_RULES_VERSION,
       follow_up_rules: FOLLOW_UP_RULES,
-      // The policy's mix for this session's length, copied now so a later
-      // change to the table never reaches an interview already sent. Whether
-      // a CV slot holds a CV or a general experience question is decided where
-      // the questions are written (live-questions.ts), the first place the
-      // candidate's CV is read; the split itself never changes.
-      question_mix: questionMixFor(MAX_SESSION_SECONDS / 60),
+      // The policy's mix, copied now so a later policy change never reaches
+      // an interview already sent: every job question, no CV questions
+      // (question-mix.ts). A count outside 4..8 is stored as it is and refused
+      // by the freeze, never cut or padded.
+      question_mix: jobQuestionMix(input.jobQuestionCount, MAX_SESSION_SECONDS / 60),
     },
   };
 }
