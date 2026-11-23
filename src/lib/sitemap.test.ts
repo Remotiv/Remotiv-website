@@ -116,5 +116,109 @@ test("a failed page drops the profile block, never a partial list, and the rest 
     entries.some((e) => e.url.endsWith("/jobs/engineer")),
     "jobs must still ship",
   );
-  assert.ok(logged.some((l) => l.includes("[sitemap] failed to fetch profile entries")));
+  // #73: one line, our own words: the database's text never reaches the log.
+  assert.deepEqual(logged, [
+    "[sitemap] profiles left out: [sitemap] public talent profiles failed at rows 0-999",
+  ]);
+  assert.ok(!logged.join(" ").includes("connection reset"));
+});
+
+/* ── #73: a slow or hung database never holds the build ────────── */
+
+const NEVER = () => new Promise(() => {});
+const STATIC = [
+  "https://remotiv.work/",
+  "https://remotiv.work/jobs",
+  "https://remotiv.work/pricing",
+];
+const flush = async () => {
+  for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+};
+
+/** hang: the table whose read never answers. Every other table answers. */
+function hanging(table) {
+  return fakeService((t, calls) => (t === table ? NEVER() : serveFor(t, calls)));
+}
+function serveFor(table, calls) {
+  if (table === "talent_profiles") return serve(TALENT, calls);
+  if (table === "hire_remote_profiles") return serve(REMOTE, calls);
+  return {
+    data: [{ id: "j1", slug: "engineer", created_at: "2026-09-01T00:00:00Z" }],
+    error: null,
+  };
+}
+
+/** Starts sitemap() without awaiting it, so a test can see whether it has settled yet. */
+function start(service) {
+  globalThis.__fakeServiceClientForTests = () => service;
+  const logged = [];
+  const errors = console.error;
+  console.error = (...a) => logged.push(a.map(String).join(" "));
+  const state = { settled: false, entries: undefined };
+  const done = sitemap()
+    .then((entries) => {
+      state.settled = true;
+      state.entries = entries;
+    })
+    .finally(() => {
+      console.error = errors;
+      delete globalThis.__fakeServiceClientForTests;
+    });
+  return { state, logged, done };
+}
+
+test("#73 a hanging profile read: settles at the 10 s deadline, not before, with static pages and jobs and no profiles", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { state, logged, done } = start(hanging("talent_profiles"));
+  await flush();
+  t.mock.timers.tick(9_999);
+  await flush();
+  assert.equal(state.settled, false, "still waiting just before the deadline");
+  t.mock.timers.tick(1);
+  await flush();
+  assert.equal(state.settled, true, "the deadline ended the read: the build is not held");
+  await done;
+  const urls = state.entries.map((e) => e.url);
+  for (const u of STATIC) assert.ok(urls.includes(u), u);
+  assert.ok(
+    urls.some((u) => u.endsWith("/jobs/engineer")),
+    "jobs still ship",
+  );
+  assert.equal(profileUrls(state.entries).length, 0, "no profiles, not a partial list");
+  assert.deepEqual(logged, ["[sitemap] profiles left out: profile reads timed out after 10000 ms"]);
+});
+
+test("#73 an error read returns at once (no wait for the deadline), with static pages and jobs", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { state, done } = start(world({ failing: "hire_remote_profiles" }));
+  await flush();
+  assert.equal(state.settled, true, "settled with no timer advanced");
+  await done;
+  assert.equal(profileUrls(state.entries).length, 0);
+  assert.ok(state.entries.some((e) => e.url.endsWith("/jobs/engineer")));
+});
+
+test("#73 a hanging jobs read is cut at the same deadline: static pages and profiles still ship", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { state, logged, done } = start(hanging("jobs"));
+  await flush();
+  assert.equal(state.settled, false);
+  t.mock.timers.tick(10_000);
+  await flush();
+  assert.equal(state.settled, true);
+  await done;
+  assert.equal(profileUrls(state.entries).length, TALENT.length + REMOTE.length);
+  assert.ok(!state.entries.some((e) => e.url.startsWith("https://remotiv.work/jobs/")));
+  assert.deepEqual(logged, ["[sitemap] jobs left out: job reads timed out after 10000 ms"]);
+});
+
+test("#73 every read carries the abort signal, so a timed-out request is cancelled, not left running", async () => {
+  const service = world();
+  await run(service);
+  assert.ok(service.queries.length >= 4);
+  for (const q of service.queries) {
+    const sig = call(q.calls, "abortSignal");
+    assert.ok(sig, `${q.table}: no abortSignal`);
+    assert.ok(sig[1] instanceof AbortSignal, q.table);
+  }
 });

@@ -12,6 +12,45 @@ const BASE_URL = "https://remotiv.work";
 // plenty fresh for Google's crawl cadence.
 export const revalidate = 3600;
 
+/**
+ * How long one block of database reads may take before it is left out (#73).
+ * The sitemap is prerendered at build time, so a read that hangs used to hang
+ * the build until Vercel killed it at 60 s, and a slow database then blocked
+ * every deploy, including the one that would fix it (23 Nov, #74).
+ */
+const READ_TIMEOUT_MS = 10_000;
+
+/**
+ * Runs `read` with a deadline. When the deadline passes, the read's requests
+ * are aborted and this rejects, whether or not the read itself ever settles.
+ * A thrown error only rejects: it never waits for the deadline.
+ */
+async function withDeadline<T>(
+  label: string,
+  read: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`${label} timed out after ${READ_TIMEOUT_MS} ms`));
+    }, READ_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([read(controller.signal), expired]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** One log line, our own words only: a database error's text never reaches the log. */
+function logLeftOut(what: string, err: unknown): void {
+  const cause = (err as { cause?: { code?: unknown } } | null)?.cause?.code;
+  const reason = err instanceof Error ? err.message : "read failed";
+  console.error(`[sitemap] ${what} left out: ${reason}${cause ? ` (${String(cause)})` : ""}`);
+}
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date();
 
@@ -30,25 +69,32 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // and the whole profile block is then skipped and logged: a sitemap missing
   // profiles for an hour is honest, one missing an arbitrary slice of them is
   // not. Ordered by id so the pages tile the table without gaps or repeats.
+  // Both tables share one READ_TIMEOUT_MS deadline: past it, no profiles.
   let profileEntries: MetadataRoute.Sitemap = [];
   try {
     type ProfileRow = { id: string; claimed_at: string | null; approved_at: string };
-    const [talentRows, remoteRows] = await Promise.all([
-      pageAll<ProfileRow>(
-        (from, to) =>
-          publicTalent(supabase.from("talent_profiles").select("id, claimed_at, approved_at"))
-            .order("id")
-            .range(from, to),
-        { scope: "sitemap", label: "public talent profiles" },
-      ),
-      pageAll<ProfileRow>(
-        (from, to) =>
-          publicRemote(supabase.from("hire_remote_profiles").select("id, claimed_at, approved_at"))
-            .order("id")
-            .range(from, to),
-        { scope: "sitemap", label: "public freelancer profiles" },
-      ),
-    ]);
+    const [talentRows, remoteRows] = await withDeadline("profile reads", (signal) =>
+      Promise.all([
+        pageAll<ProfileRow>(
+          (from, to) =>
+            publicTalent(supabase.from("talent_profiles").select("id, claimed_at, approved_at"))
+              .order("id")
+              .range(from, to)
+              .abortSignal(signal),
+          { scope: "sitemap", label: "public talent profiles" },
+        ),
+        pageAll<ProfileRow>(
+          (from, to) =>
+            publicRemote(
+              supabase.from("hire_remote_profiles").select("id, claimed_at, approved_at"),
+            )
+              .order("id")
+              .range(from, to)
+              .abortSignal(signal),
+          { scope: "sitemap", label: "public freelancer profiles" },
+        ),
+      ]),
+    );
     profileEntries = [...talentRows, ...remoteRows].map((r) => ({
       url: `${BASE_URL}/talent/${r.id}`,
       lastModified: new Date(r.claimed_at ?? r.approved_at),
@@ -58,7 +104,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   } catch (err) {
     // A transient outage must not 500 the whole sitemap: the static pages and
     // jobs still go out, and the profiles return on the next regeneration.
-    console.error("[sitemap] failed to fetch profile entries:", err);
+    logLeftOut("profiles", err);
   }
 
   let jobEntries: MetadataRoute.Sitemap = [];
@@ -67,7 +113,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // would submit a dead URL to every crawler that reads this file.
     // Only board-listed roles are indexed. An unlisted job still has a working
     // URL for the company to share — it is simply not advertised by us.
-    const { data } = await listedOnRemotiv(supabase.from("jobs").select("id, slug, created_at"));
+    // The same deadline: a hung jobs read would hang the build just the same.
+    const { data } = await withDeadline("job reads", async (signal) =>
+      listedOnRemotiv(supabase.from("jobs").select("id, slug, created_at")).abortSignal(signal),
+    );
     const rows = (data ?? []) as Array<{
       id: string;
       slug: string | null;
@@ -81,7 +130,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }));
   } catch (err) {
     // Same graceful degradation as the profile block.
-    console.error("[sitemap] failed to fetch job entries:", err);
+    logLeftOut("jobs", err);
   }
 
   return [
