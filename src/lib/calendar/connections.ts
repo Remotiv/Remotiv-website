@@ -447,3 +447,64 @@ export async function disconnect(
   }
   return { deleted: true, revokedAtProvider };
 }
+
+export type MemberDisconnectOutcome =
+  | {
+      ok: true;
+      results: { provider: string; deleted: boolean; revokedAtProvider: boolean }[];
+    }
+  | { ok: false };
+
+/**
+ * Disconnect EVERY calendar a member has connected (#69 step 6), each through
+ * `disconnect` above: revoke at the provider, then delete the row, the delete
+ * happening either way. Used when a member is removed from the team, so their
+ * grant does not outlive their access.
+ *
+ * Unlike listConnectionsForMember, a failed read is reported (`ok: false`)
+ * rather than read as "no connections": the caller has to tell someone the
+ * grant may still be live, and an empty list would hide that.
+ */
+export async function disconnectAllForMember(memberId: string): Promise<MemberDisconnectOutcome> {
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("calendar_connections")
+    .select("provider")
+    .eq("member_id", memberId);
+  if (error) {
+    console.error(`[calendar] disconnectAllForMember: read failed (${error.code ?? "db"})`);
+    return { ok: false };
+  }
+  const results: { provider: string; deleted: boolean; revokedAtProvider: boolean }[] = [];
+  for (const row of (data ?? []) as { provider: string }[]) {
+    const out = await disconnect(memberId, row.provider as CalendarProviderId);
+    results.push({ provider: row.provider, ...out });
+  }
+  return { ok: true, results };
+}
+
+/**
+ * Disconnect every calendar connection a COMPANY still has (#69 step 5), each
+ * through `disconnect` (revoke, then delete the row either way). The company
+ * delete runs it right before the company row goes, to catch a connection made
+ * after its per-member pass: the row would otherwise be cascaded away with its
+ * token never revoked. A failed read is reported (`ok: false`), as above.
+ */
+export async function disconnectAllForCompany(companyId: string): Promise<MemberDisconnectOutcome> {
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("calendar_connections")
+    .select("member_id, provider")
+    .eq("company_id", companyId)
+    .order("member_id", { ascending: true });
+  if (error) {
+    console.error(`[calendar] disconnectAllForCompany: read failed (${error.code ?? "db"})`);
+    return { ok: false };
+  }
+  const results: { provider: string; deleted: boolean; revokedAtProvider: boolean }[] = [];
+  for (const row of (data ?? []) as { member_id: string; provider: string }[]) {
+    const out = await disconnect(row.member_id, row.provider as CalendarProviderId);
+    results.push({ provider: row.provider, ...out });
+  }
+  return { ok: true, results };
+}

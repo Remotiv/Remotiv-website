@@ -4,6 +4,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
 import { notifyCompany } from "@/lib/notifications/company";
+import { disconnectAllForMember } from "@/lib/calendar/connections";
 import { isValidEmail } from "@/lib/validators";
 import { rateLimitClosedByKey, TRY_AGAIN_SOON } from "@/app/api/_lib/rate-limit";
 import { sendEmail } from "@/lib/email/send";
@@ -306,9 +307,20 @@ export async function updateMemberRole(
   return { success: true, data: undefined };
 }
 
+/**
+ * What the remover is told when a removed member's Google Calendar access
+ * could not be confirmed gone (#69 step 6). The connection row is deleted
+ * either way; only Google's side may survive.
+ */
+const CALENDAR_NOT_REVOKED =
+  "Google did not confirm that Remotiv's access to their calendar was removed. Google may still list Remotiv under their Google Account > Security > Third-party access; remove it there.";
+
+/** The member is kept: their calendar connections could not be read or deleted. */
+const CALENDAR_NOT_DISCONNECTED = "Couldn't disconnect their calendar. Please try again.";
+
 export async function removeMember(
   memberId: string,
-): Promise<MutationResult<undefined>> {
+): Promise<MutationResult<{ calendarWarning: string } | undefined>> {
   const ctx = await requireCompanyRole("owner", "admin");
 
   const service = createServiceClient();
@@ -340,6 +352,25 @@ export async function removeMember(
 
   const subjectName =
     (target.name ?? "").trim() || (target.email ?? "").trim() || "A member";
+
+  /*
+   * 0. Their calendar grants go FIRST (#69 step 6), before anything about the
+   *    membership changes: each connection is revoked at Google, then its row
+   *    is deleted, the delete happening even when the revoke does not confirm.
+   *    If the connections cannot be read, or a row cannot be deleted, a live
+   *    token would outlive the membership, so the member is NOT removed: the
+   *    remover is asked to try again and nothing else has changed. A row
+   *    deleted without Google's confirmation does not block the removal; the
+   *    remover is told and the owners and admins get a bell (step 3). Reason
+   *    codes only in the log, never a token.
+   */
+  const calendar = await disconnectAllForMember(target.id);
+  if (!calendar.ok || calendar.results.some((r) => !r.deleted)) {
+    const reason = calendar.ok ? "delete_failed" : "read_failed";
+    console.error(`[team] remove member: calendar not disconnected, member kept (${reason})`);
+    return { success: false, error: CALENDAR_NOT_DISCONNECTED };
+  }
+  const revokeUnconfirmed = calendar.results.some((r) => !r.revokedAtProvider);
 
   /*
    * 1. Revoke this company's PENDING invitations for the member FIRST (#100).
@@ -440,8 +471,32 @@ export async function removeMember(
     actorMemberId: ctx.memberId,
   });
 
+  /*
+   * 3. Google did not confirm a revoke in step 0 (the rows are gone either
+   *    way): the remover is told on screen and the owners and admins get a
+   *    bell with the one step that finishes the job. The remover is left out
+   *    of the bell, as everywhere else: they already see the message.
+   */
+  if (revokeUnconfirmed) {
+    console.error(
+      "[team] remove member: calendar access not confirmed removed (revoke_unconfirmed)",
+    );
+    await notifyCompany({
+      companyId: ctx.companyId,
+      type: "member_calendar_not_revoked",
+      title: `Remotiv may still have access to ${subjectName}'s Google Calendar`,
+      body: `${subjectName} was removed, but Google did not confirm their calendar access was revoked. Google may still list Remotiv under their Google Account > Security > Third-party access; remove it there.`,
+      href: "/ai-dashboard/team",
+      actorMemberId: ctx.memberId,
+    });
+  }
+
   revalidatePath("/ai-dashboard/team");
-  return { success: true, data: undefined };
+  // A clean removal returns exactly what it always did.
+  return {
+    success: true,
+    data: revokeUnconfirmed ? { calendarWarning: CALENDAR_NOT_REVOKED } : undefined,
+  };
 }
 
 // ── Invites ──────────────────────────────────────────────────

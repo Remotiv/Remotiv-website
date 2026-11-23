@@ -39,6 +39,9 @@ const STUBS = {
   "@/app/api/_lib/rate-limit":
     "export async function rateLimitClosedByKey() { return { ok: true }; } export const TRY_AGAIN_SOON = 'Please try again in a minute.';",
   "@/lib/notifications/company": "export async function notifyCompany(input) { globalThis.__teamNotified.push(input); }",
+  // #69 step 6: removeMember disconnects the member's calendars; none here.
+  "@/lib/calendar/connections":
+    "export async function disconnectAllForMember() { return { ok: true, results: [] }; }",
   "@/lib/email/send": "export async function sendEmail() { return { ok: true }; }",
   "@/lib/email/templates/company-invite": "export const companyInviteSubject = 'x'; export function renderCompanyInviteEmail() { return ''; }",
   "@/lib/validators": "export function isValidEmail(e) { return /@/.test(e); }",

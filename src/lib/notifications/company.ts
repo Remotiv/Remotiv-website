@@ -77,6 +77,12 @@ export const COMPANY_NOTIFICATION_TYPES = [
   "invite_accepted",
   "member_removed",
   "member_role_changed",
+  /*
+   * #69 step 6: a removed member's Google Calendar grant could not be
+   * confirmed revoked (or the connection could not be read or deleted). Team
+   * administration, so owners and admins only. Same unconstrained column.
+   */
+  "member_calendar_not_revoked",
 ] as const;
 
 export type CompanyNotificationType = (typeof COMPANY_NOTIFICATION_TYPES)[number];
@@ -86,6 +92,7 @@ const TEAM_ADMIN_TYPES = new Set<CompanyNotificationType>([
   "invite_accepted",
   "member_removed",
   "member_role_changed",
+  "member_calendar_not_revoked",
 ]);
 
 const APPLICANTS_PATH = "/ai-dashboard/applicants";

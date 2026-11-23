@@ -1266,11 +1266,20 @@ export function TeamClient({
     if (result.success) {
       setMembers((prev) => prev.filter((m) => m.id !== member.id));
       setRemoveTarget(null);
-      setToast(
-        member.status === "invited"
-          ? `Invitation to ${member.email} revoked`
-          : `${member.name} removed from team`,
-      );
+      // #69 step 6: removed, but Google did not confirm their calendar access
+      // went. Said plainly, with the step that finishes it.
+      const calendarWarning =
+        result.data && "calendarWarning" in result.data ? result.data.calendarWarning : null;
+      if (member.status === "invited") {
+        setToast(`Invitation to ${member.email} revoked`);
+      } else if (calendarWarning) {
+        setToast({
+          message: `${member.name} removed from team. ${calendarWarning}`,
+          tone: "error",
+        });
+      } else {
+        setToast(`${member.name} removed from team`);
+      }
       router.refresh();
     } else {
       setToast({ message: result.error, tone: "error" });
