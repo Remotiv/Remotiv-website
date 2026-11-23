@@ -254,6 +254,8 @@ function assertEmail(steps, subject) {
     companyName: "Test Co",
     replyTo: "hiring@testco.example",
     sentByName: "Test Member",
+    // #87: the sender's member, so their own failure does not bell them.
+    actorMemberId: "m-1",
   });
   assert.match(html, /^<p>Hi Test,<\/p>\n/);
   assert.ok(

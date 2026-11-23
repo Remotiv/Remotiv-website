@@ -79,16 +79,17 @@ import type { createServiceClient } from "@/lib/supabase/server";
  * bell this call was writing, not a second one. Do not "fix" this by trying
  * to roll it back.
  *
- * ── Filed: the invitation actor gap (#71A follow-up) ─────────
+ * ── The invitation actor (#71A follow-up, closed by #87) ──────
  *
- * Two callers of deliverEmail sit under src/lib/interviews/, which this
- * change may not touch, so they pass no actorMemberId:
- *   invite-delivery.ts:126 (sendInviteEmail). A recruiter's own invitation
- *     failure therefore also rings their bell. The wiring is InviteSender
- *     (invite-delivery.ts:29) gaining memberId, that call passing it as
- *     actorMemberId, and interview-actions.ts supplying ctx.memberId.
- *   reminder.ts:333 (the automatic reminder). No actor exists for it, so
- *     nothing is missing there; it is listed so nobody looks for a gap.
+ * sendInviteEmail (interviews/invite-delivery.ts) passes InviteSender.memberId
+ * as actorMemberId. The three senders supply it: the async and live sends
+ * (applicants/interview-actions.ts, which pass their ctx) and the live
+ * restart (interviews/live-restart-flow.ts, ctx.memberId). Each fails its
+ * action when the email does, so the recruiter sees the error and gets no
+ * bell; the rest of the team is still belled. An invitation sent with no
+ * member passes none, and everyone is belled. reminder.ts (the automatic
+ * reminder) has no actor, so it bells everyone; listed so nobody looks for a
+ * gap. Pinned by interviews/invite-actor.test.ts.
  * calendar/notify.ts is closed (#87 part 2): its argument types carry
  * actorMemberId. The final-interview link (final-interview-actions.ts, sendLink)
  * passes ctx.memberId, because a failed link fails the action and the recruiter

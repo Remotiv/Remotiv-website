@@ -25,8 +25,18 @@ import type { createServiceClient } from "@/lib/supabase/server";
 
 type Service = ReturnType<typeof createServiceClient>;
 
-/** Who is sending: the company and the member named on the email's log row. */
-export type InviteSender = { companyId: string; memberName: string | null };
+/**
+ * Who is sending: the company, the member named on the email's log row, and
+ * the member who pressed send (#87). A failed invitation fails that member's
+ * action, so they see the error on screen and get no bell for it; everyone
+ * else who should know still does. A send with no member (an automatic one)
+ * passes none, and every recipient is belled.
+ */
+export type InviteSender = {
+  companyId: string;
+  memberName: string | null;
+  memberId?: string | null;
+};
 
 export type InviteApplication = {
   id: string;
@@ -133,6 +143,7 @@ export async function sendInviteEmail(
     companyName,
     replyTo: (company?.candidate_reply_email ?? "").trim() || null,
     sentByName: ctx.memberName,
+    actorMemberId: ctx.memberId ?? null,
   });
 
   if (!outcome.ok) {

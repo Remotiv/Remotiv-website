@@ -315,7 +315,7 @@ async function sendRestartLink(
   if (!app) return failed("not_found");
 
   const sent = await (deps.sendEmail ?? sendInviteEmail)(service, {
-    ctx: { companyId: ctx.companyId, memberName: ctx.memberName },
+    ctx: { companyId: ctx.companyId, memberName: ctx.memberName, memberId: ctx.memberId },
     applicationId: app.id,
     app,
     rawToken: token,
