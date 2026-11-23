@@ -1,0 +1,85 @@
+-- ============================================================================
+-- Migration 072 - the public database roles lose every privilege on the
+--                 calendar tokens table (#68)
+-- ----------------------------------------------------------------------------
+-- NOT RUN anywhere. Staging first, then production, by hand in the Supabase
+-- SQL editor. No code change has to ship with it: nothing in the app reaches
+-- this table except through the service-role client, and
+-- src/lib/calendar/connections-service-only.test.ts fails the moment
+-- anything does.
+--
+-- ── Why ──────────────────────────────────────────────────────
+--
+-- public.calendar_connections holds each connected host's Google (or
+-- Microsoft) OAuth access token and refresh token, as issued, in plain text.
+-- RLS is on and the table has no policies, so today anon and authenticated
+-- read zero rows through the API. But both roles hold GRANT ALL on it (the
+-- production dump of 16 Nov, ACL section), so the only thing between a
+-- signed-in user, or anyone with the public anon key, and every company's
+-- calendar tokens is that no policy exists. One permissive policy added by
+-- mistake, or RLS switched off while debugging, and they are readable. With
+-- the grants gone, the table is refused to those roles outright, whatever
+-- the policies say.
+--
+-- ── What it changes, and what it does not ────────────────────
+--
+-- Revokes ALL on public.calendar_connections from anon, authenticated and
+-- PUBLIC (PUBLIC holds nothing in the dump; revoking it is a no-op there and
+-- makes sure). service_role keeps its privileges: it is not touched here.
+-- RLS, columns, indexes, constraints and every other table are unchanged.
+--
+-- ── Safe to re-run ───────────────────────────────────────────
+--
+-- REVOKE of a privilege that is not held is a no-op.
+--
+-- ── Rollback ─────────────────────────────────────────────────
+--
+-- Only if something breaks, and only on the database where it broke:
+--
+--   grant all on table public.calendar_connections to anon, authenticated;
+--
+-- That restores exactly what the dump shows. A break would mean a read or
+-- write through a user-session or anon client, which the source scan says
+-- does not exist; report it rather than rolling back silently.
+-- ============================================================================
+
+begin;
+
+revoke all on table public.calendar_connections from public;
+revoke all on table public.calendar_connections from anon, authenticated;
+
+commit;
+
+-- ============================================================================
+-- CHECK (read-only). Run after applying, on the same database.
+--
+-- 1. Every privilege by role: anon and authenticated must be false in every
+--    column, service_role true in every column.
+--
+--   select r.rolname,
+--          has_table_privilege(r.rolname, 'public.calendar_connections', 'SELECT')     as sel,
+--          has_table_privilege(r.rolname, 'public.calendar_connections', 'INSERT')     as ins,
+--          has_table_privilege(r.rolname, 'public.calendar_connections', 'UPDATE')     as upd,
+--          has_table_privilege(r.rolname, 'public.calendar_connections', 'DELETE')     as del,
+--          has_table_privilege(r.rolname, 'public.calendar_connections', 'TRUNCATE')   as trunc,
+--          has_table_privilege(r.rolname, 'public.calendar_connections', 'REFERENCES') as refs,
+--          has_table_privilege(r.rolname, 'public.calendar_connections', 'TRIGGER')    as trig
+--   from pg_roles r
+--   where r.rolname in ('anon', 'authenticated', 'service_role')
+--   order by r.rolname;
+--
+-- 2. Nothing granted directly to the public roles, table or column level:
+--    expect 0 and 0.
+--
+--   select
+--     (select count(*) from information_schema.role_table_grants
+--       where table_schema = 'public' and table_name = 'calendar_connections'
+--         and grantee in ('anon', 'authenticated', 'PUBLIC')) as table_grants,
+--     (select count(*) from information_schema.column_privileges
+--       where table_schema = 'public' and table_name = 'calendar_connections'
+--         and grantee in ('anon', 'authenticated', 'PUBLIC')) as column_grants;
+--
+-- 3. Unchanged: RLS still on. Expect true.
+--
+--   select relrowsecurity from pg_class where oid = 'public.calendar_connections'::regclass;
+-- ============================================================================
