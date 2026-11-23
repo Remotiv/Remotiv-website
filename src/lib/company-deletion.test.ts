@@ -4,6 +4,15 @@
  * inbox, in resumable batches; the company row last. The database and bucket
  * are fake-live-db.mjs.
  *
+ * Since #69 step 5 each applicant goes through deleteForRemotiv (071's Close,
+ * Google, files, Finish). Its own tests are applicant-deletion-complete.test.ts
+ * and admin/applications/delete-pipeline.test.ts; this fake database does not
+ * model 071's Close and Finish, so here it is replaced by a stand-in that does
+ * what the per-applicant loop did before (the interviews, the files, the row),
+ * with the real services. What this file pins is the batching around it. The
+ * company's new tail (calendar cleanups, revokes, logos, logins) is pinned in
+ * company-deletion-tail.test.ts; here it is stubbed to answer success.
+ *
  *   node --test src/lib/company-deletion.test.ts
  */
 // @ts-nocheck - same reason as paging.test.ts: Node's `.ts` specifier vs this tsconfig.
@@ -18,6 +27,20 @@ register(
 const STUBS = {
   "server-only": "",
   "@/lib/supabase/server": "export function createServiceClient() { return globalThis.__companyDeletionService; }",
+  "@/lib/applicant-deletion-complete": [
+    "import { deleteApplicationInterviews } from '@/lib/interviews/application-deletion';",
+    "import { removeApplicationFiles } from '@/lib/application-files';",
+    "export async function deleteForRemotiv(service, t) {",
+    "  const i = await deleteApplicationInterviews(service, t.applicationCompany, t.applicationId);",
+    "  if (!i.ok) return { success: false, error: i.error };",
+    "  const f = await removeApplicationFiles(service, t.applicationCompany, t.applicationId, t.cvPath);",
+    "  if (!f.ok) return { success: false, error: f.error };",
+    "  const { error } = await service.from('job_applications').delete().eq('id', t.applicationId).eq('company_id_snapshot', t.applicationCompany);",
+    "  return error ? { success: false, error: 'row' } : { success: true, data: undefined };",
+    "}",
+  ].join("\\n"),
+  "@/lib/calendar/cleanups": "export async function sweepCleanupsForCompany() { return 0; }",
+  "@/lib/calendar/connections": "export async function disconnectAllForMember() { return { ok: true, results: [] }; } export async function disconnectAllForCompany() { return { ok: true, results: [] }; }",
 };
 export async function resolve(specifier, context, next) {
   if (specifier in STUBS) return { url: "data:text/javascript," + encodeURIComponent(STUBS[specifier]), shortCircuit: true };
@@ -130,6 +153,15 @@ function world({ applicants = 30 } = {}) {
   for (const path of files) {
     db.objects.set(path, { bytes: new Uint8Array([1]), contentType: null, createdAt: Date.now() });
   }
+  db.service.auth = {
+    admin: {
+      getUserById: async (id) => ({
+        data: { user: { id, email: `${id}@example.test` } },
+        error: null,
+      }),
+      deleteUser: async () => ({ error: null }),
+    },
+  };
   globalThis.__companyDeletionService = db.service;
   return { db, B_APP, REMOTIV_APP };
 }
@@ -324,16 +356,18 @@ test("a company already deleted: its leftover applicants and their CVs are delet
 
 const source = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
 
-test("deleteCompany: the service first, the auth user only once done; the dashboard works through every batch", () => {
+test("deleteCompany: the service does it all, logins included, only once done; the dashboard works through every batch", () => {
   const actions = source("../app/admin/companies/actions.ts");
   const fn = actions.slice(actions.indexOf("export async function deleteCompany("));
   const body = fn.slice(0, fn.indexOf("\n}\n") + 2);
-  const service = body.indexOf("deleteCompanyData(supabase, id)");
-  const done = body.indexOf("if (!step.done)");
-  const authUser = body.indexOf("auth.admin.deleteUser(");
+  assert.ok(body.indexOf("deleteCompanyData(supabase, id)") > 0);
+  // #69 step 5: the logins are the service's, after the company row and only
+  // when unused (company-deletion.ts deleteLoginsIfUnused); never here.
+  assert.doesNotMatch(body, /auth\.admin\.deleteUser\(/);
+  const lib = source("./company-deletion.ts");
   assert.ok(
-    service > 0 && done > service && authUser > done,
-    "service, then done, then the auth user",
+    lib.indexOf('.from("companies").delete()') < lib.indexOf("await deleteLoginsIfUnused("),
+    "the logins only after the company row",
   );
   assert.doesNotMatch(
     body,

@@ -1334,7 +1334,13 @@ export function CompaniesDashboard({
         setCompanies((prev) => prev.filter((c) => c.id !== company.id));
         if (openId === company.id) setOpenId(null);
         setDeleteTarget(null);
-        setToast("Company deleted");
+        // #69 step 5: what the delete could not confirm (a calendar grant or
+        // event), said with the company gone rather than hidden.
+        setToast(
+          result.data.warnings?.length
+            ? `Company deleted. ${result.data.warnings.join(" ")}`
+            : "Company deleted",
+        );
         router.refresh();
         return;
       }

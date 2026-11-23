@@ -609,7 +609,7 @@ export async function resetCompanyPassword(
 }
 
 /** How far a company deletion got: it runs in batches, and a call carries on where the last stopped. */
-export type CompanyDeletionStep = { done: boolean; applicantsLeft: number };
+export type CompanyDeletionStep = { done: boolean; applicantsLeft: number; warnings?: string[] };
 
 /**
  * Delete a company and every applicant, interview, recording, CV and inbox
@@ -622,15 +622,8 @@ export async function deleteCompany(id: string): Promise<MutationResult<CompanyD
 
   const supabase = createServiceClient();
 
-  // Resolve the auth user_id BEFORE the companies row can go: once it is gone
-  // we lose the link.
-  const { data: row } = await supabase
-    .from("companies")
-    .select("user_id")
-    .eq("id", id)
-    .maybeSingle();
-  const userId = (row as { user_id: string | null } | null)?.user_id ?? null;
-
+  // The logins (owner and members) are deleted inside deleteCompanyData, after
+  // the company row and only when they belong to nothing else (#69 step 5).
   const step = await deleteCompanyData(supabase, id);
   revalidatePath("/admin/companies");
   if (!step.ok) {
@@ -644,13 +637,10 @@ export async function deleteCompany(id: string): Promise<MutationResult<CompanyD
   }
   if (!step.done)
     return { success: true, data: { done: false, applicantsLeft: step.applicantsLeft } };
-
-  if (userId) {
-    // Best-effort auth-user cleanup. We don't fail the action if this throws:
-    // the companies row is already gone so the contract is fulfilled.
-    await supabase.auth.admin.deleteUser(userId);
-  }
-  return { success: true, data: { done: true, applicantsLeft: 0 } };
+  return {
+    success: true,
+    data: { done: true, applicantsLeft: 0, ...(step.warnings ? { warnings: step.warnings } : {}) },
+  };
 }
 
 // ── Background queue (cross-company, super-admin only) ───────

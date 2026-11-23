@@ -709,3 +709,55 @@ test("C19. calendar_cleanup_companies: invoker rights, empty search_path, EXECUT
   const grants = [...fn.matchAll(/grant execute on function [^;]+ to ([^;]+);/g)].map((m) => m[1]);
   assert.deepEqual(grants, ["service_role"]);
 });
+
+// #69 step 5: the company delete runs this before it revokes the company's
+// connections, so the events are tried while the tokens still work.
+// Negative control: drop the sweepCompany call from sweepCleanupsForCompany
+// and this test fails.
+test("C20. one company's cleanups, now: activated and retried on that company only; what is left is counted", async () => {
+  const OTHER = "c0000000-0000-4000-8000-00000000c018";
+  const w = world({ connection: null, removes: [true] });
+  await cancelScreeningBookingsForDeletion(CO, APP);
+  deleteApplicant(w);
+  w.db.calendar_connections = [
+    {
+      company_id: CO,
+      member_id: "m-host",
+      provider: "google",
+      status: "active",
+      calendar_id: "cal-1",
+      provider_account: OLD_ACCOUNT.email,
+      provider_account_key: OLD_KEY,
+    },
+  ];
+  w.db.calendar_cleanups.push({
+    id: "other-company",
+    company_id: OTHER,
+    host_member_id: "m-elsewhere",
+    status: "open",
+    account_key: OLD_KEY,
+    provider: "google",
+    calendar_id: "primary",
+    provider_event_id: "evt-elsewhere",
+  });
+  const left = await cleanups.sweepCleanupsForCompany(CO);
+  assert.equal(left, 0, "this company's event was removed and resolved");
+  assert.equal(w.db.calendar_cleanups[0].status, "resolved");
+  assert.deepEqual(
+    w.calls.filter((c) => c[0] === "delete").map((c) => c[1].eventId),
+    ["evt-1"],
+    "one Google delete, for this company's event only",
+  );
+  assert.equal(w.db.calendar_cleanups[1].status, "open", "another company's row untouched");
+
+  const w2 = world({ connection: null, removes: [false] });
+  await cancelScreeningBookingsForDeletion(CO, APP);
+  deleteApplicant(w2);
+  w2.db.calendar_connections = w.db.calendar_connections.map((c) => ({ ...c }));
+  assert.equal(
+    await quiet(() => cleanups.sweepCleanupsForCompany(CO)),
+    1,
+    "not confirmed: counted as left",
+  );
+  assert.equal(w2.db.calendar_cleanups[0].status, "open");
+});

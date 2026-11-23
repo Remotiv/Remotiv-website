@@ -371,6 +371,32 @@ export async function sweepCalendarCleanups(
   return out;
 }
 
+/**
+ * One company's cleanups, now (#69 step 5): run by the company delete BEFORE
+ * it revokes the company's calendar connections and deletes the company, so
+ * the open events are tried while the hosts' tokens still work (the rows and
+ * the tokens go with the company). The same steps as the worker's sweep for
+ * one company, within the same limits. Never throws; returns how many rows are
+ * still pending or open afterwards (null when that cannot be read), so the
+ * caller can say how many events may be left in a host's calendar.
+ */
+export async function sweepCleanupsForCompany(companyId: string): Promise<number | null> {
+  try {
+    const service = createServiceClient();
+    const now = Date.now();
+    await sweepCompany(service, companyId, now, CLEANUP_SWEEP_LIMIT, now + CLEANUP_SWEEP_MAX_MS);
+    const { count, error } = await service
+      .from("calendar_cleanups")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId)
+      .in("status", ["pending", "open"]);
+    return error ? null : (count ?? 0);
+  } catch (err) {
+    console.error("[calendar-cleanup] company sweep failed:", (err as Error)?.name);
+    return null;
+  }
+}
+
 /** The sweep for one company: every read and write on `companyId`. */
 async function sweepCompany(
   service: Service,

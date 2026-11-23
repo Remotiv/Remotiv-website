@@ -276,6 +276,12 @@ export function finalInterviewWorld(db, { failing } = {}) {
     }
 
     const found = applyFilters(rows, calls);
+    // select(cols, { count: "exact", head }) as PostgREST: the count of the
+    // matching rows, and no rows at all with head.
+    const counted = calls.find((c) => c[0] === "select")?.[2];
+    if (counted?.count) {
+      return { data: counted.head ? null : found, count: found.length, error: null };
+    }
     return { data: single ? (found[0] ?? null) : found, error: null };
   });
 
