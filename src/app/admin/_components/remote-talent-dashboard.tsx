@@ -929,7 +929,7 @@ function DrawerKv({
       <p className="text-[10px] uppercase tracking-widest text-gray-300">{label}</p>
       <p className="mt-0.5 flex items-center gap-1.5 text-gray-700">
         {Icon && <Icon className="size-3 text-gray-400" strokeWidth={2} />}
-        {value ?? <span className="text-gray-300">—</span>}
+        {value ?? <span className="text-gray-300">-</span>}
       </p>
     </div>
   );

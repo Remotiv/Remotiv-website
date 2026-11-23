@@ -83,7 +83,7 @@ const LABEL_CLS = "mb-1.5 block text-[10px] font-semibold uppercase tracking-wid
 // ── Helpers ──────────────────────────────────────────────────
 
 function fmtSalary(min: number | null, max: number | null, currency: string | null): string {
-  if (!min && !max) return "—";
+  if (!min && !max) return "-";
   const cur = (currency ?? "").trim().toUpperCase() || "USD";
   const fmt = (n: number) => n.toLocaleString("en-US");
   if (min && max) {
@@ -1063,7 +1063,7 @@ export function JobsDashboard({
                     <textarea
                       id="jb-responsibilities"
                       rows={4}
-                      placeholder="One point per line — press Enter between points"
+                      placeholder="One point per line. Press Enter between points"
                       className={`${INPUT_CLS} resize-none`}
                       value={form.responsibilities}
                       onChange={(e) => set("responsibilities", e.target.value)}
@@ -1078,7 +1078,7 @@ export function JobsDashboard({
                     <textarea
                       id="jb-requirements"
                       rows={4}
-                      placeholder="One point per line — press Enter between points"
+                      placeholder="One point per line. Press Enter between points"
                       className={`${INPUT_CLS} resize-none`}
                       value={form.requirements}
                       onChange={(e) => set("requirements", e.target.value)}

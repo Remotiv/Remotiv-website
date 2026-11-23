@@ -59,7 +59,7 @@ function titleCase(s: string): string {
  * pass-through so filter-pill arrays can include it without a special case.
  */
 export function statusLabel(status: string | null | undefined): string {
-  if (!status) return "—";
+  if (!status) return "-";
   if (status === "All") return "All";
   return STATUS_LABELS[status] ?? titleCase(status);
 }

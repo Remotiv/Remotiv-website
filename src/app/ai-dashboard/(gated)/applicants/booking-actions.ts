@@ -190,8 +190,8 @@ export async function sendBookingLink(
   const body = `
     <p style="margin:0 0 12px;color:#17131F;">Hi ${escapeHtml(name)},</p>
     <p style="margin:0 0 12px;color:#4A4550;">
-      We'd like to talk to you about the ${escapeHtml(title)} role. Pick a time that suits you —
-      it takes about ${durationMinutes} minutes.
+      We'd like to talk to you about the ${escapeHtml(title)} role. Pick a time that suits you.
+      It takes about ${durationMinutes} minutes.
     </p>
     <p style="margin:20px 0;">
       <a href="${escapeHtml(url)}" style="background:#7E47FF;color:#ffffff;padding:12px 22px;border-radius:12px;text-decoration:none;font-weight:700;display:inline-block;">

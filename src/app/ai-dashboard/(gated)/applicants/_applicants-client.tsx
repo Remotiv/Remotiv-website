@@ -626,7 +626,7 @@ function Pagination({
 }: {
   page: number;
   pageCount: number;
-  /** The filtered population. Null is unreadable — an em dash, never a 0. */
+  /** The filtered population. Null is unreadable: a hyphen, never a 0. */
   total: number | null;
   rangeStart: number;
   rangeEnd: number;
@@ -5398,7 +5398,7 @@ export function ApplicantsClient({
      * `=== 0` rather than a falsy check, so an UNREADABLE count (null) falls
      * through to the neutral copy below. "No applicants yet" over a failed
      * head-count is the same lie arrived at a different way, and a reader has
-     * no way to tell — there is no em dash to put in a sentence.
+     * no way to tell: a sentence has no place for the hyphen a count shows.
      */
     if (view.grandTotal === 0) {
       return {

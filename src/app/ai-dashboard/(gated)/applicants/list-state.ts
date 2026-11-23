@@ -29,8 +29,8 @@ import {
  *     has to say the rows belong to a filter it has moved off, and the reader
  *     has to be able to tell.
  *
- *   - A failed count draws an em dash. A failed page has no em dash available
- *     — zero rows and "no results" are the same picture — so `failed` is
+ *   - A failed count draws a hyphen (countLabel). A failed page has no such
+ *     marker: zero rows and "no results" are the same picture, so `failed` is
  *     carried separately from an empty page and the empty copy branches on it.
  *     "No one matches that search" over a read that did not happen is the lie
  *     this field exists to prevent.

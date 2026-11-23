@@ -1276,7 +1276,7 @@ function CredentialsModal({
         </div>
 
         <p className="mx-6 mb-4 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
-          This password is shown <strong>once</strong>. Copy it now — there is
+          This password is shown <strong>once</strong>. Copy it now: there is
           no way to retrieve it later.
         </p>
 

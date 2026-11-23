@@ -343,7 +343,7 @@ function AppPanel({
               const candidateName =
                 [app.first_name, app.last_name].filter(Boolean).join(" ").trim() || "there";
               const roleText = app.job_title?.trim() || "the role";
-              const waMessage = `Hi ${candidateName}, this is Remotiv. Congratulations — you've been shortlisted for the ${roleText} position. We'd love to discuss the next steps with you. When would be a good time for a quick call?`;
+              const waMessage = `Hi ${candidateName}, this is Remotiv. Congratulations, you've been shortlisted for the ${roleText} position. We'd love to discuss the next steps with you. When would be a good time for a quick call?`;
               const waHref = waDigits
                 ? `https://wa.me/${waDigits}?text=${encodeURIComponent(waMessage)}`
                 : null;
@@ -362,7 +362,7 @@ function AppPanel({
                 <button
                   type="button"
                   disabled
-                  title="Phone number format unclear — message this candidate manually."
+                  title="Phone number format unclear. Message this candidate manually."
                   className={`${actionBtn} cursor-not-allowed text-gray-300`}
                 >
                   <span className="flex size-7 items-center justify-center rounded-lg bg-gray-100">
@@ -792,7 +792,7 @@ const AI_PREFILL_MESSAGE: Record<"no_cv" | CvExtractFailure, string> = {
   bad_reply: "AI pre-fill failed this time. Try again, or fill the form manually.",
 };
 const AI_PREFILL_FALLBACK_MESSAGE =
-  "AI couldn't pre-fill from this CV — please fill the form manually.";
+  "AI couldn't pre-fill from this CV. Please fill the form manually.";
 
 function prefillFailureMessage(reason: unknown): string {
   return typeof reason === "string" && reason in AI_PREFILL_MESSAGE
@@ -851,7 +851,7 @@ function BulkResultModal({
     { label: "Couldn't read CV", value: totals.noCv, tone: "muted" },
     { label: "AI pre-fill failed", value: totals.failedAi, tone: "bad" },
     { label: "No email on file", value: totals.noEmail, tone: "muted" },
-    { label: "Not eligible — no CV text yet", value: notEligible, tone: "muted" },
+    { label: "Not eligible: no CV text yet", value: notEligible, tone: "muted" },
     { label: "Failed", value: totals.failed, tone: "bad" },
   ];
 
@@ -884,13 +884,13 @@ function BulkResultModal({
           id="bulk-result-title"
           className="mb-1 font-heading text-lg font-bold text-gray-900"
         >
-          Move to Talent — Results
+          Move to Talent: Results
         </h2>
         <p className="mb-1 text-xs font-semibold text-gray-700">
           Attempted: {totals.requested}
         </p>
         <p className="mb-4 text-xs text-gray-500">
-          New profiles are created hidden — review the pending queue in Talent to
+          New profiles are created hidden. Review the pending queue in Talent to
           approve.
         </p>
 
@@ -932,7 +932,7 @@ function BulkResultModal({
           <p className="mt-3 text-xs text-gray-500">
             AI pre-fill failed for {totals.failedAi}
             {mostCommonAiFailure(totals.failedAiReasons)
-              ? ` — ${mostCommonAiFailure(totals.failedAiReasons)}`
+              ? ` (${mostCommonAiFailure(totals.failedAiReasons)})`
               : ""}
             . No profile was created for them; try again later or move them one at a time.
           </p>
@@ -1703,11 +1703,11 @@ export function ApplicationsDashboard({
                               Profile
                             </a>
                           ) : (
-                            <span className="text-gray-300">—</span>
+                            <span className="text-gray-300">-</span>
                           )}
                         </td>
                         <td className="px-6 py-4 text-gray-700">
-                          {app.job_title ?? <span className="text-gray-300">—</span>}
+                          {app.job_title ?? <span className="text-gray-300">-</span>}
                         </td>
                         <td className="px-6 py-4">
                           {cvAvailability[app.id] === "unavailable" ? (
@@ -2712,7 +2712,7 @@ function BulkUploadCVModal({
                                 <span>
                                   {row.linkedin.trim()
                                     ? "Please enter a valid LinkedIn URL"
-                                    : "LinkedIn URL missing — add manually"}
+                                    : "LinkedIn URL missing: add manually"}
                                 </span>
                               </p>
                             )}
@@ -2723,7 +2723,7 @@ function BulkUploadCVModal({
                               onChange={(e) => updateRow(row.id, { jobChoice: e.target.value })}
                               className={ROW_INPUT_CLS}
                             >
-                              <option value="">—</option>
+                              <option value="">-</option>
                               {openJobs.map((j) => (
                                 <option key={j.id} value={j.id}>{j.title}</option>
                               ))}
@@ -2934,7 +2934,7 @@ function BulkUploadCVModal({
                               <span>
                                 {row.linkedin.trim()
                                   ? "Please enter a valid LinkedIn URL"
-                                  : "LinkedIn URL missing — add manually"}
+                                  : "LinkedIn URL missing: add manually"}
                               </span>
                             </p>
                           )}
@@ -2951,7 +2951,7 @@ function BulkUploadCVModal({
                             }
                             className={ROW_INPUT_CLS}
                           >
-                            <option value="">—</option>
+                            <option value="">-</option>
                             {openJobs.map((j) => (
                               <option key={j.id} value={j.id}>
                                 {j.title}
@@ -3028,7 +3028,7 @@ function BulkUploadCVModal({
                       {skippedDupRows > 0 && ` · ${skippedDupRows} duplicate${skippedDupRows === 1 ? "" : "s"} will be skipped`}
                       {invalidLiRows > 0 && (
                         <span className="text-red-500">
-                          {" "}· {invalidLiRows} row{invalidLiRows === 1 ? "" : "s"} blocked — LinkedIn URL required
+                          {" "}· {invalidLiRows} row{invalidLiRows === 1 ? "" : "s"} blocked: LinkedIn URL required
                         </span>
                       )}
                     </>

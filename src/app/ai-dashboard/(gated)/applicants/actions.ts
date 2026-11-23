@@ -390,7 +390,7 @@ function toRow(r: ApplicantQueryRow, score?: ScoreSummaryRow): CompanyApplicantR
     linkedin_url: r.linkedin_url,
     job_id: r.job_id,
     // Live title first; the snapshot is what survives a deleted job.
-    job_title: r.jobs?.title?.trim() || r.job_title_snapshot?.trim() || "—",
+    job_title: r.jobs?.title?.trim() || r.job_title_snapshot?.trim() || "-",
     city: r.city,
     country: r.country,
     years_experience: r.years_experience,

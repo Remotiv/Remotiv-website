@@ -814,7 +814,7 @@ export async function retryDeadJob(
   if (retried === 0) {
     return {
       success: false,
-      error: "That job is no longer dead — it may already have been retried.",
+      error: "That job is no longer dead. It may already have been retried.",
     };
   }
 

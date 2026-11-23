@@ -358,7 +358,7 @@ export async function fetchAvailableCandidates(
         position_applied: r.job_title,
         current_role: latest?.title ?? r.job_title,
         current_company: latest?.company ?? null,
-        education: [r.degree, r.institution].filter(Boolean).join(" — ") || null,
+        education: [r.degree, r.institution].filter(Boolean).join(", ") || null,
       });
     }
   }
@@ -764,7 +764,7 @@ export async function copyCandidateToApplications(
   if (fetchErr) return { success: false, error: fetchErr.message };
   if (!candData) return { success: false, error: "Candidate not found." };
   const c = candData as unknown as BatchCandidate;
-  if (!c.email) return { success: false, error: "Candidate has no email — cannot copy to Applications." };
+  if (!c.email) return { success: false, error: "Candidate has no email: cannot copy to Applications." };
 
   // 2. Duplicate-by-email guard
   const { data: existing } = await supabase
@@ -838,7 +838,7 @@ export async function copyCandidateToTalent(
   if (fetchErr) return { success: false, error: fetchErr.message };
   if (!candData) return { success: false, error: "Candidate not found." };
   const c = candData as unknown as BatchCandidate;
-  if (!c.email) return { success: false, error: "Candidate has no email — cannot copy to Talent." };
+  if (!c.email) return { success: false, error: "Candidate has no email: cannot copy to Talent." };
 
   // Duplicate guard against talent_profiles
   const { data: existing } = await supabase

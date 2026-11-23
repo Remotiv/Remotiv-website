@@ -76,10 +76,10 @@ function ago(iso: string | null): string {
 }
 
 function stamp(iso: string | null): string {
-  if (!iso) return "—";
+  if (!iso) return "-";
   const d = new Date(iso);
   return Number.isNaN(d.getTime())
-    ? "—"
+    ? "-"
     : d.toLocaleString("en-GB", {
         day: "numeric",
         month: "short",
@@ -301,7 +301,7 @@ export function QueuePanel({ health }: { health: QueueHealth }) {
           </table>
         </div>
         <p className="border-t border-gray-100 bg-gray-50/60 px-5 py-2.5 text-[11.5px] leading-relaxed text-gray-500">
-          *Succeeded is a planner estimate, never a row count — it is the column
+          *Succeeded is a planner estimate, never a row count. It is the column
           that grows without bound and the one nobody acts on. Every other
           column is exact.
           {Object.values(health.capped).some(Boolean) &&
@@ -319,7 +319,7 @@ export function QueuePanel({ health }: { health: QueueHealth }) {
             </h3>
             <span className="ml-auto text-xs text-amber-700">
               Left behind by a crashed invocation. Reclaimed automatically on the
-              next worker tick — no action needed unless it persists.
+              next worker tick. No action is needed unless it persists.
             </span>
           </div>
           <ul className="divide-y divide-gray-50">

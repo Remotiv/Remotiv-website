@@ -576,7 +576,7 @@ export function BulkBatchUploadModal({
                         const checkboxTitle = liInvalid
                           ? "Add a valid LinkedIn URL to enable upload"
                           : isDup
-                            ? "Duplicate — server will reject this row"
+                            ? "Duplicate: the server will reject this row"
                             : "";
                         return (
                           <tr
@@ -647,7 +647,7 @@ export function BulkBatchUploadModal({
                                   <span>
                                     {row.linkedin.trim()
                                       ? "Please enter a valid LinkedIn URL"
-                                      : "LinkedIn URL missing — add manually"}
+                                      : "LinkedIn URL missing: add manually"}
                                   </span>
                                 </p>
                               )}
@@ -740,7 +740,7 @@ export function BulkBatchUploadModal({
                             type="checkbox"
                             checked={row.selected}
                             disabled={liInvalid}
-                            title={isDup ? "Duplicate — server will reject this row" : ""}
+                            title={isDup ? "Duplicate: the server will reject this row" : ""}
                             onChange={(e) => updateRow(row.id, { selected: e.target.checked })}
                             className="mt-1 size-4 shrink-0 rounded border-gray-300 text-remotiv-purple focus:ring-remotiv-purple disabled:cursor-not-allowed disabled:opacity-40"
                           />
@@ -815,7 +815,7 @@ export function BulkBatchUploadModal({
                               <span>
                                 {row.linkedin.trim()
                                   ? "Please enter a valid LinkedIn URL"
-                                  : "LinkedIn URL missing — add manually"}
+                                  : "LinkedIn URL missing: add manually"}
                               </span>
                             </p>
                           )}
@@ -875,7 +875,7 @@ export function BulkBatchUploadModal({
                       )}
                       {invalidLiRows > 0 && (
                         <span className="text-red-500">
-                          {" "}· {invalidLiRows} row{invalidLiRows === 1 ? "" : "s"} blocked — LinkedIn URL required
+                          {" "}· {invalidLiRows} row{invalidLiRows === 1 ? "" : "s"} blocked: LinkedIn URL required
                         </span>
                       )}
                     </>

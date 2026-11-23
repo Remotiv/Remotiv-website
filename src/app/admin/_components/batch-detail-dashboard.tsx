@@ -69,11 +69,11 @@ const CLIENT_LOGIN_URL =
 // ── Helpers ──────────────────────────────────────────────────
 
 function fullName(c: { first_name: string; last_name: string }): string {
-  return `${c.first_name} ${c.last_name}`.trim() || "—";
+  return `${c.first_name} ${c.last_name}`.trim() || "-";
 }
 
 function fmtDateTime(iso: string | null): string {
-  if (!iso) return "—";
+  if (!iso) return "-";
   return new Date(iso).toLocaleString("en-GB", {
     day: "2-digit",
     month: "short",
@@ -134,7 +134,7 @@ function RowAvatar({
 // ── Star rating display ─────────────────────────────────────
 
 function StarRating({ value }: { value: number | null }) {
-  if (value == null) return <span className="text-gray-300">—</span>;
+  if (value == null) return <span className="text-gray-300">-</span>;
   const filled = Math.max(0, Math.min(5, Math.round(value)));
   return (
     <span className="inline-flex items-center gap-0.5 text-[#F59E0B]">
@@ -669,7 +669,7 @@ function CandidateDrawer({
                   }
                   className={INPUT_CLS}
                 >
-                  <option value="">—</option>
+                  <option value="">-</option>
                   {[1, 2, 3, 4, 5].map((n) => (
                     <option key={n} value={n}>{`${n} ${n === 1 ? "star" : "stars"}`}</option>
                   ))}
@@ -726,7 +726,7 @@ function CandidateDrawer({
                         {CLIENT_DECISION_LABEL[candidate.client_decision]}
                       </>
                     ) : (
-                      "—"
+                      "-"
                     )}
                   </span>
                 </p>
@@ -1091,7 +1091,7 @@ export function BatchDetailDashboard({
     try {
       await navigator.clipboard.writeText(CLIENT_LOGIN_URL);
       setShareCopied(true);
-      setToast("Client login link copied — send to client");
+      setToast("Client login link copied. Send it to the client.");
       setTimeout(() => setShareCopied(false), 1500);
     } catch {
       setToast(`Copy this URL: ${CLIENT_LOGIN_URL}`);
@@ -1278,7 +1278,7 @@ export function BatchDetailDashboard({
                         {c.stage}
                       </span>
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-gray-500">{c.phone || "—"}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-gray-500">{c.phone || "-"}</td>
                     <td className="whitespace-nowrap px-3 py-2 text-gray-500">{c.email}</td>
                     <td className="px-3 py-2">
                       {c.linkedin_url ? (
@@ -1293,7 +1293,7 @@ export function BatchDetailDashboard({
                           Profile
                         </a>
                       ) : (
-                        <span className="text-gray-300">—</span>
+                        <span className="text-gray-300">-</span>
                       )}
                     </td>
                     <td className="px-3 py-2">
@@ -1309,25 +1309,25 @@ export function BatchDetailDashboard({
                           View
                         </a>
                       ) : (
-                        <span className="text-gray-300">—</span>
+                        <span className="text-gray-300">-</span>
                       )}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-gray-500">{c.position_applied || "—"}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-gray-500">{c.location || "—"}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-gray-500">{c.university || "—"}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-gray-500">{c.position_applied || "-"}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-gray-500">{c.location || "-"}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-gray-500">{c.university || "-"}</td>
                     <td className="whitespace-nowrap px-3 py-2"><StarRating value={c.total_experience} /></td>
-                    <td className="whitespace-nowrap px-3 py-2 text-gray-500">{c.current_role || "—"}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-gray-500">{c.current_company || "—"}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-gray-500">{c.current_salary || "—"}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-gray-500">{c.salary_expectations || "—"}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-gray-500">{c.notice_period || "—"}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-gray-500">{c.interviewer_name || "—"}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-gray-500">{c.current_role || "-"}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-gray-500">{c.current_company || "-"}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-gray-500">{c.current_salary || "-"}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-gray-500">{c.salary_expectations || "-"}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-gray-500">{c.notice_period || "-"}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-gray-500">{c.interviewer_name || "-"}</td>
                     <td className="px-3 py-2">{linkCell(c.initial_interview_url)}</td>
                     <td className="px-3 py-2">{linkCell(c.loom_video_url)}</td>
                     <td className="px-3 py-2">{linkCell(c.first_interview_url)}</td>
                     <td className="px-3 py-2">{linkCell(c.second_interview_url)}</td>
                     <td className="px-3 py-2 text-gray-600" title={c.note_by_remotiv ?? ""}>
-                      {c.note_by_remotiv ? clamp(c.note_by_remotiv, 40) : <span className="text-gray-300">—</span>}
+                      {c.note_by_remotiv ? clamp(c.note_by_remotiv, 40) : <span className="text-gray-300">-</span>}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2 text-gray-700">
                       {c.client_decision ? (
@@ -1343,7 +1343,7 @@ export function BatchDetailDashboard({
                           );
                         })()
                       ) : (
-                        <span className="text-gray-300">—</span>
+                        <span className="text-gray-300">-</span>
                       )}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2" onClick={(e) => e.stopPropagation()}>
@@ -1540,7 +1540,7 @@ export function BatchDetailDashboard({
 }
 
 function linkCell(url: string | null): React.ReactNode {
-  if (!url) return <span className="text-gray-300">—</span>;
+  if (!url) return <span className="text-gray-300">-</span>;
   return (
     <a
       href={url}

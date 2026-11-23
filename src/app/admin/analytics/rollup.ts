@@ -528,14 +528,14 @@ export function buildIssues(company: CompanyInput, now: Date): Issue[] {
     issues.push({
       tone: "warn",
       title: `${otherFailures} ${plural(otherFailures, "scoring run")} failed`,
-      detail: "Not fabrication — a model or extraction error. The applicant has no card.",
+      detail: "Not fabrication: a model or extraction error. The applicant has no card.",
     });
   }
 
   if (company.unscoredByChoice > 0 && company.jobsWithScoringOff > 0) {
     issues.push({
       tone: "warn",
-      title: `${company.unscoredByChoice} applicants unscored — scoring turned off on ${company.jobsWithScoringOff} ${plural(company.jobsWithScoringOff, "job")}`,
+      title: `${company.unscoredByChoice} applicants unscored: scoring turned off on ${company.jobsWithScoringOff} ${plural(company.jobsWithScoringOff, "job")}`,
       detail: "They're paying for a feature they've disabled.",
     });
   }

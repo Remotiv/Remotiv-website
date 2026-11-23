@@ -87,7 +87,7 @@ function fmtDaysAgo(iso: string): string {
 }
 
 function fmtDateTime(iso: string): string {
-  if (!iso) return "—";
+  if (!iso) return "-";
   return new Date(iso).toLocaleString("en-GB", {
     day: "2-digit",
     month: "short",
@@ -612,7 +612,7 @@ function CompanyDrawer({
           <DrawerSection title="Account Details">
             <div className="grid grid-cols-1 gap-2 text-xs">
               <DrawerKv label="Created" value={fmtDateTime(company.created_at)} />
-              <DrawerKv label="User ID" value={company.user_id ?? "—"} mono />
+              <DrawerKv label="User ID" value={company.user_id ?? "-"} mono />
               <DrawerKv label="Members" value={String(company.member_count)} />
             </div>
           </DrawerSection>
@@ -989,7 +989,7 @@ function CreateCompanyModal({
           </Field>
           <Field
             label="Password"
-            hint="Minimum 8 characters. Leave blank if this person already has a Remotiv login — their existing password is kept."
+            hint="Minimum 8 characters. Leave blank if this person already has a Remotiv login. Their existing password is kept."
           >
             <div className="relative">
               <input
@@ -1132,8 +1132,8 @@ function CredentialsModal({
               <>
                 <span className="font-semibold text-gray-700">{creds.email}</span> already had a
                 Remotiv account. It is now also the owner of{" "}
-                <span className="font-semibold text-gray-700">{creds.name}</span> — no new account,
-                no new password. Tell them to sign in as they always do.
+                <span className="font-semibold text-gray-700">{creds.name}</span>, with no new
+                account and no new password. Tell them to sign in as they always do.
               </>
             ) : (
               <>
@@ -1154,7 +1154,7 @@ function CredentialsModal({
             {creds.password ? (
               <span className="font-semibold">{creds.password}</span>
             ) : (
-              <span className="italic text-gray-500">unchanged — they keep their existing one</span>
+              <span className="italic text-gray-500">unchanged: they keep their existing one</span>
             )}
           </div>
           <div>

@@ -140,7 +140,7 @@ export function EditableCell({
   onChange,
   type = "text",
   placeholder,
-  emptyHint = "—",
+  emptyHint = "-",
 }: {
   value: string;
   onChange: (next: string) => void;

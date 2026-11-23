@@ -132,7 +132,7 @@ export function ScreeningAnswersView({
           // fail an essential.
           const untested = a.scored === false;
           const failedEssential = !untested && a.essential && !a.matched;
-          const answerText = a.answer_label ?? (a.answer || "—");
+          const answerText = a.answer_label ?? (a.answer || "-");
           const idealText =
             a.type === "numeric" ? numericIdealText(a) : (a.ideal_label ?? a.ideal);
           return (

@@ -86,7 +86,7 @@ function fmtDaysAgo(iso: string): string {
 }
 
 function fmtDateTime(iso: string): string {
-  if (!iso) return "—";
+  if (!iso) return "-";
   return new Date(iso).toLocaleString("en-GB", {
     day: "2-digit",
     month: "short",
@@ -639,7 +639,7 @@ function ClientDrawer({
           <DrawerSection title="Account Details">
             <div className="grid grid-cols-1 gap-2 text-xs">
               <DrawerKv label="Created" value={fmtDateTime(client.created_at)} />
-              <DrawerKv label="User ID" value={client.user_id ?? "—"} mono />
+              <DrawerKv label="User ID" value={client.user_id ?? "-"} mono />
               <DrawerKv label="Batches" value={String(client.batch_count)} />
               <DrawerKv label="Candidates" value={String(client.candidate_count)} />
             </div>

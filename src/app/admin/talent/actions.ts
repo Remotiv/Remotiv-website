@@ -265,7 +265,7 @@ export async function setTalentFlag(
             ? "You've been shortlisted"
             : "Your profile is paused",
           message: isShortlisted
-            ? "An admin shortlisted your profile — you're being considered for opportunities."
+            ? "An admin shortlisted your profile. You're being considered for opportunities."
             : "Your profile is temporarily hidden from the marketplace. An admin will restore it soon.",
           link: "/talent/dashboard/edit",
           metadata: { source_table: "talent_profiles", profile_id: id },

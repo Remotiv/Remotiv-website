@@ -158,7 +158,7 @@ export function PlatformAnalyticsClient({
             </h1>
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-gray-500">
               What the platform costs to run, and{" "}
-              <Highlight>where the scorer disagrees with people</Highlight> — the evidence for the
+              <Highlight>where the scorer disagrees with people</Highlight>: the evidence for the
               next prompt version.
             </p>
           </div>
@@ -194,7 +194,7 @@ export function PlatformAnalyticsClient({
 
         <SectionHead
           title="AI calibration"
-          lede="Where reviewers consistently disagree with the scorer. Read the reviewer column before changing anything — one strict person can look exactly like a generous model."
+          lede="Where reviewers consistently disagree with the scorer. Read the reviewer column before changing anything: one strict person can look exactly like a generous model."
         >
           <p className="mt-2 max-w-2xl text-xs leading-relaxed text-gray-400">
             <b className="font-bold text-gray-600">
@@ -219,7 +219,7 @@ export function PlatformAnalyticsClient({
 
         <Footnote>
           <b className="font-bold text-gray-600">Revenue and margin arrive with billing.</b>{" "}
-          Everything above is AI spend only — hosting, storage and bandwidth aren't attributed per
+          Everything above is AI spend only. Hosting, storage and bandwidth aren't attributed per
           tenant yet.
         </Footnote>
 
@@ -345,7 +345,7 @@ function StatCards({ data }: { data: AnalyticsResult }) {
     { k: "AI spend", v: formatMicro(s.spendMicro), sub: "Model + transcription" },
     {
       k: "Cost per CV",
-      v: s.costPerCvMicro === null ? "—" : formatMicro(s.costPerCvMicro),
+      v: s.costPerCvMicro === null ? "-" : formatMicro(s.costPerCvMicro),
       sub: s.costPerCvMicro === null ? "Nothing scored in this period" : "Spend ÷ CVs scored",
     },
   ];
@@ -399,7 +399,7 @@ function CalibrationStrip({ data }: { data: AnalyticsResult }) {
                 <b className="font-bold text-white">Not enough overrides to calibrate.</b>{" "}
                 {cal.overrides === 0
                   ? "Nobody has changed a score yet, so there is no disagreement to measure."
-                  : `${cal.overrides} data ${plural(cal.overrides, "point")} can't tell you whether the model reads a category high or low — one reviewer having a bad afternoon would move every number below.`}{" "}
+                  : `${cal.overrides} data ${plural(cal.overrides, "point")} can't tell you whether the model reads a category high or low: one reviewer having a bad afternoon would move every number below.`}{" "}
                 Around {MIN_OVERRIDES_TO_CALIBRATE} is where the means stop being noise.
               </p>
               <div className="mt-3.5 h-[5px] max-w-[300px] overflow-hidden rounded-[3px] bg-white/10">
@@ -453,8 +453,8 @@ function CalibrationStrip({ data }: { data: AnalyticsResult }) {
           </InkHighlight>{" "}
           {mean === 0 ? "the model on average" : "than the model on average"}
           {cal.state === "solo"
-            ? " — but every override here came from one person."
-            : " — consistent with it under-crediting non-linear careers."}
+            ? ", but every override here came from one person."
+            : ", consistent with it under-crediting non-linear careers."}
         </p>
       </div>
     </div>
@@ -490,7 +490,7 @@ function ByCategory({ data }: { data: AnalyticsResult }) {
       <div className={CARD}>
         <p className={LABEL}>By category</p>
         <p className={SUB}>
-          Mean override per job category — how far reviewers move the model's score
+          Mean override per job category: how far reviewers move the model's score
         </p>
         <EmptyBlock
           icon={<LineChart className="size-4" strokeWidth={2.4} />}
@@ -509,7 +509,7 @@ function ByCategory({ data }: { data: AnalyticsResult }) {
     <div className={CARD}>
       <p className={LABEL}>By category</p>
       <p className={SUB}>
-        Mean override per job category — how far reviewers move the model's score
+        Mean override per job category: how far reviewers move the model's score
       </p>
 
       <div className="mt-4 flex flex-col gap-4">
@@ -540,7 +540,7 @@ function CategoryBar({ row, max, index }: { row: CategoryRow; max: number; index
           <span className="text-[13.5px] font-bold tracking-tight text-gray-300">
             {row.category}
           </span>
-          <span className="font-heading text-[15px] font-bold tracking-tight text-gray-300">—</span>
+          <span className="font-heading text-[15px] font-bold tracking-tight text-gray-300">-</span>
         </div>
         <div
           className="relative h-[9px] overflow-hidden rounded-[5px]"
@@ -605,7 +605,7 @@ function ReviewerBias({ data }: { data: AnalyticsResult }) {
   if (cal.state === "thin") {
     return (
       <div className={CARD}>
-        <p className={`${LABEL} text-amber-700`}>Reviewer bias — read before tuning</p>
+        <p className={`${LABEL} text-amber-700`}>Reviewer bias: read before tuning</p>
         <p className={SUB}>The same figures, attributed to the people producing them</p>
         <EmptyBlock
           icon={<Users className="size-4" strokeWidth={2.4} />}
@@ -622,7 +622,7 @@ function ReviewerBias({ data }: { data: AnalyticsResult }) {
 
   return (
     <div className={CARD}>
-      <p className={`${LABEL} text-amber-700`}>Reviewer bias — read before tuning</p>
+      <p className={`${LABEL} text-amber-700`}>Reviewer bias: read before tuning</p>
       <p className={SUB}>The same figures, attributed to the people producing them</p>
 
       <div className="mt-3 flex flex-col">
@@ -636,7 +636,7 @@ function ReviewerBias({ data }: { data: AnalyticsResult }) {
           <>
             <b className="font-extrabold">Bias can't be separated here.</b> All{" "}
             {cal.overrides.toLocaleString("en-US")} overrides came from {top?.name ?? "one person"}.
-            Their {signed(top?.bias ?? 0)} and the model's reading are the same number — there is no
+            Their {signed(top?.bias ?? 0)} and the model's reading are the same number: there is no
             second opinion to compare against. Get a second reviewer before treating any of this as
             a model problem.
           </>
@@ -679,7 +679,7 @@ function SkewNote({ data }: { data: AnalyticsResult }) {
         {cal.overrides.toLocaleString("en-US")} overrides on record ({share}%).
       </b>{" "}
       {leading.category} currently reads {signed(leading.mean)}. One strict reviewer can look
-      exactly like a generous model — tune the prompt to a category only after the person-level
+      exactly like a generous model. Tune the prompt to a category only after the person-level
       effect is out.
     </>
   );
@@ -811,7 +811,7 @@ function ByVersion({ data }: { data: AnalyticsResult }) {
                 </span>
                 <span className="text-right tabular-nums text-gray-600">{v.overridePct}%</span>
                 <span className="text-right font-extrabold tabular-nums text-gray-900">
-                  {v.mean === null ? "—" : signed(v.mean)}
+                  {v.mean === null ? "-" : signed(v.mean)}
                 </span>
               </div>
             );
@@ -821,7 +821,7 @@ function ByVersion({ data }: { data: AnalyticsResult }) {
 
       {trends.length > 0 && (
         <p className="mt-3.5 border-t border-gray-100 pt-3 text-[11.5px] leading-relaxed text-gray-400">
-          Override rate, oldest to newest — {trends.join(" · ")}.
+          Override rate, oldest to newest: {trends.join(" · ")}.
         </p>
       )}
     </div>
@@ -872,7 +872,7 @@ function SystemHealth({ data }: { data: AnalyticsResult }) {
                     : "text-gray-900"
               }`}
             >
-              {r.value === null ? "—" : r.value}
+              {r.value === null ? "-" : r.value}
             </b>
           </div>
         ))}
@@ -926,7 +926,7 @@ function UsageCoverageNote({ data }: { data: AnalyticsResult }) {
         <Info className="mt-0.5 size-4 shrink-0 text-sky-900" strokeWidth={2} />
         <p className="text-[12.5px] leading-relaxed text-sky-900">
           <b className="font-extrabold">No usage has been recorded yet.</b> Every cost below is
-          $0.00 because <code className="font-mono text-[11.5px]">usage_events</code> is empty — not
+          $0.00 because <code className="font-mono text-[11.5px]">usage_events</code> is empty, not
           because the platform is free to run. Don't use this period for unit-economics decisions.
         </p>
       </div>
@@ -1010,8 +1010,8 @@ function CompanyTable({ data }: { data: AnalyticsResult }) {
         <p className="text-xs leading-relaxed text-gray-400">
           <b className="font-bold text-gray-600">
             Costs are computed from recorded usage, not estimated from row counts
-          </b>{" "}
-          — an applicant whose CV failed to score costs nothing and shows as nothing. The three
+          </b>
+          : an applicant whose CV failed to score costs nothing and shows as nothing. The three
           scoring and messaging lines come from{" "}
           <code className="font-mono text-[11px]">usage_events</code>; transcription is measured
           from recorded answer duration, which has no meter of its own. Per-unit rates are declared
@@ -1098,7 +1098,7 @@ function CompanyRowView({
               {row.issues.length}
             </span>
           ) : (
-            <span className="text-[11px] font-semibold text-gray-300">—</span>
+            <span className="text-[11px] font-semibold text-gray-300">-</span>
           )}
         </span>
         <span className="flex items-center justify-center">
@@ -1131,7 +1131,7 @@ function ExpandedRow({ row }: { row: CompanyRow }) {
                 icon={<MinusCircle className="size-4" strokeWidth={2.4} />}
                 title="No recorded usage this period"
               >
-                Nothing has been scored, transcribed or sent. Cost is genuinely zero — not missing
+                Nothing has been scored, transcribed or sent. Cost is genuinely zero, not missing
                 data.
               </EmptyBlock>
             ) : (
@@ -1161,7 +1161,7 @@ function ExpandedRow({ row }: { row: CompanyRow }) {
                 <div className="flex items-baseline justify-between gap-3.5 pt-1 text-[11.5px] text-gray-300">
                   <span>Per applicant</span>
                   <span className="font-bold text-gray-400">
-                    {row.cvs === 0 ? "—" : formatMicro(Math.round(row.costMicro / row.cvs))}
+                    {row.cvs === 0 ? "-" : formatMicro(Math.round(row.costMicro / row.cvs))}
                   </span>
                 </div>
               </>

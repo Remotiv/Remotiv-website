@@ -21,7 +21,7 @@ const PLACEHOLDER =
   "Full Stack Developer Next.js 5 years Lahore";
 
 function fmt(iso: string): string {
-  if (!iso) return "—";
+  if (!iso) return "-";
   return new Date(iso).toLocaleDateString("en-GB", {
     day: "2-digit",
     month: "short",
@@ -30,7 +30,7 @@ function fmt(iso: string): string {
 }
 
 function highlight(text: string | null, keywords: string[]): React.ReactNode {
-  if (!text) return <span className="text-gray-300">—</span>;
+  if (!text) return <span className="text-gray-300">-</span>;
   if (keywords.length === 0) return text;
 
   // Build a single regex that matches any keyword; case-insensitive.
@@ -334,7 +334,7 @@ export function SearchClient({
               Type a search query to begin
             </p>
             <p className="mt-1 text-xs text-gray-400">
-              Job titles, skills, locations, years of experience — all welcome.
+              Job titles, skills, locations, years of experience: all welcome.
             </p>
           </div>
         )}

@@ -30,25 +30,25 @@ const dateNoYearFormatter = new Intl.DateTimeFormat("en-GB", {
 
 /** "12 Mar 2025" — falls back to em-dash when the value is missing. */
 export function formatDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
+  if (!iso) return "-";
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
+  if (Number.isNaN(d.getTime())) return "-";
   return dateFormatter.format(d);
 }
 
 /** "12 Mar 2025, 14:30" — em-dash on missing input. */
 export function formatDateTime(iso: string | null | undefined): string {
-  if (!iso) return "—";
+  if (!iso) return "-";
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
+  if (Number.isNaN(d.getTime())) return "-";
   return dateTimeFormatter.format(d);
 }
 
 /** "12 Mar" — current-year-omitted variant for compact UI. */
 export function formatDateShort(iso: string | null | undefined): string {
-  if (!iso) return "—";
+  if (!iso) return "-";
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
+  if (Number.isNaN(d.getTime())) return "-";
   return dateNoYearFormatter.format(d);
 }
 
@@ -57,9 +57,9 @@ export function formatDateShort(iso: string | null | undefined): string {
  * falling back to the absolute date past 7 days.
  */
 export function formatRelativeTime(iso: string | null | undefined): string {
-  if (!iso) return "—";
+  if (!iso) return "-";
   const ts = new Date(iso).getTime();
-  if (Number.isNaN(ts)) return "—";
+  if (Number.isNaN(ts)) return "-";
   const diff = Date.now() - ts;
   const min = Math.floor(diff / 60_000);
   if (min < 1) return "Just now";

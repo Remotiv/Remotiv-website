@@ -1006,7 +1006,7 @@ function DrawerKv({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
       <p className="text-[10px] uppercase tracking-widest text-gray-300">{label}</p>
-      <p className="mt-0.5 text-gray-700">{value ?? <span className="text-gray-300">—</span>}</p>
+      <p className="mt-0.5 text-gray-700">{value ?? <span className="text-gray-300">-</span>}</p>
     </div>
   );
 }
@@ -1014,7 +1014,7 @@ function DrawerKv({ label, value }: { label: string; value: string | null }) {
 // ── Sidebar pill helper ──────────────────────────────────────
 
 const STATUS_UNKNOWN_TITLE =
-  "Invite statuses couldn’t be loaded, so this filter can’t run — use Retry above the list";
+  "Invite statuses couldn’t be loaded, so this filter can’t run. Use Retry above the list";
 
 /**
  * The invite-status read failed. Two shapes, same voice.
@@ -1049,7 +1049,7 @@ function InviteStatusesUnavailable({
         className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900"
       >
         <span>
-          Invite statuses couldn&apos;t be loaded — badges read &ldquo;Status unavailable&rdquo;
+          Invite statuses couldn&apos;t be loaded, so badges read &ldquo;Status unavailable&rdquo;
           and the two invite filters are off until they do.
         </span>
         <button
@@ -1616,7 +1616,7 @@ export function TalentDashboard({
       }
       setToast(
         failedChunks > 0
-          ? `Sent invites to ${sent} candidate(s). ${failedChunks} batch(es) failed — try again.`
+          ? `Sent invites to ${sent} candidate(s). ${failedChunks} batch(es) failed. Try again.`
           : `Sent invites to ${sent} candidate(s) on this page.`,
       );
       try {
@@ -2023,7 +2023,7 @@ export function TalentDashboard({
           linkedin_url: t.linkedin_url ?? null,
           cv_url: t.cv_url ?? null,
           location: [t.city, t.country].filter(Boolean).join(", ") || null,
-          university: [t.degree, t.institution].filter(Boolean).join(" — ") || null,
+          university: [t.degree, t.institution].filter(Boolean).join(", ") || null,
           position_applied: t.job_title ?? null,
           total_experience: null,
           current_role: latest?.title ?? t.job_title ?? null,

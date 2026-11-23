@@ -29,7 +29,7 @@ export function LoadFailed({ what }: { what: string }) {
       className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white py-14 text-center"
     >
       <p className="text-sm font-medium text-gray-700">We couldn&apos;t load the {what}.</p>
-      <p className="mt-1 text-xs text-gray-400">Nothing&apos;s been lost — this is on our side.</p>
+      <p className="mt-1 text-xs text-gray-400">Nothing&apos;s been lost. This is on our side.</p>
       <button
         type="button"
         onClick={() => router.refresh()}

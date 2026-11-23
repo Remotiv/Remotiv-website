@@ -280,11 +280,11 @@ export function AddToBatchModal({
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-700">
                 <ConfirmKv label="Name" value={candidate.full_name} />
                 <ConfirmKv label="Email" value={candidate.email} />
-                <ConfirmKv label="Phone" value={candidate.phone ?? "—"} />
-                <ConfirmKv label="LinkedIn" value={candidate.linkedin_url ? "Provided" : "—"} />
-                <ConfirmKv label="CV" value={candidate.cv_url ? "Provided" : "—"} />
-                <ConfirmKv label="Position" value={candidate.position_applied ?? "—"} />
-                <ConfirmKv label="Location" value={candidate.location ?? "—"} />
+                <ConfirmKv label="Phone" value={candidate.phone ?? "-"} />
+                <ConfirmKv label="LinkedIn" value={candidate.linkedin_url ? "Provided" : "-"} />
+                <ConfirmKv label="CV" value={candidate.cv_url ? "Provided" : "-"} />
+                <ConfirmKv label="Position" value={candidate.position_applied ?? "-"} />
+                <ConfirmKv label="Location" value={candidate.location ?? "-"} />
                 <ConfirmKv label="Source" value={candidate.source_type === "application" ? "Job application" : "Talent profile"} />
               </div>
               <p className="mt-3 text-[11px] text-gray-500">

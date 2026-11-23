@@ -330,7 +330,7 @@ export function MoveToTalentModal({
       id: Date.now() + i,
       title: e.title,
       company: e.company,
-      dates: [e.start, e.end].filter(Boolean).join(" — "),
+      dates: [e.start, e.end].filter(Boolean).join(" to "),
       description: e.description,
     })),
   );
@@ -629,7 +629,7 @@ export function MoveToTalentModal({
                   rows={4}
                   value={summary}
                   onChange={(e) => { markDirty(); setSummary(e.target.value); }}
-                  placeholder="Short bio — experience, specialism, and what they're looking for."
+                  placeholder="Short bio: experience, specialism, and what they're looking for."
                   className={TEXTAREA_CLS}
                 />
               </Field>
@@ -749,7 +749,7 @@ export function MoveToTalentModal({
                           type="text"
                           value={entry.dates}
                           onChange={(e) => updateEmployment(entry.id, { dates: e.target.value })}
-                          placeholder="e.g. Jan 2021 — Present"
+                          placeholder="e.g. Jan 2021 to Present"
                           className={INPUT_CLS}
                         />
                       </Field>

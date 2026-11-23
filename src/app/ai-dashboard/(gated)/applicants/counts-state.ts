@@ -154,9 +154,9 @@ export type CountsView = {
    * whether an empty table says "No applicants yet" or "Nothing in this view".
    *
    * Null is load-bearing here in a way it is not for the figures above, which
-   * draw an em dash. There is no em dash available in a sentence, so the empty
-   * copy must fall through to the neutral wording rather than pick either
-   * claim — see `emptyCopy`.
+   * draw a hyphen (countLabel). A sentence has no place for that hyphen, so the
+   * empty copy must fall through to the neutral wording rather than pick either
+   * claim: see `emptyCopy`.
    */
   grandTotal: number | null;
   /**

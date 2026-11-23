@@ -359,7 +359,7 @@ export function OverviewDashboard({
             <div className="mb-5 flex items-center justify-between">
               <div>
                 <h2 className="font-heading text-base font-semibold text-[#111]">
-                  Submissions — last 30 days
+                  Submissions, last 30 days
                 </h2>
                 <p className="mt-0.5 text-xs text-gray-400">
                   Talent, Remote Ready, and Job Applications by day
@@ -481,7 +481,7 @@ export function OverviewDashboard({
             </div>
             {activity.length === 0 ? (
               <p className="py-8 text-center text-sm text-gray-400">
-                Nothing happening yet — submissions will show up here.
+                Nothing happening yet. Submissions will show up here.
               </p>
             ) : (
               <div className="flex max-h-[460px] flex-col gap-1 overflow-y-auto pr-1">
@@ -689,7 +689,7 @@ function MeetingDayCell({ day }: { day: MeetingDay }) {
       </div>
       <div className="flex flex-col gap-1.5">
         {day.meetings.length === 0 ? (
-          <p className="text-center text-xs text-gray-300">—</p>
+          <p className="text-center text-xs text-gray-300">-</p>
         ) : (
           day.meetings.map((m) => <MeetingCard key={m.id} meeting={m} />)
         )}

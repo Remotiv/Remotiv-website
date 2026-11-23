@@ -331,7 +331,7 @@ export function ClientBatchesDashboard({
           <div>
             <p className="text-xs text-gray-400">Client Batches</p>
             <h1 className="font-heading text-2xl font-bold text-gray-900">
-              {filterClientName ? `${filterClientName} — Batches` : "Client Batches"}
+              {filterClientName ? `${filterClientName}: Batches` : "Client Batches"}
             </h1>
             <p className="mt-1 text-sm text-gray-500">
               {totalCount} total · {activeCount} active · {closedCount} closed · {archivedCount} archived

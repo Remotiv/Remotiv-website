@@ -55,7 +55,7 @@ const STATUS_BADGE: Record<InquiryStatus, string> = {
 };
 
 function fmtDate(iso: string): string {
-  if (!iso) return "—";
+  if (!iso) return "-";
   return new Date(iso).toLocaleDateString("en-GB", {
     day: "2-digit",
     month: "short",
@@ -64,7 +64,7 @@ function fmtDate(iso: string): string {
 }
 
 function fmtDateTime(iso: string): string {
-  if (!iso) return "—";
+  if (!iso) return "-";
   return new Date(iso).toLocaleString("en-GB", {
     day: "2-digit",
     month: "short",
@@ -75,7 +75,7 @@ function fmtDateTime(iso: string): string {
 }
 
 function clamp(text: string, max = 80): string {
-  if (!text) return "—";
+  if (!text) return "-";
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
@@ -209,7 +209,7 @@ function InquiryDrawer({
             id="inquiry-drawer-title"
             className="mt-1 truncate font-heading text-lg font-bold text-gray-900 pr-8"
           >
-            {inquiry.name || "—"}
+            {inquiry.name || "-"}
           </p>
           {inquiry.company && (
             <p className="truncate text-xs text-gray-500">{inquiry.company}</p>
@@ -242,11 +242,11 @@ function InquiryDrawer({
                 <div className="mt-1 grid grid-cols-2 gap-3 rounded-xl bg-gray-50 px-3 py-2 text-xs">
                   <div>
                     <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Preferred Date</p>
-                    <p className="text-gray-700">{inquiry.preferred_date ? fmtDate(inquiry.preferred_date) : "—"}</p>
+                    <p className="text-gray-700">{inquiry.preferred_date ? fmtDate(inquiry.preferred_date) : "-"}</p>
                   </div>
                   <div>
                     <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Preferred Time</p>
-                    <p className="text-gray-700">{inquiry.preferred_time ?? "—"}</p>
+                    <p className="text-gray-700">{inquiry.preferred_time ?? "-"}</p>
                   </div>
                 </div>
               )}
@@ -256,7 +256,7 @@ function InquiryDrawer({
 
           <DrawerSection title="Message">
             <p className="whitespace-pre-line rounded-xl bg-gray-50 px-4 py-3 text-sm leading-relaxed text-gray-700">
-              {inquiry.message || "—"}
+              {inquiry.message || "-"}
             </p>
           </DrawerSection>
 
@@ -621,7 +621,7 @@ export function ContactsDashboard({
   const newCount = allRows.filter((r) => r.status === "new").length;
   const thisWeekCount = allRows.filter((r) => isThisWeek(r.created_at)).length;
   const conversion = allRows.length === 0
-    ? "—"
+    ? "-"
     : `${Math.round(
         (allRows.filter((r) => r.status === "closed").length / allRows.length) * 100,
       )}%`;
@@ -895,7 +895,7 @@ export function ContactsDashboard({
                       setOpenId(row.id);
                     }}
                   >
-                    <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-800">{row.name || "—"}</td>
+                    <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-800">{row.name || "-"}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-gray-500">
                       <a
                         href={`mailto:${row.email}`}
@@ -906,12 +906,12 @@ export function ContactsDashboard({
                         {row.email}
                       </a>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-gray-500">{row.company ?? "—"}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-gray-500">{row.service ?? "—"}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-gray-500">{row.company ?? "-"}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-gray-500">{row.service ?? "-"}</td>
                     {tab === "bookings" && (
                       <>
-                        <td className="whitespace-nowrap px-4 py-3 text-gray-500">{row.preferred_date ? fmtDate(row.preferred_date) : "—"}</td>
-                        <td className="whitespace-nowrap px-4 py-3 text-gray-500">{row.preferred_time ?? "—"}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-gray-500">{row.preferred_date ? fmtDate(row.preferred_date) : "-"}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-gray-500">{row.preferred_time ?? "-"}</td>
                       </>
                     )}
                     <td className="px-4 py-3 text-gray-600" title={row.message ?? undefined}>

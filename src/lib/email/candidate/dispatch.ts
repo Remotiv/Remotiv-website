@@ -206,9 +206,11 @@ export async function handleSendMessage(job: {
   //
   // The cap check, the pre-send log row and the Resend call all live in
   // deliverEmail, shared with the composer. What stays here is the queue's own
-  // contract: a provider failure must RETHROW so the job retries with backoff,
-  // and the 'failed' row it leaves behind is excluded from the idempotency set
-  // so that retry legitimately tries again.
+  // contract: a provider failure must RETHROW so the job retries with backoff.
+  // The 'failed' row it leaves behind still holds the unique key (application,
+  // event, channel), so the retry does not insert a new row: deliverEmail
+  // claims that row (claim_failed_email_log, migration 067) and resends with
+  // the first attempt's idempotency key, so the email goes out once at most.
   const outcome = await deliverEmail(service, {
     companyId,
     applicationId,

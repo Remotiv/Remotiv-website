@@ -60,7 +60,7 @@ function humanizeEngagement(type: string): string {
   if (type === "per_hour") return "Per hour";
   if (type === "per_month") return "Per month";
   if (type === "full_time") return "Full time";
-  return type || "—";
+  return type || "-";
 }
 
 function humanizeTimeline(timeline: string): string {
@@ -68,11 +68,11 @@ function humanizeTimeline(timeline: string): string {
   if (timeline === "within_2_weeks") return "Within 2 weeks";
   if (timeline === "within_1_month") return "Within 1 month";
   if (timeline === "flexible") return "Flexible";
-  return timeline || "—";
+  return timeline || "-";
 }
 
 function fmtDate(iso: string): string {
-  if (!iso) return "—";
+  if (!iso) return "-";
   return new Date(iso).toLocaleDateString("en-GB", {
     day: "2-digit",
     month: "short",
@@ -277,7 +277,7 @@ export function HireRequestsDashboard({
                     <User className="size-3.5" strokeWidth={2} />
                     Interested in:{" "}
                     <span className="font-semibold">
-                      {r.candidate_name ?? "—"}
+                      {r.candidate_name ?? "-"}
                       {r.candidate_rate ? ` · ${r.candidate_rate}` : ""}
                     </span>
                   </div>
@@ -299,7 +299,7 @@ export function HireRequestsDashboard({
                       Budget
                     </p>
                     <p className="mt-0.5 text-sm text-gray-800">
-                      {r.budget_range || "—"}
+                      {r.budget_range || "-"}
                     </p>
                   </div>
                   <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
@@ -318,7 +318,7 @@ export function HireRequestsDashboard({
                     Project description
                   </p>
                   <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-gray-700">
-                    {r.project_description || "—"}
+                    {r.project_description || "-"}
                   </p>
                 </div>
 

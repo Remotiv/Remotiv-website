@@ -130,7 +130,7 @@ function EssentialToggle({ on, onToggle }: { on: boolean; onToggle: () => void }
         <IconInfoCircle size={16} />
         <span className="invisible absolute bottom-[calc(100%+9px)] right-[-8px] z-20 w-[240px] rounded-[10px] bg-[#241f38] px-3 py-2.5 text-[11.5px] font-medium normal-case leading-[1.5] tracking-normal text-white opacity-0 shadow-[0_10px_30px_rgba(0,0,0,0.22)] transition group-hover:visible group-hover:opacity-100">
           If a candidate doesn&rsquo;t meet an Essential question, they&rsquo;ll
-          see a warning but can still submit — the application is flagged for you.
+          see a warning but can still submit. The application is flagged for you.
         </span>
       </span>
     </div>
@@ -209,7 +209,7 @@ function MultipleChoice({
       <span className={QB_LABEL}>
         Options{" "}
         <span className="font-normal text-[#b3ad9f]">
-          — tap the circle to set the ideal answer
+          (tap the circle to set the ideal answer)
         </span>
       </span>
       <div className="flex flex-col gap-2">
@@ -484,8 +484,8 @@ export function ScreeningQuestionBuilder({
             No screening questions yet
           </div>
           <div className="mx-auto mb-[18px] max-w-[380px] text-[13px] leading-[1.55] text-[#9a9488]">
-            Ask candidates what matters most — work authorization, years of
-            experience, English level — before they apply.
+            Ask candidates what matters most before they apply: work
+            authorization, years of experience, English level.
           </div>
           <button
             type="button"

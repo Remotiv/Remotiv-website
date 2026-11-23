@@ -63,7 +63,7 @@ export function JobOrderCell({
       step="1"
       inputMode="numeric"
       value={value}
-      placeholder="—"
+      placeholder="-"
       aria-label="Display order"
       aria-busy={state === "saving"}
       onClick={(e) => e.stopPropagation()}
