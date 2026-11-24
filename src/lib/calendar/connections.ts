@@ -59,7 +59,7 @@ type ConnectionRow = TokenRow & {
  * What the CLIENT is allowed to see. Every field here is either the
  * recruiter's own input or a status they must be able to act on.
  *
- * Note what is absent and must stay absent: access_token, refresh_token,
+ * Note what is absent and must stay absent: the tokens (sealed or not),
  * expires_at, and the row id.
  */
 export type CalendarConnectionView = {
@@ -191,7 +191,8 @@ async function readRow(memberId: string, provider: string): Promise<ConnectionRo
  *
  * ── The refresh-token rule this exists to enforce ────────────
  *
- * `refresh_token` is written ONLY when the token set actually carries one.
+ * A refresh token is replaced ONLY when the token set actually carries one
+ * (sealedWrite keeps the stored refresh_token_enc otherwise).
  *
  * Google issues a refresh token on the first authorisation and omits it on
  * later ones; a refresh response never contains one at all. Spreading the

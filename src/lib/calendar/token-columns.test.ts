@@ -1,8 +1,9 @@
 /**
- * #68 step 12e: calendar tokens are stored ONLY sealed (token-columns.ts),
- * bound to the row's id, and a row's id never changes. Plaintext is never
- * written and never read; a seal that fails fails the connect or refresh; a
- * sealed copy that does not open is a dead grant (reconnect), never a throw.
+ * #68 steps 12e and 12f: calendar tokens are stored ONLY sealed
+ * (token-columns.ts), bound to the row's id, and a row's id never changes.
+ * The table has no plaintext token column (migration 077) and no write names
+ * one; a seal that fails fails the connect or refresh; a sealed copy that does
+ * not open is a dead grant (reconnect), never a throw.
  *
  *   node --test src/lib/calendar/token-columns.test.ts
  *
@@ -152,7 +153,7 @@ const connect = (memberId, tokens) =>
     }),
   );
 
-/** A stored, sealed row (as 12b-12d left it, with plaintext decoys that must never be used). */
+/** A stored, sealed row. */
 function storedRow(memberId, { access, refresh, expiresAt = LATER() }) {
   const id = randomUUID();
   const sealed = sealedWrite(
@@ -169,29 +170,27 @@ function storedRow(memberId, { access, refresh, expiresAt = LATER() }) {
     expires_at: expiresAt,
     updated_at: "2026-11-24T09:00:00.000Z",
     ...sealed.columns,
-    access_token: "plaintext-decoy-access",
-    refresh_token: "plaintext-decoy-refresh",
   };
 }
 
-/** Every token column any write sent: the plaintext ones must all be null. */
-const plaintextWritten = (w) =>
-  w.writes.flatMap(([, patch]) =>
-    ["access_token", "refresh_token"]
-      .filter((c) => c in patch && patch[c] !== null)
-      .map((c) => `${c}=${patch[c]}`),
-  );
+/** The dropped plaintext columns (migration 077): no write may name them, not even as null. */
+const DROPPED = ["access_token", "refresh_token"];
+const droppedColumnsWritten = (w) =>
+  w.writes.flatMap(([op, patch]) => DROPPED.filter((c) => c in patch).map((c) => `${op}: ${c}`));
 
 /* ── writes ──────────────────────────────────────────────────── */
 
-test("the helper: both tokens sealed for the row under the current key, plaintext null; no refresh token and none stored, no refresh column", () => {
+test("the helper: both tokens sealed for the row under the current key, and nothing else; no refresh token and none stored, no refresh column", () => {
   const row = { id: randomUUID(), memberId: "m-1", provider: "google" };
   const access = tok("access");
   const refresh = tok("refresh");
   const out = sealedWrite(row, { accessToken: access, refreshToken: refresh });
   assert.equal(out.ok, true);
-  assert.equal(out.columns.access_token, null);
-  assert.equal(out.columns.refresh_token, null);
+  assert.deepEqual(
+    Object.keys(out.columns).sort(),
+    ["access_token_enc", "refresh_token_enc", "token_key_id"],
+    "the sealed columns only",
+  );
   assert.equal(out.columns.token_key_id, "k1");
   assert.equal(open(out.columns.access_token_enc, tokenAad(row)), access);
   assert.equal(open(out.columns.refresh_token_enc, tokenAad(row)), refresh);
@@ -210,9 +209,9 @@ test("the helper: both tokens sealed for the row under the current key, plaintex
   );
 });
 
-// Negative control: write the access token in plaintext again (sealedWrite's
-// `access_token: null` back to the token) and this test fails.
-test("first connect: INSERTED with an app-generated id, sealed for that id, no plaintext anywhere", async () => {
+// Negative control: put a null plaintext column back into sealedWrite
+// (`access_token: null`) and this test fails.
+test("first connect: INSERTED with an app-generated id, sealed for that id, no plaintext column named", async () => {
   const w = world();
   const access = tok("access");
   const refresh = tok("refresh");
@@ -226,9 +225,7 @@ test("first connect: INSERTED with an app-generated id, sealed for that id, no p
   assert.ok(!w.writes.some(([op]) => op === "upsert"), "never an upsert");
   assert.deepEqual(opened(stored), { access, refresh, keyOfAccess: "k1", keyOfRefresh: "k1" });
   assert.equal(stored.token_key_id, "k1");
-  assert.deepEqual(plaintextWritten(w), [], "plaintext is never written");
-  assert.equal(stored.access_token, null);
-  assert.equal(stored.refresh_token, null);
+  assert.deepEqual(droppedColumnsWritten(w), [], "no write names a dropped column");
 });
 
 // Negative control: make a reconnect clear refresh_token_enc (seal it as null
@@ -260,7 +257,7 @@ test("reconnect without a refresh token, after a key rotation: same row and id, 
   // k1 retired: the refresh token still opens, so it really is under k2 now.
   setKeys({ k2: KEY_2 }, "k2");
   assert.equal(opened(stored).refresh, refresh);
-  assert.deepEqual(plaintextWritten(w), []);
+  assert.deepEqual(droppedColumnsWritten(w), []);
 });
 
 test("reconnect without a refresh token when the stored copy does not open: it is left exactly as stored, never cleared", async () => {
@@ -368,7 +365,7 @@ test("a token refresh writes the new access token sealed only, by the row's id, 
   const fresh = tok("access");
   w.refreshed = { accessToken: fresh, refreshToken: null, expiresAt: LATER() };
   assert.equal(await capture(() => getAccessToken("m-ref", "google")), fresh);
-  assert.equal(w.refreshedWith, refresh, "the sealed refresh token was used, not the decoy");
+  assert.equal(w.refreshedWith, refresh, "the sealed refresh token was used");
   const stored = w.rows[0];
   assert.deepEqual(opened(stored), {
     access: fresh,
@@ -377,8 +374,7 @@ test("a token refresh writes the new access token sealed only, by the row's id, 
     keyOfRefresh: "k2",
   });
   assert.equal(stored.token_key_id, "k2");
-  assert.deepEqual(plaintextWritten(w), []);
-  assert.equal(stored.access_token, null, "the plaintext decoy is cleared by the write");
+  assert.deepEqual(droppedColumnsWritten(w), []);
 });
 
 test("the refresh cannot be sealed (keys invalid): it fails, the card says refresh failed, no token is written", async () => {
@@ -399,9 +395,9 @@ test("the refresh cannot be sealed (keys invalid): it fails, the card says refre
 
 /* ── reads ───────────────────────────────────────────────────── */
 
-// Negative control: put a plaintext fallback back into readTokens and this
+// Negative control: make readTokens fall back to anything but its sealed copy
 // test fails.
-test("reads use the sealed copies only: a row's plaintext is never used, even when no sealed copy is there", async () => {
+test("reads use the sealed copies only: a row with none is a reconnect, never a fallback", async () => {
   const access = tok("access");
   const row = storedRow("m-read", { access, refresh: tok("refresh") });
   const w = world([row]);
@@ -414,7 +410,7 @@ test("reads use the sealed copies only: a row's plaintext is never used, even wh
   assert.equal(
     w.rows[0].last_error,
     CONNECTION_PROBLEM.noRefreshToken,
-    "a reconnect, not the plaintext",
+    "a reconnect, nothing else",
   );
 });
 
@@ -453,7 +449,7 @@ test("disconnect revokes with the copy that opens; with none, it revokes nothing
     deleted: true,
     revokedAtProvider: false,
   });
-  assert.deepEqual(w2.revoked, [], "the plaintext decoys are never revoked");
+  assert.deepEqual(w2.revoked, [], "nothing that does not open is revoked");
   assert.deepEqual(w2.rows, []);
 });
 

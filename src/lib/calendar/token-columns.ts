@@ -6,12 +6,11 @@ import { open, seal, sealedKeyId, TokenCryptoError, tokenAad } from "./token-cry
  * that writes them (sealedWrite) or reads them (readTokens):
  * token-columns-tripwire.test.ts fails any other file that does either.
  *
- * ── Sealed only (12e) ────────────────────────────────────────
+ * ── Sealed only (12e, 12f) ───────────────────────────────────
  *
- * The sealed copies are the only store. Every write sets the plaintext
- * columns to NULL, and nothing reads them: they are emptied by the 12e data
- * step and dropped in 12f. A seal that fails (keys missing or invalid) fails
- * the write: there is no plaintext to fall back to.
+ * The sealed copies are the only store: the table has no plaintext token
+ * column any more (migration 077). A seal that fails (keys missing or
+ * invalid) fails the write: there is nothing to fall back to.
  *
  * ── Bound to the stored row ──────────────────────────────────
  *
@@ -31,10 +30,8 @@ import { open, seal, sealedKeyId, TokenCryptoError, tokenAad } from "./token-cry
 
 type Row = { id: string; memberId: string; provider: string };
 
-/** The token columns of one write. The plaintext ones are always null. */
+/** The token columns of one write: sealed, and nothing else. */
 export type SealedWrite = {
-  access_token: null;
-  refresh_token: null;
   access_token_enc: string;
   refresh_token_enc?: string;
   token_key_id: string;
@@ -64,8 +61,6 @@ export function sealedWrite(
     return {
       ok: true,
       columns: {
-        access_token: null,
-        refresh_token: null,
         access_token_enc: accessEnc,
         ...(refresh ? { refresh_token_enc: seal(refresh, aad) } : {}),
         token_key_id: sealedKeyId(accessEnc) as string,
@@ -82,9 +77,8 @@ export function sealedWrite(
 
 /**
  * A calendar_connections row as a token read sees it. Every select that reads
- * tokens names all of these columns, and no plaintext token column
- * (token-columns-tripwire.test.ts checks connections.ts' ROW_COLUMNS and
- * STORED_TOKEN_COLUMNS).
+ * tokens names all of these columns (token-columns-tripwire.test.ts checks
+ * connections.ts' ROW_COLUMNS and STORED_TOKEN_COLUMNS).
  */
 export type TokenRow = {
   id: string;

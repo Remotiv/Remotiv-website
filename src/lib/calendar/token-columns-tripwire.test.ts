@@ -102,9 +102,9 @@ test("12b: no file but token-columns.ts writes a calendar token column", () => {
   assert.deepEqual(offending, []);
 });
 
-test("12b: the helper itself writes them (the scan sees what it is looking for)", () => {
+test("12b: the helper itself writes the sealed columns (the scan sees what it is looking for)", () => {
   const hits = tokenWrites(HELPER, readFileSync(join(SRC, HELPER), "utf8"));
-  for (const col of COLUMNS) {
+  for (const col of ["access_token_enc", "refresh_token_enc", "token_key_id"]) {
     assert.ok(
       hits.some((h) => h.includes(`: ${col} in an object literal`)),
       `helper writes ${col}`,
@@ -215,22 +215,19 @@ test("12d: the helper itself reads the sealed columns (the scan sees what it is 
 
 const PLAINTEXT = ["access_token", "refresh_token"];
 
-// Negative control: write a token in plaintext again (sealedWrite's
-// `access_token: null` back to the token) and this test fails.
-test("12e: no file, the helper included, writes a plaintext token column except as null", () => {
+// Negative control: put a null plaintext column back into sealedWrite
+// (`access_token: null`) and this test fails.
+test("12f: no file, the helper included, writes a plaintext token column at all, not even as null", () => {
   const offending = [];
-  let helperNulls = 0;
   for (const p of sourceFiles(SRC)) {
     const rel = relative(SRC, p);
     for (const hit of tokenWrites(rel, readFileSync(p, "utf8"))) {
-      const plain = PLAINTEXT.some((c) => new RegExp(`: ${c} (in|assigned)`).test(hit));
-      if (!plain) continue;
-      if (rel === HELPER && hit.endsWith("(null)")) helperNulls += 1;
-      else offending.push(`${rel}:${hit}`);
+      if (PLAINTEXT.some((c) => new RegExp(`: ${c} (in|assigned)`).test(hit))) {
+        offending.push(`${rel}:${hit}`);
+      }
     }
   }
   assert.deepEqual(offending, []);
-  assert.equal(helperNulls, 2, "the helper sets both plaintext columns to null on every write");
 });
 
 // Negative control: put a plaintext fallback back into readTokens
@@ -295,4 +292,67 @@ test("12d + 12e: every select that reads tokens names every column readTokens ne
   }
   assert.match(connections, /\.select\(ROW_COLUMNS\)/);
   assert.match(connections, /\.select\(STORED_TOKEN_COLUMNS\)/);
+});
+
+/* ── 12f: the plaintext columns are gone; no code names them ─────
+ *
+ * Migration 077 drops access_token and refresh_token. In every file that
+ * names the "calendar_connections" table, and in the helper, no code names
+ * either one at all: not as a property, a read, a destructured name, a type
+ * member or a word inside a string (a select). Comments are not code. The
+ * one place the names legitimately appear is Google's own token response and
+ * request (google.ts), which names no table.
+ */
+export function plaintextNamed(file, text) {
+  const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+  const at = (n) => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+  const word = /\b(access_token|refresh_token)\b(?!_enc)/;
+  const found = [];
+  const visit = (n) => {
+    if (ts.isIdentifier(n) || ts.isPrivateIdentifier?.(n)) {
+      if (PLAINTEXT.includes(n.text)) found.push(`${at(n)}: ${n.text}`);
+    } else if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) {
+      if (word.test(n.text)) found.push(`${at(n)}: "${n.text.match(word)[1]}" in a string`);
+    } else if (ts.isTemplateHead(n) || ts.isTemplateMiddle(n) || ts.isTemplateTail(n)) {
+      if (word.test(n.text)) found.push(`${at(n)}: "${n.text.match(word)[1]}" in a template`);
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return found;
+}
+
+test("12f: no file that names calendar_connections, and not the helper, names a plaintext token column", () => {
+  const offending = [];
+  let checked = 0;
+  for (const p of sourceFiles(SRC)) {
+    const rel = relative(SRC, p);
+    const text = readFileSync(p, "utf8");
+    if (rel !== HELPER && !text.includes('"calendar_connections"')) continue;
+    checked += 1;
+    for (const hit of plaintextNamed(rel, text)) offending.push(`${rel}:${hit}`);
+  }
+  assert.ok(checked >= 7, `the table's files were reached (${checked})`);
+  assert.deepEqual(offending, []);
+});
+
+test("12f: the name scan catches every shape and skips comments and the _enc columns", () => {
+  const fixture = [
+    "// access_token in a comment is not code",
+    "type Row = { access_token: string | null };",
+    'const cols = "id, refresh_token, member_id";',
+    "const t = row.access_token_enc;",
+    "const { refresh_token } = row;",
+    // A template whose static text names a column ("$" and "{" kept apart so
+    // this source holds no placeholder of its own).
+    "const s = `select $" + "{x}, access_token from t`;",
+    "patch.refresh_token = null;",
+  ].join("\n");
+  assert.deepEqual(plaintextNamed("fixture.ts", fixture), [
+    "2: access_token",
+    '3: "refresh_token" in a string',
+    "5: refresh_token",
+    '6: "access_token" in a template',
+    "7: refresh_token",
+  ]);
 });

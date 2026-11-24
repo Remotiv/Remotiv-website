@@ -230,11 +230,11 @@ function calendarWorld(rows) {
   return table;
 }
 
-const conn = (member_id, provider, refresh_token) => {
+const conn = (member_id, provider, refreshToken) => {
   const id = randomUUID();
   const sealed = sealedWrite(
     { id, memberId: member_id, provider },
-    { accessToken: `access-${member_id}`, refreshToken: refresh_token },
+    { accessToken: `access-${member_id}`, refreshToken },
   );
   return {
     id,
