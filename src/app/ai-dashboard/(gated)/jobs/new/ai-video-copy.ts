@@ -1,5 +1,6 @@
 import type { LiveInterviewMinutes, LiveInterviewMode } from "@/app/ai-dashboard/lib/job-types";
 import { MAX_JOB_QUESTIONS, MIN_JOB_QUESTIONS } from "@/lib/interviews/question-mix";
+import { LIVE_INTERVIEWER_NAME } from "@/lib/interviews/types";
 
 /**
  * The job wizard's words for the AI Video Interview option (#12, approved
@@ -18,6 +19,9 @@ export const AI_VIDEO_OPTION_DESCRIPTION =
 export function aiVideoQuestionsHint(minutes: LiveInterviewMinutes): string {
   return `${MIN_JOB_QUESTIONS} to ${MAX_JOB_QUESTIONS} questions. Estimated duration: ${minutes} minutes. Candidates using the same approved question set receive identical questions in the same order.`;
 }
+
+/** Under the Interview questions step's description, while AI Video Interview is on. */
+export const AI_VIDEO_STEP_LINE = `With AI Video Interview on, ${LIVE_INTERVIEWER_NAME} asks these questions live, in this order.`;
 
 export const AI_VIDEO_QUESTION_COUNT_WARNING = `AI Video Interview requires ${MIN_JOB_QUESTIONS} to ${MAX_JOB_QUESTIONS} questions. Please update the job's interview questions to continue.`;
 

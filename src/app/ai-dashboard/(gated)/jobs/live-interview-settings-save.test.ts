@@ -57,6 +57,7 @@ export async function resolve(specifier, context, next) {
 
 const { createCompanyJob, updateCompanyJob, duplicateCompanyJob } = await import("./actions.ts");
 const { EMPTY_JOB_INPUT, liveInterviewInputFromRow } = await import("../../lib/job-types.ts");
+const { EMPTY_QUESTION_INPUT } = await import("../../../../lib/interviews/types.ts");
 const { fakeLiveDb } = await import("../../../../test-support/fake-live-db.mjs");
 
 const CO = "c0000000-0000-4000-8000-000000000045";
@@ -123,7 +124,6 @@ const input = (over = {}) => ({
   city: "Lahore",
   status: "on_hold",
   avatar_interview_enabled: true,
-  avatar_interviewer_name: "Sarah",
   ...over,
 });
 
@@ -386,4 +386,57 @@ test("editing mode, length or challenges never changes an invitation already sen
     live_hiring_challenges: "New challenges after the invite.",
   });
   assert.equal(JSON.stringify(db.tables.interview_sessions), before, "byte-equal");
+});
+
+/* ── 24 Nov: up to 8 questions, and no interviewer name ──────────── */
+
+/** `n` non-blank questions as the wizard sends them, plus a blank row that never counts. */
+const questions = (n) => [
+  ...Array.from({ length: n }, (_, i) => ({
+    ...EMPTY_QUESTION_INPUT,
+    question: `Synthetic question ${i + 1}?`,
+  })),
+  { ...EMPTY_QUESTION_INPUT, question: "   " },
+];
+const TOO_MANY = "A job can have at most 8 interview questions. Remove 1 to save.";
+
+test("7 and 8 interview questions save, on create and on edit; all of them are kept", async () => {
+  for (const n of [7, 8]) {
+    const db = world();
+    const id = await create({ interview_questions: questions(n) });
+    assert.deepEqual(
+      db.tables.interview_questions.map((q) => q.question),
+      Array.from({ length: n }, (_, i) => `Synthetic question ${i + 1}?`),
+    );
+    const r = await quiet(() => updateCompanyJob(id, input({ interview_questions: questions(n) })));
+    assert.equal(r.success, true, r.error);
+    assert.equal(db.tables.interview_questions.length, n);
+  }
+});
+
+test("9 interview questions are refused before anything is written, never cut to 8", async () => {
+  const db = world();
+  const r = await quiet(() => createCompanyJob(input({ interview_questions: questions(9) })));
+  assert.deepEqual(r, { success: false, error: TOO_MANY });
+  assert.equal(db.tables.jobs.length, 0);
+  assert.equal(db.tables.interview_questions.length, 0);
+
+  const id = await create({ interview_questions: questions(8) });
+  const before = structuredClone([db.tables.jobs, db.tables.interview_questions]);
+  const edit = await quiet(() =>
+    updateCompanyJob(id, input({ interview_questions: questions(9) })),
+  );
+  assert.deepEqual(edit, { success: false, error: TOO_MANY });
+  assert.deepEqual([db.tables.jobs, db.tables.interview_questions], before);
+});
+
+test("AI Video Interview on with no interviewer name saves, and the name column is never written", async () => {
+  const db = world();
+  const id = await create({ avatar_interview_enabled: true });
+  assert.equal(db.tables.jobs.find((j) => j.id === id).avatar_interview_enabled, true);
+  // A browser still sending a name is ignored, on create and on edit.
+  const r = await quiet(() => updateCompanyJob(id, input({ avatar_interviewer_name: "Aisha" })));
+  assert.equal(r.success, true, r.error);
+  for (const row of db.jobInserts) assert.equal("avatar_interviewer_name" in row, false);
+  assert.equal("avatar_interviewer_name" in db.tables.jobs[0], false);
 });

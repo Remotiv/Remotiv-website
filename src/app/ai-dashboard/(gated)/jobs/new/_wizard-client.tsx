@@ -92,6 +92,7 @@ import { LiveInterviewSettings } from "./_live-interview-settings";
 import {
   AI_VIDEO_OPTION_DESCRIPTION,
   AI_VIDEO_QUESTION_COUNT_WARNING,
+  AI_VIDEO_STEP_LINE,
   aiVideoQuestionCountOutOfRange,
   aiVideoQuestionsHint,
 } from "./ai-video-copy";
@@ -780,11 +781,6 @@ const IDEAL_HINT: Record<ScreeningQuestion["type"], string> = {
 
 /** Per-question validation errors share a prefix so they can be cleared as a set. */
 const QUESTION_ERR_PREFIX = "question_";
-
-/** Focused by submit when AI Video Interview is on without a name. */
-const AI_VIDEO_INTERVIEWER_NAME_ID = "ai-video-interviewer-name";
-const AI_VIDEO_INTERVIEWER_NAME_ERROR =
-  "Add an interviewer name for AI Video Interview, or switch it off.";
 
 const QUESTION_IDEAL_ERROR: Record<ScreeningQuestion["type"], (n: number) => string> = {
   numeric: (n) =>
@@ -1686,23 +1682,6 @@ export function WizardClient({
       return;
     }
 
-    /*
-     * Drafts included. The send gate refuses AI Video Interview without an
-     * interviewer name, and buildPatch refuses to save that combination at any
-     * status — so it is caught here, where the field is, rather than as a
-     * server toast after the round trip. More options is collapsed by default,
-     * so it is opened and the field focused: an error on a hidden input is
-     * one nobody can find.
-     */
-    if (state.avatar_interview_enabled && !state.avatar_interviewer_name.trim()) {
-      setErrors({ avatar_interviewer_name: AI_VIDEO_INTERVIEWER_NAME_ERROR });
-      setStep(FINAL_STEP);
-      setMoreOpen(true);
-      showToast(AI_VIDEO_INTERVIEWER_NAME_ERROR);
-      requestAnimationFrame(() => document.getElementById(AI_VIDEO_INTERVIEWER_NAME_ID)?.focus());
-      return;
-    }
-
     inFlightRef.current = true;
     setSubmitting(true);
     try {
@@ -1895,6 +1874,11 @@ export function WizardClient({
                   {meta.title}
                 </h2>
                 <p className="text-[13px] leading-relaxed text-[var(--ai-t3)]">{meta.desc}</p>
+                {step === 5 && state.avatar_interview_enabled && (
+                  <p className="text-[13px] leading-relaxed text-[var(--ai-t3)]">
+                    {AI_VIDEO_STEP_LINE}
+                  </p>
+                )}
               </div>
               <span className="shrink-0 whitespace-nowrap rounded-full bg-[var(--ai-purple-tint)] px-[11px] py-[5px] text-[10.5px] font-extrabold uppercase tracking-[0.08em] text-[var(--ai-purple-ink)]">
                 Step {step} of {HIGHEST_STEP}
@@ -2433,6 +2417,34 @@ export function WizardClient({
 
               {step === 5 && (
                 <>
+                  {/* Stored in avatar_interview_enabled; the column name
+                      is historical - Phase 1 has no avatar, and no copy here
+                      may promise one. On this step, above the mode cards,
+                      since 24 Nov: the questions below are what Sarah asks. */}
+                  <div className="mb-5">
+                    <OptionRow
+                      title="AI Video Interview"
+                      desc={AI_VIDEO_OPTION_DESCRIPTION}
+                      on={state.avatar_interview_enabled}
+                      onToggle={() =>
+                        set("avatar_interview_enabled", !state.avatar_interview_enabled)
+                      }
+                    >
+                      <p className={HINT_CLS}>
+                        {aiVideoQuestionsHint(
+                          state.live_interview_minutes ?? DEFAULT_LIVE_INTERVIEW_MINUTES,
+                        )}
+                      </p>
+                      {aiVideoQuestionCountOutOfRange(
+                        state.interview_questions.filter((q) => q.question.trim()).length,
+                      ) && (
+                        <p className="mt-1.5 text-xs text-[#C4362F]">
+                          {AI_VIDEO_QUESTION_COUNT_WARNING}
+                        </p>
+                      )}
+                    </OptionRow>
+                  </div>
+
                   <LiveInterviewSettings
                     enabled={state.avatar_interview_enabled}
                     mode={state.live_interview_mode ?? DEFAULT_LIVE_INTERVIEW_MODE}
@@ -2893,43 +2905,6 @@ export function WizardClient({
                             on={state.measure_relevancy}
                             onToggle={() => set("measure_relevancy", !state.measure_relevancy)}
                           />
-
-                          {/* Stored in avatar_interview_enabled; the column
-                              name is historical — Phase 1 has no avatar, and no
-                              copy here may promise one. Not "the first
-                              interview" either: a job can use this, async, or
-                              both, in no enforced order. */}
-                          <OptionRow
-                            title="AI Video Interview"
-                            desc={AI_VIDEO_OPTION_DESCRIPTION}
-                            on={state.avatar_interview_enabled}
-                            onToggle={() =>
-                              set("avatar_interview_enabled", !state.avatar_interview_enabled)
-                            }
-                          >
-                            <InterviewerNameField
-                              id={AI_VIDEO_INTERVIEWER_NAME_ID}
-                              label="Interviewer name"
-                              placeholder="e.g. Aisha"
-                              hint="The name the AI interviewer introduces itself by. Required while this is on."
-                              required
-                              error={errors.avatar_interviewer_name}
-                              value={state.avatar_interviewer_name}
-                              onChange={(v) => set("avatar_interviewer_name", v)}
-                            />
-                            <p className={HINT_CLS}>
-                              {aiVideoQuestionsHint(
-                                state.live_interview_minutes ?? DEFAULT_LIVE_INTERVIEW_MINUTES,
-                              )}
-                            </p>
-                            {aiVideoQuestionCountOutOfRange(
-                              state.interview_questions.filter((q) => q.question.trim()).length,
-                            ) && (
-                              <p className="mt-1.5 text-xs text-[#C4362F]">
-                                {AI_VIDEO_QUESTION_COUNT_WARNING}
-                              </p>
-                            )}
-                          </OptionRow>
 
                           {/* LIVE today, unlike the four interview options —
                               it gets the same "Active now" treatment as AI CV

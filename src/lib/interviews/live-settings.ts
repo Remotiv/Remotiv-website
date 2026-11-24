@@ -1,9 +1,9 @@
 import "server-only";
-import { JOB_INTERVIEWER_NAME_MAX } from "@/app/ai-dashboard/lib/job-types";
 import type { createServiceClient } from "@/lib/supabase/server";
 import { liveInterviewsAvailableFor } from "./live-availability";
 import { jobQuestionMix, MAX_JOB_QUESTIONS, MIN_JOB_QUESTIONS } from "./question-mix";
 import {
+  LIVE_INTERVIEWER_NAME,
   LIVE_SETTINGS_VERSION,
   type LiveSettings,
   MAX_FOLLOW_UPS_PER_BASE_QUESTION,
@@ -98,14 +98,18 @@ export type BuildLiveSettingsResult =
  *   3. The job has 4 to 8 interview questions (#19, 23 Nov), counted here on
  *      the server, before the send writes, freezes or sends anything. Never
  *      the browser's count.
- *   4. The job has an interviewer name.
+ *
+ * The interviewer is always Sarah (LIVE_INTERVIEWER_NAME, 24 Nov): the job's
+ * old avatar_interviewer_name column is not read, so a job saved with another
+ * name is sent as Sarah from now on. Sessions already invited keep the name
+ * frozen in their live_settings.
  *
  * Mirrors how async_interview_enabled gates sendInterviewInvite
  * (applicants/interview-actions.ts):
  *
  *   · Re-read here, server-side, from the live job row. The caller passes an
- *     id and nothing else; whatever the client believes about the toggle or
- *     the name is neither asked for nor believed.
+ *     id and nothing else; whatever the client believes about the toggle is
+ *     neither asked for nor believed.
  *   · `=== true`, not `!== false`: the column defaults to FALSE, so an absent
  *     or null value must refuse.
  *   · Scoped to the company as well as the id. The caller is expected to have
@@ -115,11 +119,7 @@ export type BuildLiveSettingsResult =
  * The column is still called avatar_interview_enabled. The feature is AI Video
  * Interview and has no avatar in Phase 1, but renaming the column would be a
  * migration with no change in behaviour — see the note in job-types.ts.
- *
- * The wizard and the save action now refuse the toggle without a name, so the
- * name refusal inside buildLiveSettings should be unreachable for any job
- * saved since. It stays: rows written before that rule, or by any future
- * writer that skips the wizard, still meet it here, before a candidate does.
+
  */
 export async function gateLiveInterviewInvite(
   service: ReturnType<typeof createServiceClient>,
@@ -131,21 +131,18 @@ export async function gateLiveInterviewInvite(
 
   const { data } = await service
     .from("jobs")
-    .select("avatar_interview_enabled, avatar_interviewer_name")
+    .select("avatar_interview_enabled")
     .eq("id", input.jobId)
     .eq("company_id", input.companyId)
     .maybeSingle();
-  const row = data as {
-    avatar_interview_enabled: boolean | null;
-    avatar_interviewer_name: string | null;
-  } | null;
+  const row = data as { avatar_interview_enabled: boolean | null } | null;
 
   if (!row) return { ok: false, error: "Job not found in your workspace." };
   if (row.avatar_interview_enabled !== true) {
     return {
       ok: false,
       error:
-        "AI Video Interviews are switched off for this job. Turn them on under More options in the job's settings, then send again.",
+        "AI Video Interviews are switched off for this job. Turn them on in the Interview questions step of the job's settings, then send again.",
     };
   }
 
@@ -165,69 +162,27 @@ export async function gateLiveInterviewInvite(
     return { ok: false, error: LIVE_QUESTION_COUNT_ERROR };
   }
 
-  return buildLiveSettings({ interviewerName: row.avatar_interviewer_name, jobQuestionCount });
+  return { ok: true, settings: buildLiveSettings(jobQuestionCount) };
 }
 
 /**
- * Freeze the settings for one live invite, or refuse and say why.
- *
- * Private to this module. Reach it through gateLiveInterviewInvite above.
- *
- * ── Refusing is the point ────────────────────────────────────
- *
- * Only one field can be missing: the interviewer's name. Everything else is a
- * constant above. `jobs.avatar_interviewer_name` is null whenever the toggle is
- * on and nobody typed a name — reachable today, and the state of every job that
- * has ever enabled it, since the field has never been required.
- *
- * A fallback name would mean the candidate speaks to an interviewer the company
- * never named. Freezing an incomplete snapshot and failing later would be worse:
- * the CANDIDATE would absorb, at join time, a configuration mistake the
- * recruiter could have fixed in the wizard. And "frozen at invite" only means
- * something if the snapshot is complete at invite — filling a gap afterwards
- * means the governing settings were decided after the invite went out.
- *
- * So the check belongs here, at the freeze, where the recruiter is standing.
- * The error text follows sendInterviewInvite's existing refusal for a job with
- * no questions: name the missing thing and where to fix it.
- *
- * ── No longer a dead end ─────────────────────────────────────
- *
- * The wizard and createCompanyJob/updateCompanyJob now refuse to save the
- * toggle on without a name, so a recruiter is told while they are in the form
- * rather than at send time. This refusal remains the last line for rows that
- * never went through that rule.
+ * Freeze the settings for one live invite. Private to this module: reach it
+ * through gateLiveInterviewInvite above, which has already refused everything
+ * that can be wrong. Every field is a constant except the question count.
  */
-function buildLiveSettings(input: {
-  /** jobs.avatar_interviewer_name, as stored. Null when never set. */
-  interviewerName: string | null;
-  /** The job's interview questions, counted at invite. */
-  jobQuestionCount: number;
-}): BuildLiveSettingsResult {
-  const name = (input.interviewerName ?? "").trim().slice(0, JOB_INTERVIEWER_NAME_MAX);
-  if (!name) {
-    return {
-      ok: false,
-      error:
-        "This job has no interviewer name, so there's nobody for the AI to introduce itself as. Add one under More options in the job's settings, then send again.",
-    };
-  }
-
+function buildLiveSettings(jobQuestionCount: number): LiveSettings {
   return {
-    ok: true,
-    settings: {
-      v: LIVE_SETTINGS_VERSION,
-      interviewer_name: name,
-      language: LIVE_LANGUAGE,
-      max_follow_ups_per_base_question: MAX_FOLLOW_UPS_PER_BASE_QUESTION,
-      max_session_seconds: MAX_SESSION_SECONDS,
-      follow_up_rules_version: FOLLOW_UP_RULES_VERSION,
-      follow_up_rules: FOLLOW_UP_RULES,
-      // The policy's mix, copied now so a later policy change never reaches
-      // an interview already sent: every job question, no CV questions
-      // (question-mix.ts). The gate has refused a count outside 4..8; the
-      // freeze checks it again against the invite's own snapshot.
-      question_mix: jobQuestionMix(input.jobQuestionCount, MAX_SESSION_SECONDS / 60),
-    },
+    v: LIVE_SETTINGS_VERSION,
+    interviewer_name: LIVE_INTERVIEWER_NAME,
+    language: LIVE_LANGUAGE,
+    max_follow_ups_per_base_question: MAX_FOLLOW_UPS_PER_BASE_QUESTION,
+    max_session_seconds: MAX_SESSION_SECONDS,
+    follow_up_rules_version: FOLLOW_UP_RULES_VERSION,
+    follow_up_rules: FOLLOW_UP_RULES,
+    // The policy's mix, copied now so a later policy change never reaches
+    // an interview already sent: every job question, no CV questions
+    // (question-mix.ts). The gate has refused a count outside 4..8; the
+    // freeze checks it again against the invite's own snapshot.
+    question_mix: jobQuestionMix(jobQuestionCount, MAX_SESSION_SECONDS / 60),
   };
 }

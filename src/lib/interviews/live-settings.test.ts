@@ -40,14 +40,15 @@ const CO = "7aad434d-0000-4000-8000-000000000001";
 const JOB = "2d4a8cde-0000-4000-8000-000000000002";
 
 /** The gate's result for a job with `questions` questions, the toggle on and a name, the company allowlisted. */
-async function gateFor(questions = 6, questionsError = null) {
+async function gateFor(questions = 6, questionsError = null, storedName = "Aisha") {
   const before = process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS;
   process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS = CO;
   try {
     const service = fakeService((table) => {
       if (table === "jobs") {
         return {
-          data: { avatar_interview_enabled: true, avatar_interviewer_name: "Sarah" },
+          // The old per-job name column, still on the row: the gate never reads it.
+          data: { avatar_interview_enabled: true, avatar_interviewer_name: storedName },
           error: null,
         };
       }
@@ -251,7 +252,8 @@ test("async is untouched: its lengths and counts, and its send never freezes liv
       ["depth", 6, 150],
     ],
   );
-  assert.deepEqual([MIN_QUESTIONS, MAX_QUESTIONS], [4, 6]);
+  // 24 Nov: up to 8 questions, one list for async and the AI Video Interview.
+  assert.deepEqual([MIN_QUESTIONS, MAX_QUESTIONS], [4, 8]);
   const actions = readFileSync(
     new URL("../../app/ai-dashboard/(gated)/applicants/interview-actions.ts", import.meta.url),
     "utf8",
@@ -264,4 +266,36 @@ test("async is untouched: its lengths and counts, and its send never freezes liv
     asyncSend,
     /live_settings|question_mix|questionMixFor|gateLiveInterviewInvite/,
   );
+});
+
+test("24 Nov: the interviewer is always Sarah, whatever name the job once stored", async () => {
+  for (const storedName of ["Aisha", "", null, undefined]) {
+    const { gate, service } = await gateFor(6, null, storedName);
+    assert.equal(gate.ok, true, `${JSON.stringify(storedName)}: ${gate.error}`);
+    assert.equal(gate.settings.interviewer_name, "Sarah");
+    const jobRead = service.queries.find((q) => q.table === "jobs");
+    assert.deepEqual(
+      jobRead.calls.find((c) => c[0] === "select"),
+      ["select", "avatar_interview_enabled"],
+      "the old name column is not even read",
+    );
+  }
+  const { LIVE_INTERVIEWER_NAME } = await import("./types.ts");
+  assert.equal(LIVE_INTERVIEWER_NAME, "Sarah");
+});
+
+test("the switched-off refusal points at the Interview questions step, where the toggle now is", async () => {
+  const before = process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS;
+  process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS = CO;
+  try {
+    const service = fakeService(() => ({ data: { avatar_interview_enabled: false }, error: null }));
+    assert.deepEqual(await gateLiveInterviewInvite(service, { jobId: JOB, companyId: CO }), {
+      ok: false,
+      error:
+        "AI Video Interviews are switched off for this job. Turn them on in the Interview questions step of the job's settings, then send again.",
+    });
+  } finally {
+    if (before === undefined) delete process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS;
+    else process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS = before;
+  }
 });

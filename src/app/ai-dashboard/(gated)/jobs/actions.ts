@@ -100,7 +100,8 @@ const COMPANY_JOB_RATING = 4.5;
 // comparison that depends on them are one tested module.
 
 /**
- * Interviewer display name for one of the two interview options.
+ * Interviewer display name for the async interview (async_interview_name).
+ * The AI Video Interview's interviewer is always Sarah and has no name field.
  *
  * The name only means anything while its toggle is on, so an off toggle writes
  * NULL rather than leaving a name behind that nothing reads and the UI would
@@ -184,21 +185,19 @@ function buildPatch(
   const avatarOn = input.avatar_interview_enabled === true;
   const asyncOn = input.async_interview_enabled === true;
 
-  /*
-   * AI Video Interview needs a name for the interviewer, and the send gate
-   * (gateLiveInterviewInvite) refuses without one. Refused HERE, on every
-   * save and whatever the status, so the recruiter meets it in the form rather
-   * than as a dead end when sending. Not a publish-only rule like screening
-   * questions: a toggle that is on with no name isn't an unfinished draft,
-   * it's a setting that can never work, and a draft can be reopened without
-   * passing back through this form.
-   *
-   * The wizard checks the same thing first; this is the check that counts.
-   */
-  if (avatarOn && !interviewerName(input.avatar_interviewer_name, true)) {
+  // AI Video Interview needs no name: the interviewer is always Sarah
+  // (LIVE_INTERVIEWER_NAME, 24 Nov). jobs.avatar_interviewer_name is no longer
+  // written; the column stays, unused.
+  // The interview questions, at most MAX_QUESTIONS that are not blank. Refused
+  // here, before the job is written, rather than cut short in
+  // syncInterviewQuestions, which keeps its slice only as a backstop.
+  const askedQuestions = (input.interview_questions ?? []).filter(
+    (q) => (q?.question ?? "").trim().length > 0,
+  ).length;
+  if (askedQuestions > MAX_QUESTIONS) {
     return {
       ok: false,
-      error: "Add an interviewer name for AI Video Interview, or switch it off.",
+      error: `A job can have at most ${MAX_QUESTIONS} interview questions. Remove ${askedQuestions - MAX_QUESTIONS} to save.`,
     };
   }
 
@@ -256,7 +255,6 @@ function buildPatch(
       ai_cv_scoring_enabled: input.ai_cv_scoring_enabled !== false,
       measure_relevancy: input.measure_relevancy === true,
       avatar_interview_enabled: avatarOn,
-      avatar_interviewer_name: interviewerName(input.avatar_interviewer_name, avatarOn),
       async_interview_enabled: asyncOn,
       async_interview_name: interviewerName(input.async_interview_name, asyncOn),
       send_rejection_email: input.send_rejection_email === true,
@@ -1435,7 +1433,7 @@ export async function duplicateCompanyJob(jobId: string): Promise<MutationResult
       // with nothing on screen to explain why. The AI Video Interview mode,
       // length and hiring challenges (074) copy too, and only ever within the
       // company: the company check below refuses any other company's job.
-      "company_id, title, location, category, experience_level, contract_type, work_type, language, positions, salary_min, salary_max, salary_currency, description, responsibilities, requirements, screening_questions, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities, autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold, scoring_must_haves, interview_criteria, interview_duration_minutes, booking_hours_override, live_interview_mode, live_interview_minutes, live_hiring_challenges",
+      "company_id, title, location, category, experience_level, contract_type, work_type, language, positions, salary_min, salary_max, salary_currency, description, responsibilities, requirements, screening_questions, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, async_interview_enabled, async_interview_name, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities, autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold, scoring_must_haves, interview_criteria, interview_duration_minutes, booking_hours_override, live_interview_mode, live_interview_minutes, live_hiring_challenges",
     )
     .eq("id", jobId)
     // Duplicating a tombstone would mint a live Draft from content someone

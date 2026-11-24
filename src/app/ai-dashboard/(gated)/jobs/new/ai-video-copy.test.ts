@@ -190,18 +190,71 @@ function aiVideoRow() {
   return WIZARD.slice(start, end);
 }
 
-test("the controls sit at the top of the Interview questions step, on the job's own toggle and values", () => {
-  const step5 = WIZARD.slice(
-    WIZARD.indexOf("{step === 5 && ("),
-    WIZARD.indexOf("{step === 9 && ("),
+const STEP5 = WIZARD.slice(WIZARD.indexOf("{step === 5 && ("), WIZARD.indexOf("{step === 9 && ("));
+const STEP9 = WIZARD.slice(WIZARD.indexOf("{step === 9 && ("), WIZARD.indexOf("{step === 6 && ("));
+
+test("step 5 opens with the AI Video Interview toggle, then the mode, length and challenges", () => {
+  assert.match(
+    STEP5,
+    /^\{step === 5 && \(\s*<>\s*\{\/\*[\s\S]*?\*\/\}\s*<div className="mb-5">\s*<OptionRow\s+title="AI Video Interview"/,
+  );
+  const toggle = STEP5.indexOf('title="AI Video Interview"');
+  const cards = STEP5.indexOf("<LiveInterviewSettings");
+  const questionsList = STEP5.indexOf("interviewQs.map(");
+  assert.ok(
+    toggle > 0 && toggle < cards && cards < questionsList,
+    "toggle, then cards, then questions",
+  );
+  // The same saved field, toggled here.
+  assert.match(
+    STEP5,
+    /on=\{state\.avatar_interview_enabled\}\s*onToggle=\{\(\) =>\s*set\("avatar_interview_enabled", !state\.avatar_interview_enabled\)\s*\}/,
+  );
+  assert.match(STEP5, /<LiveInterviewSettings\s+enabled=\{state\.avatar_interview_enabled\}/);
+  for (const k of ["live_interview_mode", "live_interview_minutes", "live_hiring_challenges"]) {
+    assert.ok(STEP5.includes(`set("${k}", v)`), k);
+  }
+});
+
+test("step 9 no longer has the AI Video Interview toggle, and no interviewer name anywhere", () => {
+  assert.ok(!STEP9.includes('title="AI Video Interview"'));
+  assert.equal((WIZARD.match(/title="AI Video Interview"/g) ?? []).length, 1);
+  assert.doesNotMatch(
+    WIZARD,
+    /avatar_interviewer_name|AI_VIDEO_INTERVIEWER_NAME|label="Interviewer name"/,
+  );
+  // The toggle keeps its "Not yet active" pill: no `live` prop on its row.
+  assert.doesNotMatch(aiVideoRow(), /^<OptionRow[^>]*\blive\b/);
+});
+
+test("the step's extra line, exactly, and only while AI Video Interview is on", () => {
+  assert.equal(
+    copy.AI_VIDEO_STEP_LINE,
+    "With AI Video Interview on, Sarah asks these questions live, in this order.",
   );
   assert.match(
-    step5,
-    /^\{step === 5 && \(\s*<>\s*<LiveInterviewSettings\s+enabled=\{state\.avatar_interview_enabled\}/,
+    WIZARD,
+    /\{meta\.desc\}<\/p>\s*\{step === 5 && state\.avatar_interview_enabled && \(\s*<p[^>]*>\s*\{AI_VIDEO_STEP_LINE\}\s*<\/p>\s*\)\}/,
   );
-  for (const k of ["live_interview_mode", "live_interview_minutes", "live_hiring_challenges"]) {
-    assert.ok(step5.includes(`set("${k}", v)`), k);
-  }
+  // The async description stays as it was.
+  assert.ok(
+    WIZARD.includes(
+      'desc: "The candidate records their answers alone, with no interviewer on the call."',
+    ),
+  );
+});
+
+test("the wizard's question list stops at 8: add, AI suggestions and the button all use MAX_QUESTIONS", async () => {
+  const { MAX_QUESTIONS } = await import("../../../../../lib/interviews/types.ts");
+  assert.equal(MAX_QUESTIONS, 8);
+  assert.match(WIZARD, /if \(interviewQs\.length >= MAX_QUESTIONS\) return;/);
+  assert.match(WIZARD, /questions\.slice\(0, MAX_QUESTIONS\)/);
+  assert.match(WIZARD, /disabled=\{interviewQs\.length >= MAX_QUESTIONS\}/);
+  assert.doesNotMatch(
+    WIZARD,
+    /\b6\b[^\n]*question|question[^\n]*\b6\b/i,
+    "no question count of 6 in the wizard",
+  );
 });
 
 test("the option row: description, the hint on the chosen length, and the warning on the same count", () => {
@@ -225,6 +278,7 @@ test("no CV promise and no 'the first 4' left in the option or the wizard's AI V
     aiVideoQuestionsHint(30),
     aiVideoQuestionsHint(60),
     AI_VIDEO_QUESTION_COUNT_WARNING,
+    copy.AI_VIDEO_STEP_LINE,
     copy.AI_VIDEO_MODE_HEADING,
     copy.AI_VIDEO_MODE_SUB,
     ...copy.AI_VIDEO_MODE_CARDS.flatMap((c) => [c.title, c.tagline, c.detail]),

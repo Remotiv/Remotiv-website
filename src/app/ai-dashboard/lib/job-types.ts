@@ -64,7 +64,8 @@ export const JOB_TEXT_MAX = 10_000;
 export const JOB_TEXT_COUNTER_FROM = 9_000;
 
 /**
- * Ceiling for the two interviewer display names.
+ * Ceiling for the async interviewer's display name (async_interview_name).
+ * The AI Video Interview has no name field: its interviewer is always Sarah.
  *
  * Like JOB_TEXT_MAX this is a product guard, not a DB one — both columns are
  * unbounded `text`. These are person-sized labels a candidate reads at the top
@@ -357,12 +358,11 @@ export type CompanyJobInput = {
    * behaviour. Say "AI Video Interview" in anything a person reads.
    */
   avatar_interview_enabled: boolean;
-  /**
-   * The name the AI interviewer introduces itself by. REQUIRED while
-   * avatar_interview_enabled is on — the wizard and buildPatch both refuse the
-   * toggle without it — and stored null otherwise.
+  /*
+   * No interviewer name: the AI Video Interview's interviewer is always Sarah
+   * (LIVE_INTERVIEWER_NAME in lib/interviews/types.ts, 24 Nov). The
+   * jobs.avatar_interviewer_name column stays, unread and unwritten.
    */
-  avatar_interviewer_name: string;
   async_interview_enabled: boolean;
   /** Meaningful only while async_interview_enabled — stored null otherwise. */
   async_interview_name: string;
@@ -498,8 +498,9 @@ export type CompanyJobInput = {
    * NOT a jobs column — these live in their own `interview_questions` table,
    * one row per question. They ride along on the form model because the wizard
    * edits them on the same screen as the job, and the actions sync the table
-   * after the job row lands. buildPatch never sees them: it allow-lists the
-   * columns it writes, so a form field that is not a column cannot leak in.
+   * after the job row lands. buildPatch only COUNTS them (at most
+   * MAX_QUESTIONS); it allow-lists the columns it writes, so a form field that
+   * is not a column cannot leak in.
    */
   interview_questions: InterviewQuestionInput[];
 };
@@ -527,7 +528,6 @@ export const EMPTY_JOB_INPUT: CompanyJobInput = {
   ai_cv_scoring_enabled: true,
   measure_relevancy: false,
   avatar_interview_enabled: false,
-  avatar_interviewer_name: "",
   async_interview_enabled: false,
   async_interview_name: "",
   // Off by default. An automated rejection carrying a company's name is

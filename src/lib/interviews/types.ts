@@ -247,7 +247,21 @@ export function readInterviewKind(raw: unknown, sessionId: string): InterviewKin
 export const DEFAULT_PREP_SECONDS = 30;
 export const DEFAULT_ANSWER_SECONDS = 120;
 export const MIN_QUESTIONS = 4;
-export const MAX_QUESTIONS = 6;
+/**
+ * A job's interview questions, at most: 8 for BOTH the async interview and the
+ * AI Video Interview, which share one list (decided 24 Nov). The AI Video
+ * Interview also needs at least 4 (gateLiveInterviewInvite); MIN_QUESTIONS is
+ * guidance for async, not enforced.
+ */
+export const MAX_QUESTIONS = 8;
+
+/**
+ * The AI Video Interview's interviewer is always Sarah (decided 24 Nov). The
+ * invite freezes this into live_settings.interviewer_name; jobs.avatar_interviewer_name
+ * is no longer read or written. Sessions invited before keep the name they
+ * were frozen with.
+ */
+export const LIVE_INTERVIEWER_NAME = "Sarah";
 
 /**
  * Normal. What a question is worth until someone moves it.
@@ -293,8 +307,9 @@ import { CV_WEIGHT_DEFAULT } from "@/lib/weights";
  * 120s is the existing default and stays the middle. 60s is enough for a
  * factual answer; 150s is where a structured "tell me about a time" answer
  * lands without becoming a monologue. Six at 150s is fifteen minutes of
- * recording plus retakes and setup — realistically half an evening — and
- * MAX_QUESTIONS already stops anything longer being offered.
+ * recording plus retakes and setup - realistically half an evening - so the
+ * suggester offers at most six. A recruiter may still add up to
+ * MAX_QUESTIONS (8) by hand.
  */
 export const INTERVIEW_LENGTHS = [
   { id: "short", label: "About 5 minutes", questions: 4, answerSeconds: 60 },
