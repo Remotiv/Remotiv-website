@@ -4,10 +4,11 @@ import { liveInterviewsAvailableFor } from "./live-availability";
 import { jobQuestionMix, MAX_JOB_QUESTIONS, MIN_JOB_QUESTIONS } from "./question-mix";
 import {
   LIVE_INTERVIEWER_NAME,
+  LIVE_MODE_FOLLOW_UPS,
+  LIVE_SESSION_SECONDS,
   LIVE_SETTINGS_VERSION,
+  type LiveInterviewModeSetting,
   type LiveSettings,
-  MAX_FOLLOW_UPS_PER_BASE_QUESTION,
-  MAX_SESSION_SECONDS,
 } from "./types";
 
 /**
@@ -70,6 +71,10 @@ export const FOLLOW_UP_RULES: LiveSettings["follow_up_rules"] = {
 export const LIVE_QUESTION_COUNT_ERROR =
   "This job needs 4 to 8 interview questions for an AI Video Interview. Please update the questions and try again.";
 
+/** The send's refusal for a job whose mode or length is not one the interview allows. */
+export const LIVE_SETTINGS_UNREADABLE_ERROR =
+  "This job's AI Video Interview mode or length could not be read. Open the job, check them on the Interview questions step, and save it again.";
+
 /** Interviews are conducted in English; the transcriber is pinned to it too. */
 const LIVE_LANGUAGE = "en";
 
@@ -98,6 +103,11 @@ export type BuildLiveSettingsResult =
  *   3. The job has 4 to 8 interview questions (#19, 23 Nov), counted here on
  *      the server, before the send writes, freezes or sends anything. Never
  *      the browser's count.
+ *   4. The job's mode and length (24 Nov) are ones the interview allows:
+ *      structured or ai_guided, 30 or 60 minutes. Frozen as interview_mode,
+ *      max_follow_ups_per_base_question (0 or 2) and max_session_seconds (1800
+ *      or 3600). A later edit to the job reaches only a later invite; a restart
+ *      copies the original settings and never reads the job.
  *
  * The interviewer is always Sarah (LIVE_INTERVIEWER_NAME, 24 Nov): the job's
  * old avatar_interviewer_name column is not read, so a job saved with another
@@ -131,11 +141,15 @@ export async function gateLiveInterviewInvite(
 
   const { data } = await service
     .from("jobs")
-    .select("avatar_interview_enabled")
+    .select("avatar_interview_enabled, live_interview_mode, live_interview_minutes")
     .eq("id", input.jobId)
     .eq("company_id", input.companyId)
     .maybeSingle();
-  const row = data as { avatar_interview_enabled: boolean | null } | null;
+  const row = data as {
+    avatar_interview_enabled: boolean | null;
+    live_interview_mode: unknown;
+    live_interview_minutes: unknown;
+  } | null;
 
   if (!row) return { ok: false, error: "Job not found in your workspace." };
   if (row.avatar_interview_enabled !== true) {
@@ -157,12 +171,25 @@ export async function gateLiveInterviewInvite(
     .eq("company_id", input.companyId)
     .limit(50);
   if (questionsErr) return { ok: false, error: "Couldn't send - please try again." };
+
+  // The job's mode and length (migration 074), frozen now, from the allowed
+  // set only. The columns' checks make anything else unstorable; a value that
+  // is not one of them anyway is refused rather than guessed.
+  const mode = row.live_interview_mode;
+  const seconds =
+    typeof row.live_interview_minutes === "number" ? row.live_interview_minutes * 60 : NaN;
+  if (
+    (mode !== "structured" && mode !== "ai_guided") ||
+    !(LIVE_SESSION_SECONDS as readonly number[]).includes(seconds)
+  ) {
+    return { ok: false, error: LIVE_SETTINGS_UNREADABLE_ERROR };
+  }
   const jobQuestionCount = (questions ?? []).length;
   if (jobQuestionCount < MIN_JOB_QUESTIONS || jobQuestionCount > MAX_JOB_QUESTIONS) {
     return { ok: false, error: LIVE_QUESTION_COUNT_ERROR };
   }
 
-  return { ok: true, settings: buildLiveSettings(jobQuestionCount) };
+  return { ok: true, settings: buildLiveSettings({ jobQuestionCount, mode, seconds }) };
 }
 
 /**
@@ -170,19 +197,28 @@ export async function gateLiveInterviewInvite(
  * through gateLiveInterviewInvite above, which has already refused everything
  * that can be wrong. Every field is a constant except the question count.
  */
-function buildLiveSettings(jobQuestionCount: number): LiveSettings {
+function buildLiveSettings(input: {
+  jobQuestionCount: number;
+  mode: LiveInterviewModeSetting;
+  /** 1800 or 3600: the gate has checked. */
+  seconds: number;
+}): LiveSettings {
   return {
     v: LIVE_SETTINGS_VERSION,
     interviewer_name: LIVE_INTERVIEWER_NAME,
     language: LIVE_LANGUAGE,
-    max_follow_ups_per_base_question: MAX_FOLLOW_UPS_PER_BASE_QUESTION,
-    max_session_seconds: MAX_SESSION_SECONDS,
+    // Recruiter-Defined asks the questions as written: no follow-ups.
+    // AI-Guided may follow up twice on each (decided 24 Nov).
+    interview_mode: input.mode,
+    max_follow_ups_per_base_question: LIVE_MODE_FOLLOW_UPS[input.mode],
+    // A maximum, not a target: the interview ends when its questions do.
+    max_session_seconds: input.seconds,
     follow_up_rules_version: FOLLOW_UP_RULES_VERSION,
     follow_up_rules: FOLLOW_UP_RULES,
     // The policy's mix, copied now so a later policy change never reaches
     // an interview already sent: every job question, no CV questions
     // (question-mix.ts). The gate has refused a count outside 4..8; the
     // freeze checks it again against the invite's own snapshot.
-    question_mix: jobQuestionMix(jobQuestionCount, MAX_SESSION_SECONDS / 60),
+    question_mix: jobQuestionMix(input.jobQuestionCount, input.seconds / 60),
   };
 }

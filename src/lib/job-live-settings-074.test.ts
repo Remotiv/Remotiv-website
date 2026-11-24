@@ -153,6 +153,8 @@ const ALLOWED_USERS = [
   "src/app/ai-dashboard/(gated)/jobs/actions.ts",
   "src/app/ai-dashboard/(gated)/jobs/new/_wizard-client.tsx",
   "src/app/ai-dashboard/lib/job-types.ts",
+  // The invite gate reads the job's mode and length (never the challenges) to freeze them.
+  "src/lib/interviews/live-settings.ts",
 ];
 
 test("only the recruiter-side save, load, edit and duplicate name the three columns", () => {
@@ -160,6 +162,9 @@ test("only the recruiter-side save, load, edit and duplicate name the three colu
     /live_hiring_challenges|live_interview_mode|live_interview_minutes/.test(f.text),
   ).map((f) => f.rel);
   assert.deepEqual(naming.sort(), ALLOWED_USERS);
+  // The invite gate reads the mode and length only: the challenges never leave the job's editors.
+  const challenges = FILES.filter((f) => /live_hiring_challenges/.test(f.text)).map((f) => f.rel);
+  assert.ok(!challenges.includes("src/lib/interviews/live-settings.ts"));
 });
 
 /**
@@ -213,6 +218,7 @@ test("VoxAgent's payload has a fixed key list with no job text, and the start pa
       "remotiv_session_id",
       "interviewer_name",
       "interview_minutes",
+      "max_follow_ups_per_base_question",
       "questions",
       "candidate_first_name",
       "cv_text",

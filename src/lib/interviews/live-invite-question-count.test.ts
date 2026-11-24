@@ -69,6 +69,8 @@ function world(questionCount) {
         async_interview_enabled: true,
         avatar_interview_enabled: true,
         avatar_interviewer_name: "Sarah",
+        live_interview_mode: "structured",
+        live_interview_minutes: 30,
       },
     ],
     interview_questions: Array.from({ length: questionCount }, (_, i) => ({
@@ -161,7 +163,7 @@ test("4 and 8 questions: sent, with all of them frozen and the count in the mix"
     assert.equal(sessions.length, 1);
     assert.equal(sessions[0].kind, "live");
     assert.equal(sessions[0].questions_snapshot.length, n);
-    assert.equal(sessions[0].live_settings.v, 3);
+    assert.equal(sessions[0].live_settings.v, 4);
     assert.equal(sessions[0].live_settings.question_mix.job_questions, n);
     assert.deepEqual(w.emails, ["interview"]);
   }
@@ -263,4 +265,67 @@ test("source: restart keeps the original snapshot: no gate, no count, the SQL co
     sql.slice(last, last + 700),
     /'invited', 'live', prev\.live_settings, 2, prev\.id, false,\s+prev\.questions_snapshot, prev\.scoring_snapshot,/,
   );
+});
+
+/* ── 24 Nov: mode and length frozen at invite; edits reach only a new invite ── */
+
+test("editing the job's mode and length after an invite leaves that invite byte-equal; a new invite gets the new values", async () => {
+  const w = world(6);
+  Object.assign(w.tables.jobs[0], { live_interview_mode: "ai_guided", live_interview_minutes: 60 });
+  assert.equal((await allowlisted(() => sendLiveInterviewInvite(APP))).success, true);
+  const first = w.tables.interview_sessions[0];
+  assert.deepEqual(
+    [
+      first.live_settings.interview_mode,
+      first.live_settings.max_follow_ups_per_base_question,
+      first.live_settings.max_session_seconds,
+    ],
+    ["ai_guided", 2, 3600],
+  );
+  // What Postgres fills in on insert and the fake does not: nobody has joined yet.
+  Object.assign(first, {
+    id: first.id ?? "d0000000-0000-4000-8000-000000000019",
+    // Sent an hour ago, outside the double-send guard.
+    created_at: new Date(Date.now() - 60 * 60_000).toISOString(),
+    started_at: null,
+    submitted_at: null,
+    provider_session_id: null,
+    live_ended_at: null,
+    live_outcome: null,
+  });
+  const frozen = JSON.stringify(first.live_settings);
+  const snapshot = JSON.stringify(first.questions_snapshot);
+
+  // The recruiter switches to Recruiter-Defined, 30 minutes, then sends again.
+  Object.assign(w.tables.jobs[0], {
+    live_interview_mode: "structured",
+    live_interview_minutes: 30,
+  });
+  assert.equal((await allowlisted(() => sendLiveInterviewInvite(APP))).success, true);
+  assert.equal(
+    JSON.stringify(first.live_settings),
+    frozen,
+    "the first invite's settings, byte-equal",
+  );
+  assert.equal(JSON.stringify(first.questions_snapshot), snapshot);
+  const second = w.tables.interview_sessions.find((s) => s.id !== first.id);
+  assert.deepEqual(
+    [
+      second.live_settings.interview_mode,
+      second.live_settings.max_follow_ups_per_base_question,
+      second.live_settings.max_session_seconds,
+    ],
+    ["structured", 0, 1800],
+  );
+});
+
+test("restart copies attempt 1's live_settings whole (mode, limit, length) and never reads the job", () => {
+  assert.doesNotMatch(RESTART, /from\("jobs"\)|live_interview_mode|live_interview_minutes/);
+  const sql = read("../supabase/migrations/055_live_restart_link_events.sql");
+  const start = sql.lastIndexOf("create or replace function public.live_restart_session(");
+  const body = sql.slice(start, sql.indexOf("\n$$;", start));
+  assert.doesNotMatch(body, /public\.jobs\b|\bjobs\./, "the restart never reads the job");
+  // The new attempt's settings ARE the old attempt's: mode, follow-up limit and length with them.
+  assert.match(body, /'invited', 'live', prev\.live_settings, 2, prev\.id, false,/);
+  assert.match(body, /select \* into prev\s+from public\.interview_sessions/);
 });

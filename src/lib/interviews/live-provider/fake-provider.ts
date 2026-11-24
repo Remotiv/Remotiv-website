@@ -30,6 +30,7 @@ const INPUT_KEYS: ReadonlySet<string> = new Set([
   "remotiv_session_id",
   "interviewer_name",
   "interview_minutes",
+  "max_follow_ups_per_base_question",
   "questions",
   "candidate_first_name",
   "cv_text",

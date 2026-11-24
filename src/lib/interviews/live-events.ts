@@ -2,7 +2,11 @@ import "server-only";
 import { isLiveEventKind, validEventDetail } from "@/lib/interviews/live-event-codes";
 import { retentionOver } from "@/lib/interviews/session";
 import { hashSessionToken } from "@/lib/interviews/tokens";
-import { MAX_SESSION_SECONDS, readLiveSettings } from "@/lib/interviews/types";
+import {
+  DEFAULT_SESSION_SECONDS,
+  MAX_SESSION_SECONDS,
+  readLiveSettings,
+} from "@/lib/interviews/types";
 import type { createServiceClient } from "@/lib/supabase/server";
 
 /**
@@ -115,8 +119,10 @@ export function liveEndDueAt(
   if (!row.started_at) return null;
   const started = Date.parse(row.started_at);
   if (!Number.isFinite(started)) return null;
+  // The frozen length (1800 or 3600 s), never more than the 60-minute ceiling;
+  // 30 minutes for a row whose settings cannot be read, as before v4.
   const limit =
-    readLiveSettings(row.live_settings, row.id)?.max_session_seconds ?? MAX_SESSION_SECONDS;
+    readLiveSettings(row.live_settings, row.id)?.max_session_seconds ?? DEFAULT_SESSION_SECONDS;
   return started + Math.min(limit, MAX_SESSION_SECONDS) * 1000 + END_GRACE_MS;
 }
 

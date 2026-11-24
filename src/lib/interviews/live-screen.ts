@@ -1,5 +1,5 @@
 import "server-only";
-import { MAX_SESSION_SECONDS } from "@/lib/interviews/types";
+import { DEFAULT_SESSION_SECONDS, MAX_SESSION_SECONDS } from "@/lib/interviews/types";
 import { createServiceClient } from "@/lib/supabase/server";
 
 /**
@@ -58,7 +58,7 @@ export async function liveWelcomeFacts(
   const seconds =
     typeof row?.max_session_seconds === "number" && row.max_session_seconds > 0
       ? Math.min(row.max_session_seconds, MAX_SESSION_SECONDS)
-      : MAX_SESSION_SECONDS;
+      : DEFAULT_SESSION_SECONDS;
   return {
     interviewerName: name.slice(0, 60) || "Your interviewer",
     minutes: Math.max(1, Math.round(seconds / 60)),

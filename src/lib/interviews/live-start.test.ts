@@ -321,9 +321,11 @@ test("start: the provider gets position and text only, and no CV (#14)", async (
       "cv_text",
       "interview_minutes",
       "interviewer_name",
+      "max_follow_ups_per_base_question",
       "questions",
       "remotiv_session_id",
     ]);
+    assert.equal(input.max_follow_ups_per_base_question, 2, "the frozen limit");
     assert.deepEqual(input.questions, [
       { position: 1, text: "Made-up question 1?" },
       { position: 2, text: "Made-up question 2?" },
@@ -455,6 +457,8 @@ test("production: the mock is refused by default (liveProviderMode), the ticket 
       mode: "mock",
       script: "interruption",
       turnDetection: "server",
+      // The session's frozen limit, handed to the scripted interview.
+      maxFollowUps: 2,
     });
   });
 });
@@ -466,6 +470,7 @@ test("the mock provider refuses any input key outside CreateSessionInput (the ru
       remotiv_session_id: "s",
       interviewer_name: "M",
       interview_minutes: 1,
+      max_follow_ups_per_base_question: 2,
       questions: [{ position: 1, text: "Q", scoring_guide: "x" }],
       candidate_first_name: null,
       cv_text: "",
@@ -477,6 +482,7 @@ test("the mock provider refuses any input key outside CreateSessionInput (the ru
       remotiv_session_id: "s",
       interviewer_name: "M",
       interview_minutes: 1,
+      max_follow_ups_per_base_question: 2,
       questions: [],
       candidate_first_name: null,
       cv_text: "",

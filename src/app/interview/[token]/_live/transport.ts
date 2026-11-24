@@ -82,6 +82,7 @@ export function createTransport(
   if (ticket.mode === "mock") {
     return new MockVoxAgent(ticket.script, {
       interviewerName: opts.interviewerName,
+      maxFollowUps: ticket.maxFollowUps,
       clock: opts.clock,
       voice: opts.mockVoice,
       steps: opts.mockSteps,

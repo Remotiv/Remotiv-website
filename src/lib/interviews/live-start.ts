@@ -190,6 +190,7 @@ export async function startLiveInterview(
       remotivSessionId: row.id,
       interviewerName: settings.interviewer_name,
       interviewMinutes: Math.max(1, Math.round(settings.max_session_seconds / 60)),
+      maxFollowUps: settings.max_follow_ups_per_base_question,
       questions: frozen,
       candidateFirstName: a.first_name,
       consent,

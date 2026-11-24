@@ -79,6 +79,7 @@ async function start(db) {
     remotivSessionId: SESSION,
     interviewerName: "Sarah",
     interviewMinutes: 30,
+    maxFollowUps: 2,
     questions: readFrozenQuestionSet(row),
     candidateFirstName: "Alex",
     candidateLastName: "Example",

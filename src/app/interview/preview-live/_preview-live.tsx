@@ -265,7 +265,10 @@ export function PreviewLive({
         add(
           `POST start: 200 join ticket (mock, ${script === "arham_replay" ? "Arham's session replay" : played})`,
         );
-        return { ok: true, join: { mode: "mock", script: played, turnDetection: "server" } };
+        return {
+          ok: true,
+          join: { mode: "mock", script: played, turnDetection: "server", maxFollowUps: 2 },
+        };
       },
       event(kind, detail) {
         report(kind, detail, "POST event");

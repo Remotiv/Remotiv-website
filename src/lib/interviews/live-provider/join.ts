@@ -39,6 +39,7 @@ const INPUT_KEYS = new Set([
   "remotiv_session_id",
   "interviewer_name",
   "interview_minutes",
+  "max_follow_ups_per_base_question",
   "questions",
   "candidate_first_name",
   "cv_text",
@@ -72,10 +73,15 @@ export function createMockJoinProvider(
             throw new Error(`mock provider: unexpected question key ${key}`);
         }
       }
+      // The follow-up limit, as the real provider must enforce it: 0..2 only.
+      const limit = input.max_follow_ups_per_base_question;
+      if (!Number.isInteger(limit) || limit < 0 || limit > 2) {
+        throw new Error(`mock provider: follow-up limit ${JSON.stringify(limit)} is not 0..2`);
+      }
       if (script === "busy") throw new ProviderBusyError(30);
       return {
         providerSessionId: `mock-${randomUUID()}`,
-        join: { mode: "mock", script, turnDetection: "server" },
+        join: { mode: "mock", script, turnDetection: "server", maxFollowUps: limit },
       };
     },
     async cancelSession() {

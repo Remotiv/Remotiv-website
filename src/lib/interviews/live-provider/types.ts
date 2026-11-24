@@ -34,7 +34,14 @@ export type ProviderQuestion = { position: number; text: string };
 export type CreateSessionInput = {
   remotiv_session_id: string;
   interviewer_name: string;
+  /** The frozen length in minutes: 30 or 60, a maximum, not a target. */
   interview_minutes: number;
+  /**
+   * The frozen follow-up limit per base question (24 Nov): 0 for
+   * Recruiter-Defined, 2 for AI-Guided. The provider must never ask more, and
+   * ends the call after the last question and the follow-ups allowed.
+   */
+  max_follow_ups_per_base_question: number;
   questions: readonly ProviderQuestion[];
   candidate_first_name: string | null;
   /**
@@ -72,7 +79,13 @@ export type MockScriptId = (typeof MOCK_SCRIPT_IDS)[number];
  * "client" is refused by the screen.
  */
 export type JoinTicket =
-  | { mode: "mock"; script: MockScriptId; turnDetection: "server" | "client" }
+  | {
+      mode: "mock";
+      script: MockScriptId;
+      turnDetection: "server" | "client";
+      /** The session's follow-up limit: the scripted interview never asks more. */
+      maxFollowUps: number;
+    }
   | {
       mode: "voxagent";
       wsUrl: string;

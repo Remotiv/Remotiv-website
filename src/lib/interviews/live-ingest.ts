@@ -16,7 +16,7 @@ import type {
 } from "@/lib/interviews/live-provider/types";
 import type { TranscriptionRequest } from "@/lib/interviews/live-transcribe";
 import { INTERVIEW_BUCKET } from "@/lib/interviews/session";
-import { MAX_FOLLOW_UPS_PER_BASE_QUESTION } from "@/lib/interviews/types";
+import { MAX_FOLLOW_UPS_PER_BASE_QUESTION, readLiveSettings } from "@/lib/interviews/types";
 import type { createServiceClient } from "@/lib/supabase/server";
 
 /**
@@ -210,7 +210,13 @@ export type WordingCheck =
   /** An unknown phrase, then the frozen question exactly. */
   | "unexpected_lead_in"
   /** Anything else: changed, shortened or extended wording, a long lead-in, or no question. */
-  | "altered_wording";
+  | "altered_wording"
+  /**
+   * More follow-ups on the question than the session's frozen limit (24 Nov):
+   * any follow-up at all in Recruiter-Defined (limit 0). Outranks the other
+   * two: the question was not put as agreed, whatever its first wording.
+   */
+  | "follow_up_over_limit";
 
 /**
  * Why an interruption on a question needs a person (F15, 26 Oct 2026).
@@ -285,7 +291,10 @@ export type LiveOutcome = {
   timing_suspect: boolean;
   /** Sequences of candidate turns whose offsets should not be trusted. */
   timing_suspect_turns: number[];
-  /** Sequences of base_question turns that did not ask their question as frozen. */
+  /**
+   * Sequences of base_question turns that did not ask their question as
+   * frozen, and of follow-ups past the session's follow-up limit.
+   */
   wording_check_turns: number[];
   /** Sequences of marked repeats that did not ask their question as agreed. */
   repeat_check_turns: number[];
@@ -665,7 +674,11 @@ function askedWords(text: string): string[] {
     .filter((w) => w !== "" && !FILLER_SOUNDS.has(w));
 }
 
-export type AskedWording = "exact" | "agreed_transition" | WordingCheck;
+export type AskedWording =
+  | "exact"
+  | "agreed_transition"
+  // How the question was worded; the follow-up limit is checked separately.
+  | Exclude<WordingCheck, "follow_up_over_limit">;
 
 /**
  * How a base question was first asked, against its frozen text:
@@ -766,12 +779,17 @@ export class LiveIngestError extends Error {
  * The facts and the outcome of a parsed export against the session's frozen
  * questions. Pure; throws LiveIngestError on anything that cannot be saved.
  * `candidateFirstName` is only compared (classifyAsked), never kept.
+ * `followUpLimit` is the session's frozen max_follow_ups_per_base_question
+ * (0 for Recruiter-Defined, 2 for AI-Guided): a follow-up past it holds its
+ * question for a person (wording_check follow_up_over_limit), never refuses
+ * the interview and is never scored silently.
  */
 export function assessLiveExport(
   parsed: ParsedExport,
   frozen: FrozenLiveQuestionSet,
   attempt: number,
   candidateFirstName: string | null = null,
+  followUpLimit: number = MAX_FOLLOW_UPS_PER_BASE_QUESTION,
 ): Omit<LiveOutcome, "saved_at" | "export_hash"> {
   const byPosition = new Map(frozen.questions.map((q) => [q.position, q]));
   const turns = [...parsed.turns].sort((a, b) => a.sequence - b.sequence);
@@ -860,12 +878,15 @@ export function assessLiveExport(
       (t) => t.kind === "follow_up" && t.question_position === q.position,
     );
     const indexes = new Set(followUps.map((t) => t.follow_up_index));
+    // More than the schema can hold (two, one per index) cannot be saved at
+    // all; within that, more than this session allows is held, not refused.
     if (followUps.length > MAX_FOLLOW_UPS_PER_BASE_QUESTION || indexes.size !== followUps.length) {
       throw new LiveIngestError(
         "too_many_follow_ups",
         `position ${q.position} has ${followUps.length} follow-ups`,
       );
     }
+    const overLimit = followUps.filter((t) => (t.follow_up_index ?? 0) > followUpLimit);
     // Interruption speech (F15b) is kept but is never the answer: not counted, timed or scored.
     const spoken = turns.filter(
       (t) => t.speaker === "candidate" && !t.candidate_interruption && positionOf(t) === q.position,
@@ -878,9 +899,12 @@ export function assessLiveExport(
     // harmless differences aside. Never asked: nothing to check.
     const wording =
       asked.length === 1 ? classifyAsked(q.text, asked[0].text ?? "", candidateFirstName) : null;
-    const wordingCheck =
+    const askedCheck =
       wording === "unexpected_lead_in" || wording === "altered_wording" ? wording : null;
-    if (wordingCheck !== null) wordingCheckTurns.push(asked[0].sequence);
+    if (askedCheck !== null) wordingCheckTurns.push(asked[0].sequence);
+    for (const t of overLimit) wordingCheckTurns.push(t.sequence);
+    const wordingCheck: WordingCheck | null =
+      overLimit.length > 0 ? "follow_up_over_limit" : askedCheck;
     questions.push({
       position: q.position,
       source: q.source,
@@ -1274,6 +1298,9 @@ export async function saveLiveExport(
     frozen,
     row.attempt ?? 1,
     await candidateFirstName(deps.service, row),
+    // The frozen limit; a row whose settings cannot be read keeps the old 2.
+    readLiveSettings(row.live_settings, row.id)?.max_follow_ups_per_base_question ??
+      MAX_FOLLOW_UPS_PER_BASE_QUESTION,
   );
   const turns = [...parsed.turns].sort((a, b) => a.sequence - b.sequence);
 

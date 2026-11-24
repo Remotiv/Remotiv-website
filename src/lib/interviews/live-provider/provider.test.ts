@@ -130,6 +130,7 @@ function input(overrides = {}) {
     remotivSessionId: SESSION,
     interviewerName: "Sarah",
     interviewMinutes: 30,
+    maxFollowUps: 2,
     questions: FROZEN,
     candidateFirstName: "Alex",
     consent: CONSENT,
@@ -162,13 +163,14 @@ test("the input never carries a guide, rubric, source, competency or weight, at 
   for (const q of built.questions) assert.deepEqual(Object.keys(q), ["position", "text"]);
 });
 
-test("the input has exactly its six fields; questions sorted by position, text only", () => {
+test("the input has exactly its seven fields; questions sorted by position, text only", () => {
   const built = input();
   assert.deepEqual(Object.keys(built).sort(), [
     "candidate_first_name",
     "cv_text",
     "interview_minutes",
     "interviewer_name",
+    "max_follow_ups_per_base_question",
     "questions",
     "remotiv_session_id",
   ]);
@@ -212,6 +214,10 @@ test("bad input is refused before anything is sent", () => {
     ["no interviewer", { interviewerName: "" }],
     ["zero minutes", { interviewMinutes: 0 }],
     ["fractional minutes", { interviewMinutes: 12.5 }],
+    ["3 follow-ups", { maxFollowUps: 3 }],
+    ["negative follow-ups", { maxFollowUps: -1 }],
+    ["fractional follow-ups", { maxFollowUps: 1.5 }],
+    ["no follow-up limit", { maxFollowUps: undefined }],
     ["plain questions, not a frozen set", { questions: FROZEN.questions.map((q) => ({ ...q })) }],
     ["a copy of the frozen set", { questions: structuredClone(FROZEN) }],
     ["another session's frozen set", { questions: readFrozenQuestionSet(frozenRow("other")) }],
@@ -300,5 +306,24 @@ test("no provider session without the candidate's saved live consent, for this s
       ),
       /live consent/,
     );
+  }
+});
+
+test("24 Nov: the frozen follow-up limit is sent as it is, 0 or 2, and nothing private rides with it", () => {
+  for (const limit of [0, 2]) {
+    const built = input({ maxFollowUps: limit });
+    assert.equal(built.max_follow_ups_per_base_question, limit);
+    const json = JSON.stringify(built);
+    for (const leak of [
+      "hiring_challenges",
+      "live_hiring_challenges",
+      "rubric",
+      "scoring_guide",
+      "competency",
+      "Northwind",
+    ]) {
+      assert.ok(!json.includes(leak), `${leak} (limit ${limit})`);
+    }
+    assert.equal(built.cv_text, "");
   }
 });

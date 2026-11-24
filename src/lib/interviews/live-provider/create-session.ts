@@ -1,5 +1,6 @@
 import { type FrozenLiveQuestionSet, isFrozenQuestionSet } from "@/lib/interviews/frozen-questions";
 import { isLiveConsentProof, type LiveConsentProof } from "@/lib/interviews/live-consent-record";
+import { MAX_FOLLOW_UPS_PER_BASE_QUESTION } from "@/lib/interviews/types";
 import type { CreateSessionInput } from "./types";
 
 /**
@@ -60,6 +61,8 @@ export function buildCreateSessionInput(input: {
   remotivSessionId: string;
   interviewerName: string;
   interviewMinutes: number;
+  /** live_settings.max_follow_ups_per_base_question: 0 or 2 (any of 0..2 on an older row). */
+  maxFollowUps: number;
   questions: FrozenLiveQuestionSet;
   candidateFirstName: string | null;
   consent: LiveConsentProof;
@@ -78,6 +81,13 @@ export function buildCreateSessionInput(input: {
     throw new CreateSessionInputError(
       "interview length must be a positive whole number of minutes",
     );
+  }
+  if (
+    !Number.isInteger(input.maxFollowUps) ||
+    input.maxFollowUps < 0 ||
+    input.maxFollowUps > MAX_FOLLOW_UPS_PER_BASE_QUESTION
+  ) {
+    throw new CreateSessionInputError("the follow-up limit must be a whole number from 0 to 2");
   }
   if (!isFrozenQuestionSet(input.questions)) {
     throw new CreateSessionInputError("questions must be the frozen set read from the session");
@@ -105,6 +115,7 @@ export function buildCreateSessionInput(input: {
     remotiv_session_id: sessionId,
     interviewer_name: interviewerName,
     interview_minutes: input.interviewMinutes,
+    max_follow_ups_per_base_question: input.maxFollowUps,
     questions,
     candidate_first_name: firstName,
     cv_text: NO_CV,

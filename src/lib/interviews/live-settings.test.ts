@@ -40,7 +40,7 @@ const CO = "7aad434d-0000-4000-8000-000000000001";
 const JOB = "2d4a8cde-0000-4000-8000-000000000002";
 
 /** The gate's result for a job with `questions` questions, the toggle on and a name, the company allowlisted. */
-async function gateFor(questions = 6, questionsError = null, storedName = "Aisha") {
+async function gateFor(questions = 6, questionsError = null, storedName = "Aisha", job = {}) {
   const before = process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS;
   process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS = CO;
   try {
@@ -48,7 +48,13 @@ async function gateFor(questions = 6, questionsError = null, storedName = "Aisha
       if (table === "jobs") {
         return {
           // The old per-job name column, still on the row: the gate never reads it.
-          data: { avatar_interview_enabled: true, avatar_interviewer_name: storedName },
+          data: {
+            avatar_interview_enabled: true,
+            avatar_interviewer_name: storedName,
+            live_interview_mode: "structured",
+            live_interview_minutes: 30,
+            ...job,
+          },
           error: null,
         };
       }
@@ -69,8 +75,8 @@ async function gateFor(questions = 6, questionsError = null, storedName = "Aisha
   }
 }
 
-async function frozenAtInvite(questions = 6) {
-  const { gate } = await gateFor(questions);
+async function frozenAtInvite(questions = 6, job = {}) {
+  const { gate } = await gateFor(questions, null, "Aisha", job);
   assert.equal(gate.ok, true, gate.error);
   return gate.settings;
 }
@@ -92,11 +98,11 @@ const V1_ROW = {
 
 /* ── frozen at invite ─────────────────────────────────────────── */
 
-test("an invite freezes v3: every one of the job's questions, no CV questions", async () => {
-  assert.equal(LIVE_SETTINGS_VERSION, 3);
+test("an invite freezes v4: every one of the job's questions, no CV questions", async () => {
+  assert.equal(LIVE_SETTINGS_VERSION, 4);
   for (const n of [4, 6, 8]) {
     const settings = await frozenAtInvite(n);
-    assert.equal(settings.v, 3);
+    assert.equal(settings.v, 4);
     assert.deepEqual(settings.question_mix, {
       policy_version: QUESTION_MIX_POLICY_VERSION,
       session_minutes: 30,
@@ -146,8 +152,8 @@ test("the count is read for this job in this company only; a failed read refuses
   assert.deepEqual(failed.gate, { ok: false, error: "Couldn't send - please try again." });
 });
 
-test("the follow-up limit is still 2, frozen at invite, and a row claiming more is refused", async () => {
-  const settings = await frozenAtInvite(6);
+test("the follow-up limit comes from the mode: never more than 2, and a row claiming more is refused", async () => {
+  const settings = await frozenAtInvite(6, { live_interview_mode: "ai_guided" });
   assert.equal(settings.max_follow_ups_per_base_question, 2);
   const logs = [];
   const orig = console.error;
@@ -278,7 +284,7 @@ test("24 Nov: the interviewer is always Sarah, whatever name the job once stored
     const jobRead = service.queries.find((q) => q.table === "jobs");
     assert.deepEqual(
       jobRead.calls.find((c) => c[0] === "select"),
-      ["select", "avatar_interview_enabled"],
+      ["select", "avatar_interview_enabled, live_interview_mode, live_interview_minutes"],
       "the old name column is not even read",
     );
   }
@@ -300,4 +306,109 @@ test("the switched-off refusal points at the Interview questions step, where the
     if (before === undefined) delete process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS;
     else process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS = before;
   }
+});
+
+/* ── 24 Nov: mode and length, frozen at invite (v4) ────────────── */
+
+test("v4: the invite freezes the mode, its follow-up limit and the length, for each combination", async () => {
+  for (const [mode, minutes, followUps, seconds] of [
+    ["structured", 30, 0, 1800],
+    ["ai_guided", 30, 2, 1800],
+    ["ai_guided", 60, 2, 3600],
+    ["structured", 60, 0, 3600],
+  ]) {
+    const s = await frozenAtInvite(6, {
+      live_interview_mode: mode,
+      live_interview_minutes: minutes,
+    });
+    assert.deepEqual(
+      [s.v, s.interview_mode, s.max_follow_ups_per_base_question, s.max_session_seconds],
+      [4, mode, followUps, seconds],
+      `${mode} ${minutes}`,
+    );
+    assert.equal(s.question_mix.session_minutes, minutes);
+    // And reads back exactly, through the JSON the column stores.
+    assert.deepEqual(readLiveSettings(JSON.parse(JSON.stringify(s)), "s-v4"), s);
+  }
+});
+
+test("v4: a mode or length outside the allowed set is refused, never guessed", async () => {
+  const { LIVE_SETTINGS_UNREADABLE_ERROR } = await import("./live-settings.ts");
+  for (const job of [
+    { live_interview_mode: "freeform" },
+    { live_interview_mode: null },
+    { live_interview_minutes: 45 },
+    { live_interview_minutes: 90 },
+    { live_interview_minutes: "60" },
+    { live_interview_minutes: null },
+  ]) {
+    const { gate } = await gateFor(6, null, "Aisha", job);
+    assert.deepEqual(
+      gate,
+      { ok: false, error: LIVE_SETTINGS_UNREADABLE_ERROR },
+      JSON.stringify(job),
+    );
+  }
+});
+
+test("v4 rows are read strictly: the limit must match the mode, the length must be allowed", async () => {
+  const good = await frozenAtInvite(6, {
+    live_interview_mode: "ai_guided",
+    live_interview_minutes: 60,
+  });
+  const orig = console.error;
+  console.error = () => {};
+  try {
+    for (const bad of [
+      { interview_mode: "freeform" },
+      { interview_mode: undefined },
+      { interview_mode: "structured" },
+      { max_follow_ups_per_base_question: 0 },
+      { max_session_seconds: 2400 },
+      { max_session_seconds: 7200 },
+    ]) {
+      assert.equal(readLiveSettings({ ...good, ...bad }, "s-bad-v4"), null, JSON.stringify(bad));
+    }
+  } finally {
+    console.error = orig;
+  }
+});
+
+test("old v3 rows read exactly as before: no mode, 2 follow-ups, 1800 seconds", () => {
+  const v3 = {
+    ...V1_ROW,
+    v: 3,
+    question_mix: {
+      policy_version: "question-mix-v2",
+      session_minutes: 30,
+      job_questions: 5,
+      cv_questions: 0,
+      total: 5,
+    },
+  };
+  const read = readLiveSettings(JSON.parse(JSON.stringify(v3)), "s-v3");
+  assert.equal(read.v, 3);
+  assert.equal(read.interview_mode, null);
+  assert.equal(read.max_follow_ups_per_base_question, 2);
+  assert.equal(read.max_session_seconds, 1800);
+  assert.deepEqual(read.question_mix, v3.question_mix);
+});
+
+test("the modes and lengths are the job wizard's, exactly", async () => {
+  const { LIVE_INTERVIEW_MODES, LIVE_INTERVIEW_MINUTES } = await import(
+    "../../app/ai-dashboard/lib/job-types.ts"
+  );
+  const {
+    LIVE_MODE_FOLLOW_UPS,
+    LIVE_SESSION_SECONDS,
+    MAX_SESSION_SECONDS,
+    DEFAULT_SESSION_SECONDS,
+  } = await import("./types.ts");
+  assert.deepEqual(Object.keys(LIVE_MODE_FOLLOW_UPS), [...LIVE_INTERVIEW_MODES]);
+  assert.deepEqual(LIVE_MODE_FOLLOW_UPS, { structured: 0, ai_guided: 2 });
+  assert.deepEqual(
+    [...LIVE_SESSION_SECONDS],
+    LIVE_INTERVIEW_MINUTES.map((m) => m * 60),
+  );
+  assert.deepEqual([DEFAULT_SESSION_SECONDS, MAX_SESSION_SECONDS], [1800, 3600]);
 });

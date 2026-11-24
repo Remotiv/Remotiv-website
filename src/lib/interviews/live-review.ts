@@ -237,6 +237,8 @@ const WORDING_REASON: Record<WordingCheck, (interviewer: string, position: numbe
     `${who} added an unexpected phrase before asking question ${n}. Check the recording.`,
   altered_wording: (who, n) =>
     `${who} asked question ${n} in different words from the approved question, so the answer may have been influenced. It is not scored until a person checks the recording.`,
+  follow_up_over_limit: (who, n) =>
+    `${who} asked more follow-up questions on question ${n} than this interview allows. It is not scored until a person checks the recording.`,
 };
 
 export function wordingReason(check: WordingCheck, interviewer: string, position: number): string {

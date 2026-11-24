@@ -71,11 +71,20 @@ export type LiveSettings = {
    * 1: before the question mix. 2: with question_mix (AVI commit 3), the
    * table's split (question-mix-v1). 3: question_mix is the job's own question
    * count, every one asked, no CV questions (question-mix-v2, 23 Nov, #13).
+   * 4: interview_mode frozen from the job, and with it the follow-up limit
+   * (structured 0, ai_guided 2) and the length (1800 or 3600 s), 24 Nov.
    */
-  v: 1 | 2 | 3;
+  v: 1 | 2 | 3 | 4;
   interviewer_name: string;
   language: string;
+  /**
+   * The job's mode at invite (v4). Null on v1 to v3 rows, which predate it:
+   * they keep the follow-ups and length they were frozen with (2 and 1800).
+   */
+  interview_mode: LiveInterviewModeSetting | null;
+  /** 0 or 2 on a v4 row, from the mode; any of 0..2 on an older one. */
   max_follow_ups_per_base_question: number;
+  /** 1800 or 3600 on a v4 row; a maximum, not a target. */
   max_session_seconds: number;
   /** Groups rows by which rules governed them. */
   follow_up_rules_version: string;
@@ -101,8 +110,22 @@ export type LiveSettings = {
   question_mix: QuestionMix | null;
 };
 
-/** The current snapshot format, written by every new invite. v1 and v2 rows are still read, as written. */
-export const LIVE_SETTINGS_VERSION = 3;
+/** The current snapshot format, written by every new invite. v1 to v3 rows are still read, as written. */
+export const LIVE_SETTINGS_VERSION = 4;
+
+/**
+ * The AI Video Interview's two modes and the follow-ups each allows per base
+ * question (decided 24 Nov): Recruiter-Defined asks the questions as written,
+ * AI-Guided may follow up twice. The same values as LIVE_INTERVIEW_MODES in
+ * app/ai-dashboard/lib/job-types.ts (pinned equal by a test); restated here
+ * because the candidate page imports this module and must not pull in the
+ * dashboard's.
+ */
+export const LIVE_MODE_FOLLOW_UPS = { structured: 0, ai_guided: 2 } as const;
+export type LiveInterviewModeSetting = keyof typeof LIVE_MODE_FOLLOW_UPS;
+
+/** The lengths a live interview may be frozen with: 30 or 60 minutes, each a maximum. */
+export const LIVE_SESSION_SECONDS = [1800, 3600] as const;
 
 /** The stored question mix, narrowed: whole numbers, job + CV = total, at least one question. */
 function readQuestionMix(raw: unknown): QuestionMix | null {
@@ -125,8 +148,10 @@ function readQuestionMix(raw: unknown): QuestionMix | null {
 /** Locked: at most 2 follow-ups per base question, the same for every candidate. */
 export const MAX_FOLLOW_UPS_PER_BASE_QUESTION = 2;
 
-/** Ceiling on one live conversation. 30 minutes. */
-export const MAX_SESSION_SECONDS = 1800;
+/** The default length, and the only one before v4: 30 minutes. */
+export const DEFAULT_SESSION_SECONDS = 1800;
+/** Ceiling on one live conversation, whatever a row says: 60 minutes. */
+export const MAX_SESSION_SECONDS = 3600;
 
 /** Sanity ceiling on the stored name. The product cap is enforced on write. */
 const LIVE_INTERVIEWER_NAME_CEILING = 200;
@@ -164,7 +189,7 @@ export function readLiveSettings(raw: unknown, sessionId: string): LiveSettings 
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return bad("is not an object");
   const o = raw as Record<string, unknown>;
 
-  if (o.v !== 1 && o.v !== 2 && o.v !== LIVE_SETTINGS_VERSION) {
+  if (o.v !== 1 && o.v !== 2 && o.v !== 3 && o.v !== LIVE_SETTINGS_VERSION) {
     return bad(`has version ${JSON.stringify(o.v)}`);
   }
   const version: LiveSettings["v"] = o.v;
@@ -190,6 +215,23 @@ export function readLiveSettings(raw: unknown, sessionId: string): LiveSettings 
     return bad(`has max_session_seconds ${JSON.stringify(seconds)}`);
   }
 
+  // v4: the mode, and the limit and length it must agree with. Older rows
+  // carry no mode and are read exactly as before.
+  let interviewMode: LiveInterviewModeSetting | null = null;
+  if (version === 4) {
+    const mode = o.interview_mode;
+    if (mode !== "structured" && mode !== "ai_guided") {
+      return bad(`has interview_mode ${JSON.stringify(mode)}`);
+    }
+    if (followUps !== LIVE_MODE_FOLLOW_UPS[mode]) {
+      return bad(`has ${followUps} follow-ups for interview_mode ${mode}`);
+    }
+    if (!(LIVE_SESSION_SECONDS as readonly number[]).includes(seconds)) {
+      return bad(`has max_session_seconds ${seconds}, not one of the allowed lengths`);
+    }
+    interviewMode = mode;
+  }
+
   const rulesVersion = nonEmptyString(o.follow_up_rules_version, 64);
   if (!rulesVersion) return bad("has no follow_up_rules_version");
 
@@ -209,7 +251,7 @@ export function readLiveSettings(raw: unknown, sessionId: string): LiveSettings 
     never.push(line);
   }
 
-  // v2 and v3 rows must carry a usable mix, read back exactly as frozen; a v1
+  // v2 to v4 rows must carry a usable mix, read back exactly as frozen; a v1
   // row predates it and reads as null.
   const questionMix = version === 1 ? null : readQuestionMix(o.question_mix);
   if (version !== 1 && !questionMix) return bad("has no usable question_mix");
@@ -218,6 +260,7 @@ export function readLiveSettings(raw: unknown, sessionId: string): LiveSettings 
     v: version,
     interviewer_name: interviewerName,
     language,
+    interview_mode: interviewMode,
     max_follow_ups_per_base_question: followUps,
     max_session_seconds: seconds,
     follow_up_rules_version: rulesVersion,

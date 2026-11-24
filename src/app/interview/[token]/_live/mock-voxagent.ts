@@ -75,8 +75,43 @@ export const MOCK_SCRIPT_VERSION = "mock-scripts 4, 27 Oct 2026";
 
 const { q1: Q1, q2: Q2, q3: Q3, follow_up: FOLLOW_UP, closing: CLOSING } = MOCK_LINES;
 
-/** Each script, as the provider would run it. Every one opens the same way. */
-export function mockScript(id: MockScriptId, interviewer: string): Step[] {
+/**
+ * Each script, as the provider would run it, never asking more follow-ups per
+ * question than `maxFollowUps` (the session's frozen limit: 0 for
+ * Recruiter-Defined, 2 for AI-Guided). A follow-up past the limit is left
+ * out with the listening and thinking that belong to it.
+ */
+export function mockScript(id: MockScriptId, interviewer: string, maxFollowUps = 2): Step[] {
+  return withinFollowUpLimit(scriptSteps(id, interviewer), maxFollowUps);
+}
+
+/** A step that asks the follow-up line. */
+const isFollowUp = (s: Step) => "say" in s && s.say === FOLLOW_UP;
+
+function withinFollowUpLimit(steps: Step[], maxFollowUps: number): Step[] {
+  const out: Step[] = [];
+  let followUps = 0;
+  let skipping = false;
+  for (const s of steps) {
+    const says = "say" in s;
+    if (says && isFollowUp(s)) {
+      followUps += 1;
+      skipping = followUps > maxFollowUps;
+      if (skipping) continue;
+    } else if (says) {
+      skipping = false;
+      // A new base question starts its own count.
+      if (s.question) followUps = 0;
+    } else if (skipping) {
+      continue;
+    }
+    out.push(s);
+  }
+  return out;
+}
+
+/** Each script in full. Every one opens the same way. */
+function scriptSteps(id: MockScriptId, interviewer: string): Step[] {
   const hello: Step = { say: greetingLine(interviewer) };
   const listen: Step = { listen: LISTEN_MS };
   const think: Step = { think: 1000 };
@@ -163,9 +198,11 @@ export class MockVoxAgent implements VoxAgentTransport {
       voice?: MockVoiceLoader;
       /** A whole script instead of `script`'s (the demo's session replay). */
       steps?: MockStepsLoader;
+      /** The session's frozen follow-up limit; the script never asks more. */
+      maxFollowUps?: number;
     },
   ) {
-    this.steps = mockScript(script, opts.interviewerName);
+    this.steps = mockScript(script, opts.interviewerName, opts.maxFollowUps ?? 2);
     this.clock = opts.clock ?? realClock;
     this.loadVoice = opts.voice ?? null;
     this.loadSteps = opts.steps ?? null;

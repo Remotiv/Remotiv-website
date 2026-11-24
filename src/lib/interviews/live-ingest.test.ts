@@ -1628,3 +1628,119 @@ test("F12 the save reads the candidate's first name, in the session's company, o
   assert.ok(failed.logs.some((l) => l.includes("first name unread")));
   assert.ok(failed.logs.every((l) => !/zuleika/i.test(l)));
 });
+
+/* ── 24 Nov: the session's frozen follow-up limit ──────────────── */
+
+const { planLiveScoring } = await import("./live-scoring.ts");
+
+/** Positions with follow-ups in the fixture, and each one's follow-up sequences. */
+function followUpsByPosition(parsed) {
+  const out = new Map();
+  for (const t of parsed.turns) {
+    if (t.kind !== "follow_up") continue;
+    out.set(t.question_position, [...(out.get(t.question_position) ?? []), t]);
+  }
+  return out;
+}
+
+/** Live settings v4 as the invite freezes them, with the freeze marker this fixture needs. */
+const settingsV4 = (mode) => ({
+  v: 4,
+  interviewer_name: "Sarah",
+  language: "en",
+  interview_mode: mode,
+  max_follow_ups_per_base_question: mode === "structured" ? 0 : 2,
+  max_session_seconds: 1800,
+  follow_up_rules_version: "follow-up-v1",
+  follow_up_rules: { when: "Thin.", scope: "Stay on it.", never: ["Reveal the answer."] },
+  question_mix: {
+    policy_version: "question-mix-v2",
+    session_minutes: 30,
+    job_questions: 8,
+    cv_questions: 0,
+    total: 8,
+  },
+  questions_frozen: frozenRow().live_settings.questions_frozen,
+});
+
+test("limit 2 (AI-Guided): up to 2 follow-ups a question is fine, nothing held", () => {
+  const p = parsedFixture();
+  const withTwo = [...followUpsByPosition(p)].filter(([, f]) => f.length === 2);
+  assert.ok(withTwo.length > 0, "the fixture has a question with 2 follow-ups");
+  const facts = assessLiveExport(p, frozenOf(), 1, null, 2);
+  for (const q of facts.questions) assert.notEqual(q.wording_check, "follow_up_over_limit");
+});
+
+test("limit 0 (Recruiter-Defined): every question with a follow-up is flagged and held; the interview is kept", () => {
+  const p = parsedFixture();
+  const byPos = followUpsByPosition(p);
+  const facts = assessLiveExport(p, frozenOf(), 1, null, 0);
+  for (const q of facts.questions) {
+    if (byPos.has(q.position)) {
+      assert.equal(q.wording_check, "follow_up_over_limit", `question ${q.position}`);
+      assert.equal(q.follow_ups, byPos.get(q.position).length, "every follow-up is still counted");
+    } else {
+      assert.notEqual(q.wording_check, "follow_up_over_limit", `question ${q.position}`);
+    }
+  }
+  // Every over-limit follow-up turn is marked for the reviewer.
+  const sequences = [...byPos.values()].flat().map((t) => t.sequence);
+  for (const s of sequences) assert.ok(facts.wording_check_turns.includes(s), `turn ${s}`);
+  assert.equal(facts.needs_review, true);
+});
+
+test("limit 1: only the follow-up past the limit is marked; its question is held", () => {
+  const p = parsedFixture();
+  const [position, followUps] = [...followUpsByPosition(p)].find(([, f]) => f.length === 2);
+  const facts = assessLiveExport(p, frozenOf(), 1, null, 1);
+  assert.equal(
+    facts.questions.find((q) => q.position === position).wording_check,
+    "follow_up_over_limit",
+  );
+  const second = followUps.find((t) => t.follow_up_index === 2).sequence;
+  const first = followUps.find((t) => t.follow_up_index === 1).sequence;
+  assert.ok(facts.wording_check_turns.includes(second));
+  assert.ok(!facts.wording_check_turns.includes(first), "the permitted one is not marked");
+});
+
+test("a question held for its follow-ups waits for a person: scored or left out only on their decision", () => {
+  const p = parsedFixture();
+  const frozen = frozenOf();
+  const f = assessLiveExport(p, frozen, 1, null, 0);
+  const outcome = { ...f, ...outcomeFrom(f.questions, f.provider_status_code, 1, true, true) };
+  const held = f.questions.find((q) => q.wording_check === "follow_up_over_limit").position;
+  const none = new Map();
+  // Its timing check (if any) already resolved, so the follow-up hold is what is left.
+  const timingDone = new Map(f.questions.map((q) => [q.position, "score"]));
+  const plan = (wordingCheck) =>
+    planLiveScoring(outcome, frozen.questions, {
+      needsCheck: timingDone,
+      repeatCheck: none,
+      wordingCheck,
+      excludedPositions: new Set(),
+    }).find((x) => x.position === held);
+  assert.deepEqual(plan(none), { position: held, decision: "wait", reason: "wording_check" });
+  assert.equal(plan(new Map([[held, "exclude"]])).decision, "left_out");
+  // "score" clears the hold: whatever it waits for next, it is no longer the follow-ups.
+  assert.notEqual(plan(new Map([[held, "score"]])).reason, "wording_check");
+});
+
+test("the save reads the session's frozen limit: a Recruiter-Defined interview with follow-ups is saved, held", async () => {
+  const w = world({ session: frozenRow({ live_settings: settingsV4("structured") }) });
+  const { outcome, saved } = await save(w);
+  assert.equal(saved, true, "the interview is kept, never refused");
+  assert.ok(outcome.questions.some((q) => q.wording_check === "follow_up_over_limit"));
+  const ai = world({ session: frozenRow({ live_settings: settingsV4("ai_guided") }) });
+  const second = await save(ai);
+  assert.ok(second.outcome.questions.every((q) => q.wording_check !== "follow_up_over_limit"));
+});
+
+test("a third follow-up cannot be stored (interview_turns allows index 1 or 2): still refused, as before", () => {
+  const three = parsedFixture();
+  const fu = three.turns.find((t) => t.kind === "follow_up" && t.question_position === 2);
+  three.turns.push({ ...fu, provider_turn_id: "third", sequence: 33 });
+  assert.throws(
+    () => assessLiveExport(three, frozenOf(), 1, null, 2),
+    (e) => e.code === "too_many_follow_ups",
+  );
+});

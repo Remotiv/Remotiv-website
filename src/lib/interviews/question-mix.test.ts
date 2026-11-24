@@ -89,10 +89,10 @@ test("every row fits its session at the AVERAGE question time (provisional: reli
   }
 });
 
-test("the 30-minute row is the cap: no length gives more questions, and it is the live length", async () => {
-  const { MAX_SESSION_SECONDS } = await import("./types.ts");
-  assert.equal(MAX_SESSION_SECONDS, 1800);
-  const cap = questionMixFor(MAX_SESSION_SECONDS / 60).total;
+test("the 30-minute row is the cap: no length gives more questions, and it is the default live length", async () => {
+  const { DEFAULT_SESSION_SECONDS } = await import("./types.ts");
+  assert.equal(DEFAULT_SESSION_SECONDS, 1800);
+  const cap = questionMixFor(DEFAULT_SESSION_SECONDS / 60).total;
   assert.equal(cap, 8);
   for (const minutes of [0, 1, 14, 15, 16, 25, 30, 31, 45, 60, 240, 10_000]) {
     assert.ok(questionMixFor(minutes).total <= cap, `${minutes} min`);
