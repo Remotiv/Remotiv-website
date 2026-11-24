@@ -250,6 +250,8 @@ test("async is untouched: its lengths and counts, and its send never freezes liv
       ["short", 4, 60],
       ["standard", 5, 120],
       ["depth", 6, 150],
+      ["extended", 7, 150],
+      ["full", 8, 150],
     ],
   );
   // 24 Nov: up to 8 questions, one list for async and the AI Video Interview.

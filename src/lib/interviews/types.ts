@@ -307,14 +307,17 @@ import { CV_WEIGHT_DEFAULT } from "@/lib/weights";
  * 120s is the existing default and stays the middle. 60s is enough for a
  * factual answer; 150s is where a structured "tell me about a time" answer
  * lands without becoming a monologue. Six at 150s is fifteen minutes of
- * recording plus retakes and setup - realistically half an evening - so the
- * suggester offers at most six. A recruiter may still add up to
- * MAX_QUESTIONS (8) by hand.
+ * recording plus retakes and setup - realistically half an evening.
+ *
+ * Since 24 Nov the suggester also offers 7 and 8 (at 150s, about 18 and 20
+ * minutes of recording), up to MAX_QUESTIONS, the same cap the save applies.
  */
 export const INTERVIEW_LENGTHS = [
   { id: "short", label: "About 5 minutes", questions: 4, answerSeconds: 60 },
   { id: "standard", label: "About 10 minutes", questions: 5, answerSeconds: 120 },
   { id: "depth", label: "About 15 minutes", questions: 6, answerSeconds: 150 },
+  { id: "extended", label: "About 18 minutes", questions: 7, answerSeconds: 150 },
+  { id: "full", label: "About 20 minutes", questions: 8, answerSeconds: 150 },
 ] as const;
 
 export type InterviewLengthId = (typeof INTERVIEW_LENGTHS)[number]["id"];

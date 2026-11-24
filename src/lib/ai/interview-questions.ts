@@ -5,6 +5,7 @@ import {
   COMPETENCY_MAX,
   INTERVIEW_LENGTHS,
   type InterviewLengthId,
+  MAX_QUESTIONS,
   QUESTION_TEXT_MAX,
   RUBRIC_MAX,
 } from "@/lib/interviews/types";
@@ -103,7 +104,9 @@ export type GeneratedQuestion = {
   rubric: string;
 };
 
+/** bad_length: not one of INTERVIEW_LENGTHS, or more questions than the save allows. */
 export type InterviewQuestionsFailure =
+  | "bad_length"
   | "no_job_text"
   | "no_key"
   | "timeout"
@@ -235,10 +238,13 @@ export async function generateInterviewQuestions(input: {
   requirements?: string | null;
   length: InterviewLengthId;
 }): Promise<InterviewQuestionsOutcome> {
-  const preset =
-    INTERVIEW_LENGTHS.find((l) => l.id === input.length) ??
-    INTERVIEW_LENGTHS.find((l) => l.id === "standard");
-  if (!preset) return { questions: null, failure: "bad_shape" };
+  // A known length only, never a silent fallback, and never more questions
+  // than the save accepts (MAX_QUESTIONS, 8): what the recruiter is offered
+  // must be something they can keep.
+  const preset = INTERVIEW_LENGTHS.find((l) => l.id === input.length);
+  if (!preset || preset.questions < 1 || preset.questions > MAX_QUESTIONS) {
+    return { questions: null, failure: "bad_length" };
+  }
 
   const job = [
     `Job title: ${(input.title ?? "").trim()}`,
