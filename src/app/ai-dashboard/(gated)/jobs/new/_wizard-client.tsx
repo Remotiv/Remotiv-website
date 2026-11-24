@@ -30,6 +30,8 @@ import {
   CV_WEIGHT_DEFAULT,
   CV_WEIGHT_DIMENSIONS,
   type CvWeightKey,
+  DEFAULT_LIVE_INTERVIEW_MINUTES,
+  DEFAULT_LIVE_INTERVIEW_MODE,
   EMPTY_JOB_INPUT,
   INTERVIEW_CRITERIA_MAX,
   INTERVIEW_DURATION_MAX,
@@ -86,11 +88,12 @@ import {
   suggestScreeningQuestions,
   updateCompanyJob,
 } from "../actions";
+import { LiveInterviewSettings } from "./_live-interview-settings";
 import {
   AI_VIDEO_OPTION_DESCRIPTION,
   AI_VIDEO_QUESTION_COUNT_WARNING,
-  AI_VIDEO_QUESTIONS_HINT,
   aiVideoQuestionCountOutOfRange,
+  aiVideoQuestionsHint,
 } from "./ai-video-copy";
 import { fieldErrorId, fieldErrorProps, firstInvalidFieldId } from "./field-errors";
 import { currencySymbol, salaryRange } from "./salary-range";
@@ -2430,6 +2433,16 @@ export function WizardClient({
 
               {step === 5 && (
                 <>
+                  <LiveInterviewSettings
+                    enabled={state.avatar_interview_enabled}
+                    mode={state.live_interview_mode ?? DEFAULT_LIVE_INTERVIEW_MODE}
+                    minutes={state.live_interview_minutes ?? DEFAULT_LIVE_INTERVIEW_MINUTES}
+                    challenges={state.live_hiring_challenges ?? ""}
+                    onModeChange={(v) => set("live_interview_mode", v)}
+                    onMinutesChange={(v) => set("live_interview_minutes", v)}
+                    onChallengesChange={(v) => set("live_hiring_challenges", v)}
+                  />
+
                   {interviewQs.length === 0 && !qsPanelDismissed && (
                     <QuestionSuggestPanel
                       length={qsLength}
@@ -2904,7 +2917,11 @@ export function WizardClient({
                               value={state.avatar_interviewer_name}
                               onChange={(v) => set("avatar_interviewer_name", v)}
                             />
-                            <p className={HINT_CLS}>{AI_VIDEO_QUESTIONS_HINT}</p>
+                            <p className={HINT_CLS}>
+                              {aiVideoQuestionsHint(
+                                state.live_interview_minutes ?? DEFAULT_LIVE_INTERVIEW_MINUTES,
+                              )}
+                            </p>
                             {aiVideoQuestionCountOutOfRange(
                               state.interview_questions.filter((q) => q.question.trim()).length,
                             ) && (

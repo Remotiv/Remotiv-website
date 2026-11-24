@@ -2,9 +2,10 @@
  * Migration 074 (#45, #46, 24 Nov): three AI Video Interview settings on each
  * job. Pins the migration's shape, the types beside it, and that the
  * confidential hiring challenges have no path to VoxAgent, the public or a
- * candidate: no reader of jobs selects them, and the only select("*") on jobs
- * is the super-admin jobs page. The public keep-list itself is pinned by
- * jobs-public.test.ts. Reads source only; nothing leaves the machine.
+ * candidate: no reader of jobs selects them, and no query on jobs returns
+ * whole rows (no select("*"), no bare .select(), no embedded jobs(*)). The
+ * public keep-list itself is pinned by jobs-public.test.ts. Reads source only;
+ * nothing leaves the machine.
  *
  *   node --test src/lib/job-live-settings-074.test.ts
  */
@@ -140,24 +141,67 @@ const FILES = sourceFiles(SRC).map((p) => ({
   text: readFileSync(p, "utf8"),
 }));
 
-test("no code names the three columns yet, beyond their types", () => {
+/**
+ * The only code that may name the three columns: their types and validation,
+ * the wizard's save, edit and duplicate (all recruiter-side, behind
+ * requireCompanyRole and the job's hiring team), and the wizard's own step.
+ * A new file naming them fails here until someone looks at what it does with
+ * them. The public keep-list and VoxAgent tests below stay strict.
+ */
+const ALLOWED_USERS = [
+  "src/app/ai-dashboard/(gated)/jobs/[id]/edit/page.tsx",
+  "src/app/ai-dashboard/(gated)/jobs/actions.ts",
+  "src/app/ai-dashboard/(gated)/jobs/new/_wizard-client.tsx",
+  "src/app/ai-dashboard/lib/job-types.ts",
+];
+
+test("only the recruiter-side save, load, edit and duplicate name the three columns", () => {
   const naming = FILES.filter((f) =>
     /live_hiring_challenges|live_interview_mode|live_interview_minutes/.test(f.text),
   ).map((f) => f.rel);
-  assert.deepEqual(naming, ["src/app/ai-dashboard/lib/job-types.ts"]);
+  assert.deepEqual(naming.sort(), ALLOWED_USERS);
 });
 
-test('the only select("*") on jobs is the super-admin jobs page, and no join pulls jobs(*)', () => {
-  const stars = [];
-  for (const f of FILES) {
-    for (const m of f.text.matchAll(/from\("jobs"\)/g)) {
-      const tail = f.text.slice(m.index, m.index + 400);
-      const sel = tail.match(/\.select\(\s*(["'`])([^"'`]*)\1/);
-      if (sel && /(^|,)\s*\*\s*(,|$)/.test(sel[2])) stars.push(f.rel);
-    }
-    if (/\bjobs(![a-z_]+)?\s*\(\s*\*/.test(f.text)) stars.push(`${f.rel} (embedded jobs(*))`);
+/**
+ * Every query on jobs that returns whole rows: select("*") (or "*" in a
+ * column list), a bare .select() (which PostgREST also answers with every
+ * column, the usual tail of an insert or update), and an embedded jobs(*).
+ * Each query is read up to the next .from(, so a later query's select is never
+ * mistaken for this one's.
+ */
+function wholeRowReads(f) {
+  const found = [];
+  for (const m of f.text.matchAll(/from\("jobs"\)/g)) {
+    const rest = f.text.slice(m.index + m[0].length, m.index + 1200);
+    const next = rest.search(/\.from\(/);
+    const query = next === -1 ? rest : rest.slice(0, next);
+    const line = f.text.slice(0, m.index).split("\n").length;
+    const sel = query.match(/\.select\(\s*(\)|(["'`])([^"'`]*)\2)/);
+    if (!sel) continue;
+    if (sel[1] === ")") found.push(`${f.rel}:${line} bare .select()`);
+    else if (/(^|,)\s*\*\s*(,|$)/.test(sel[3])) found.push(`${f.rel}:${line} select("*")`);
   }
-  assert.deepEqual(stars, ["src/app/admin/jobs/page.tsx"]);
+  if (/\bjobs(![a-z_]+)?\s*\(\s*\*/.test(f.text)) found.push(`${f.rel} embedded jobs(*)`);
+  return found;
+}
+
+test('no query on jobs returns whole rows: no select("*"), no bare .select(), no jobs(*)', () => {
+  assert.deepEqual(FILES.flatMap(wholeRowReads), []);
+});
+
+test("negative control: the scan sees each kind of whole-row read", () => {
+  const probe = (text) => wholeRowReads({ rel: "probe.ts", text });
+  assert.deepEqual(probe('db.from("jobs").select("*").eq("id", x);'), ['probe.ts:1 select("*")']);
+  assert.deepEqual(probe('db.from("jobs").select("id, *");'), ['probe.ts:1 select("*")']);
+  assert.deepEqual(probe('db.from("jobs")\n  .update(p)\n  .select()\n  .single();'), [
+    "probe.ts:1 bare .select()",
+  ]);
+  assert.deepEqual(probe('db.from("job_applications").select("id, job:jobs(*)");'), [
+    "probe.ts embedded jobs(*)",
+  ]);
+  // A column list, and a later query's bare select, are not this query's.
+  assert.deepEqual(probe('db.from("jobs").select("id, title");'), []);
+  assert.deepEqual(probe('db.from("jobs").update(p).eq("id", x); db.from("other").select();'), []);
 });
 
 test("VoxAgent's payload has a fixed key list with no job text, and the start path never names the challenges", () => {

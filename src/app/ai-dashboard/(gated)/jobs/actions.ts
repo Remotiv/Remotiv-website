@@ -40,6 +40,7 @@ import {
   JOB_TEXT_MAX,
   JOB_WORK_TYPES,
   type JobStatus,
+  liveInterviewPatch,
   MUST_HAVE_MAX,
   normaliseInterviewDuration,
   snapWeight,
@@ -201,6 +202,11 @@ function buildPatch(
     };
   }
 
+  // AI Video Interview mode, length and hiring challenges (074). Checked here,
+  // whatever the browser sent; a field it left out is not in the patch.
+  const live = liveInterviewPatch(input);
+  if (!live.ok) return { ok: false, error: live.error };
+
   const screeningQuestions = sanitizeQuestions(input.screening_questions);
   if (status === "open") {
     const unpublishable = assertPublishableQuestions(screeningQuestions);
@@ -264,6 +270,7 @@ function buildPatch(
       ...bookingPatch(input),
       ...cvWeightPatch(input),
       ...autoshortlistPatch(input),
+      ...live.patch,
     },
   };
 }
@@ -1425,8 +1432,10 @@ export async function duplicateCompanyJob(jobId: string): Promise<MutationResult
       // reverted to scoring-on would contradict the original's setting. The
       // step 8/9 columns copy for exactly the same reason: a copy that dropped
       // the weighting would score its applicants differently from the original
-      // with nothing on screen to explain why.
-      "company_id, title, location, category, experience_level, contract_type, work_type, language, positions, salary_min, salary_max, salary_currency, description, responsibilities, requirements, screening_questions, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities, autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold, scoring_must_haves, interview_criteria, interview_duration_minutes, booking_hours_override",
+      // with nothing on screen to explain why. The AI Video Interview mode,
+      // length and hiring challenges (074) copy too, and only ever within the
+      // company: the company check below refuses any other company's job.
+      "company_id, title, location, category, experience_level, contract_type, work_type, language, positions, salary_min, salary_max, salary_currency, description, responsibilities, requirements, screening_questions, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities, autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold, scoring_must_haves, interview_criteria, interview_duration_minutes, booking_hours_override, live_interview_mode, live_interview_minutes, live_hiring_challenges",
     )
     .eq("id", jobId)
     // Duplicating a tombstone would mint a live Draft from content someone

@@ -77,10 +77,10 @@ export const JOB_INTERVIEWER_NAME_MAX = 60;
 
 /**
  * AI Video Interview settings on each job (migration 074, decided 24 Nov).
- * Types only for now: no wizard field shows them and no save writes them yet,
- * so they are deliberately NOT on CompanyJobInput or CompanyJobRow, whose
- * selects and patches do not carry them. The step that wires them adds them
- * there, with buildPatch validating against these constants.
+ * Shown on the wizard's Interview questions step while AI Video Interview is
+ * on, saved through buildPatch (jobs/actions.ts) via liveInterviewPatch below,
+ * loaded by the edit page and copied by duplicate. Not on CompanyJobRow: the
+ * job list does not show them. Not yet read by the invite or the freeze.
  *
  * live_hiring_challenges is CONFIDENTIAL: recruiter text used only to generate
  * questions. Never sent to VoxAgent, never on the public keep-list
@@ -106,6 +106,91 @@ export type JobLiveInterviewSettings = {
   /** Null when the recruiter gave none. */
   live_hiring_challenges: string | null;
 };
+
+/** Characters as the column's CHECK counts them (char_length: code points, not UTF-16 units). */
+export function hiringChallengesLength(text: string): number {
+  return Array.from(text).length;
+}
+
+/**
+ * The wizard's three fields from a stored row (the edit page). A value outside
+ * the column checks cannot be stored; the defaults only cover a row read oddly.
+ * Null challenges open as "", which saves back as null.
+ */
+export function liveInterviewInputFromRow(row: {
+  live_interview_mode: unknown;
+  live_interview_minutes: unknown;
+  live_hiring_challenges: unknown;
+}): Required<
+  Pick<CompanyJobInput, "live_interview_mode" | "live_interview_minutes" | "live_hiring_challenges">
+> {
+  const mode = row.live_interview_mode;
+  const minutes = row.live_interview_minutes;
+  return {
+    live_interview_mode: (LIVE_INTERVIEW_MODES as readonly unknown[]).includes(mode)
+      ? (mode as LiveInterviewMode)
+      : DEFAULT_LIVE_INTERVIEW_MODE,
+    live_interview_minutes: (LIVE_INTERVIEW_MINUTES as readonly unknown[]).includes(minutes)
+      ? (minutes as LiveInterviewMinutes)
+      : DEFAULT_LIVE_INTERVIEW_MINUTES,
+    live_hiring_challenges:
+      typeof row.live_hiring_challenges === "string" ? row.live_hiring_challenges : "",
+  };
+}
+
+/**
+ * The three columns for a save, or a refusal. Server-side, never trusting the
+ * browser: the mode must be one of LIVE_INTERVIEW_MODES and the length one of
+ * LIVE_INTERVIEW_MINUTES, exactly; the challenges are trimmed, empty becomes
+ * null, and more than LIVE_HIRING_CHALLENGES_MAX characters is refused rather
+ * than cut.
+ *
+ * A field the browser did not send is left out of the patch, so an edit
+ * leaves that column as it is and a create takes the column's default.
+ * Switching to structured does NOT clear the challenges: the text is kept,
+ * unused, in case the recruiter switches back.
+ */
+export function liveInterviewPatch(
+  input: Pick<
+    CompanyJobInput,
+    "live_interview_mode" | "live_interview_minutes" | "live_hiring_challenges"
+  >,
+): { ok: true; patch: Partial<JobLiveInterviewSettings> } | { ok: false; error: string } {
+  const patch: Partial<JobLiveInterviewSettings> = {};
+  const mode: unknown = input.live_interview_mode;
+  if (mode !== undefined) {
+    if (!(LIVE_INTERVIEW_MODES as readonly unknown[]).includes(mode)) {
+      return {
+        ok: false,
+        error: "Choose Recruiter-Defined or AI-Guided for the AI Video Interview.",
+      };
+    }
+    patch.live_interview_mode = mode as LiveInterviewMode;
+  }
+  const minutes: unknown = input.live_interview_minutes;
+  if (minutes !== undefined) {
+    if (!(LIVE_INTERVIEW_MINUTES as readonly unknown[]).includes(minutes)) {
+      return { ok: false, error: "Interview length must be 30 or 60 minutes." };
+    }
+    patch.live_interview_minutes = minutes as LiveInterviewMinutes;
+  }
+  const challenges: unknown = input.live_hiring_challenges;
+  if (challenges !== undefined) {
+    if (challenges !== null && typeof challenges !== "string") {
+      return { ok: false, error: "Hiring challenges must be text." };
+    }
+    const text = (challenges ?? "").trim();
+    const length = hiringChallengesLength(text);
+    if (length > LIVE_HIRING_CHALLENGES_MAX) {
+      return {
+        ok: false,
+        error: `Hiring challenges is too long (${length.toLocaleString("en-US")} characters). The limit is ${LIVE_HIRING_CHALLENGES_MAX.toLocaleString("en-US")}.`,
+      };
+    }
+    patch.live_hiring_challenges = text || null;
+  }
+  return { ok: true, patch };
+}
 
 /**
  * DB status enum. The design speaks Published/Draft/Closed; the column only has
@@ -290,6 +375,16 @@ export type CompanyJobInput = {
    * automated rejections on for jobs that were posted without them.
    */
   send_rejection_email: boolean;
+  /**
+   * AI Video Interview settings (migration 074), on the Interview questions
+   * step while AI Video Interview is on. Optional: a field a client does not
+   * send is left as it is on edit (liveInterviewPatch). The wizard always
+   * sends all three.
+   */
+  live_interview_mode?: LiveInterviewMode;
+  live_interview_minutes?: LiveInterviewMinutes;
+  /** CONFIDENTIAL. "" in the form; stored null when empty. */
+  live_hiring_challenges?: string;
 
   /**
    * List this role on remotiv.work/jobs, the shared public board.
@@ -438,6 +533,9 @@ export const EMPTY_JOB_INPUT: CompanyJobInput = {
   // Off by default. An automated rejection carrying a company's name is
   // switched on deliberately, never inherited by accident.
   send_rejection_email: false,
+  live_interview_mode: DEFAULT_LIVE_INTERVIEW_MODE,
+  live_interview_minutes: DEFAULT_LIVE_INTERVIEW_MINUTES,
+  live_hiring_challenges: "",
   // Off, for the same reason: appearing on someone else's board is a choice,
   // not a side effect of publishing.
   listed_on_remotiv: false,

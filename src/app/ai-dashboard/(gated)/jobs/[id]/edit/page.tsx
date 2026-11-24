@@ -8,6 +8,7 @@ import {
   EMPTY_JOB_INPUT,
   type JobBookingHours,
   type JobStatus,
+  liveInterviewInputFromRow,
   normaliseInterviewDuration,
 } from "@/app/ai-dashboard/lib/job-types";
 import { parseRules } from "@/lib/calendar/availability";
@@ -65,6 +66,11 @@ type JobRow = {
   interview_duration_minutes: number | null;
   /** Step 5. jsonb array of weekday windows; null when using Settings hours. */
   booking_hours_override: unknown;
+  /** Step 5, AI Video Interview (074). NOT NULL with defaults; checked below anyway. */
+  live_interview_mode: string | null;
+  live_interview_minutes: number | null;
+  /** CONFIDENTIAL. Null when none was given. */
+  live_hiring_challenges: string | null;
 };
 
 export default async function EditJobPage({ params }: { params: Promise<{ id: string }> }) {
@@ -81,7 +87,7 @@ export default async function EditJobPage({ params }: { params: Promise<{ id: st
   const { data } = await service
     .from("jobs")
     .select(
-      "id, company_id, title, location, country, city, category, experience_level, contract_type, work_type, positions, description, responsibilities, requirements, salary_currency, salary_min, salary_max, screening_questions, status, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name, send_rejection_email, listed_on_remotiv, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities, autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold, scoring_must_haves, interview_criteria, interview_duration_minutes, booking_hours_override",
+      "id, company_id, title, location, country, city, category, experience_level, contract_type, work_type, positions, description, responsibilities, requirements, salary_currency, salary_min, salary_max, screening_questions, status, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name, send_rejection_email, listed_on_remotiv, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities, autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold, scoring_must_haves, interview_criteria, interview_duration_minutes, booking_hours_override, live_interview_mode, live_interview_minutes, live_hiring_challenges",
     )
     .eq("id", id)
     .is("deleted_at", null)
@@ -175,6 +181,8 @@ export default async function EditJobPage({ params }: { params: Promise<{ id: st
     async_interview_enabled: job.async_interview_enabled ?? EMPTY_JOB_INPUT.async_interview_enabled,
     async_interview_name: job.async_interview_name ?? "",
     send_rejection_email: job.send_rejection_email ?? false,
+    // The saved AI Video Interview settings (074).
+    ...liveInterviewInputFromRow(job),
     /*
      * Seeded from the ROW, so an existing job opens showing what it actually
      * is. Every job predating this column was backfilled to true — they are on
