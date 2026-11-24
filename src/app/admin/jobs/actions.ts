@@ -6,6 +6,16 @@ import type { ScreeningQuestion } from "@/lib/jobs";
 import { createServiceClient } from "@/lib/supabase/server";
 import { trimRequired, trimToNull } from "@/lib/validators";
 
+/**
+ * The jobs columns createJob and updateJob return to the admin browser: the
+ * same list page.tsx selects (ADMIN_JOB_COLUMNS there), never the whole row, so
+ * migration 074's private hiring challenges stay out. Its own copy because a
+ * "use server" file exports only async functions and the tenant scan reads a
+ * select only as a same-file string; jobs-select.test.ts pins the two equal.
+ */
+const ADMIN_JOB_COLUMNS =
+  "id, title, company, company_rating, location, salary_min, salary_max, salary_currency, contract_type, work_type, category, experience_level, language, positions, description, responsibilities, requirements, screening_questions, display_order, status, created_at, deleted_at";
+
 export type Job = {
   id: string;
   title: string;
@@ -206,7 +216,7 @@ export async function createJob(input: JobInput): Promise<MutationResult<Job>> {
       client_id: null,
       listed_on_remotiv: true,
     })
-    .select()
+    .select(ADMIN_JOB_COLUMNS)
     .single();
 
   if (error) return { success: false, error: error.message };
@@ -227,7 +237,7 @@ export async function updateJob(id: string, input: JobInput): Promise<MutationRe
     .update(built.patch)
     .eq("id", id)
     .is("deleted_at", null)
-    .select()
+    .select(ADMIN_JOB_COLUMNS)
     .single();
 
   if (error) return { success: false, error: error.message };
