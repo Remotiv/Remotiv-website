@@ -8,7 +8,15 @@ import {
   type ProviderAccount,
   type TokenSet,
 } from "./provider";
-import { plainTokenColumns, sealedTokenColumns, tokenColumns, unsealed } from "./token-columns";
+import {
+  plainTokenColumns,
+  readTokens,
+  sealedTokenColumns,
+  sealIfMissing,
+  type TokenRow,
+  tokenColumns,
+  unsealed,
+} from "./token-columns";
 
 /**
  * calendar_connections — reads, writes, and the one supported way to get an
@@ -41,14 +49,10 @@ import { plainTokenColumns, sealedTokenColumns, tokenColumns, unsealed } from ".
 export type CalendarStatus = "active" | "revoked" | "error";
 
 /** The row, as the database holds it. NEVER leaves the server. */
-type ConnectionRow = {
-  id: string;
+/** The token columns (TokenRow) are read only through token-columns.ts readTokens. */
+type ConnectionRow = TokenRow & {
   company_id: string;
-  member_id: string;
-  provider: string;
   provider_account: string | null;
-  access_token: string | null;
-  refresh_token: string | null;
   expires_at: string | null;
   scope: string | null;
   calendar_id: string | null;
@@ -57,7 +61,6 @@ type ConnectionRow = {
   last_error: string | null;
   last_synced_at: string | null;
   created_at: string;
-  updated_at: string;
 };
 
 /**
@@ -83,7 +86,17 @@ export type CalendarConnectionView = {
 /** Columns selected for server-side use. Spelled out rather than `*` so a
  *  future column is not silently pulled into memory on every settings render. */
 const ROW_COLUMNS =
-  "id, company_id, member_id, provider, provider_account, access_token, refresh_token, expires_at, scope, calendar_id, timezone, status, last_error, last_synced_at, created_at, updated_at";
+  "id, member_id, provider, access_token, refresh_token, access_token_enc, refresh_token_enc, token_key_id, updated_at, company_id, provider_account, expires_at, scope, calendar_id, timezone, status, last_error, last_synced_at, created_at";
+
+/**
+ * What storeTokens' upsert returns: the token columns readTokens needs
+ * (TokenRow), so the sealed write knows the refresh token the row now holds.
+ * Spelled out here, as ROW_COLUMNS is: the tenant scan reads selects only as
+ * same-file string constants. token-columns-tripwire.test.ts checks that both
+ * name every TokenRow column.
+ */
+const STORED_TOKEN_COLUMNS =
+  "id, member_id, provider, access_token, refresh_token, access_token_enc, refresh_token_enc, token_key_id, updated_at";
 
 /** Columns safe to read when only the view is needed — no tokens fetched at all. */
 const VIEW_COLUMNS = "provider, provider_account, timezone, status, last_error, created_at";
@@ -251,7 +264,7 @@ export async function storeTokens(args: {
   const { data: written, error } = await service
     .from("calendar_connections")
     .upsert(patch, { onConflict: "member_id,provider" })
-    .select("id, refresh_token")
+    .select(STORED_TOKEN_COLUMNS)
     .single();
 
   if (error) {
@@ -261,13 +274,15 @@ export async function storeTokens(args: {
   }
 
   // 2. The sealed copies, for the row as stored.
-  const storedRow = written as { id: string; refresh_token: string | null } | null;
+  const storedRow = written as TokenRow | null;
   if (!storedRow?.id) {
     unsealed("row_unknown");
   } else {
+    // The refresh token the row now holds (new, or the one the upsert kept).
+    const { refreshToken } = readTokens(storedRow);
     const sealed = sealedTokenColumns(
       { id: storedRow.id, memberId: args.memberId, provider: args.provider },
-      { accessToken: args.tokens.accessToken, refreshToken: storedRow.refresh_token },
+      { accessToken: args.tokens.accessToken, refreshToken },
     );
     if (sealed.token_key_id) {
       const { error: sealError } = await service
@@ -356,11 +371,17 @@ export async function getAccessToken(
     return null;
   }
 
+  // #68 12d: the sealed copies where they open, else plaintext (and a row
+  // with no sealed copy is sealed now). A token that cannot be had at all is
+  // null and takes the paths below: refresh, or the reconnect-needed state.
+  const tokens = readTokens(row);
+  if (tokens.missingSealed) await sealIfMissing(createServiceClient(), row, tokens);
+
   const expiresAt = row.expires_at ? Date.parse(row.expires_at) : 0;
   const stillValid = Number.isFinite(expiresAt) && expiresAt - EXPIRY_SKEW_MS > Date.now();
-  if (row.access_token && stillValid) return row.access_token;
+  if (tokens.accessToken && stillValid) return tokens.accessToken;
 
-  if (!row.refresh_token) {
+  if (!tokens.refreshToken) {
     /*
      * No refresh token and an expired access token: unrecoverable without the
      * recruiter re-consenting. This is exactly the state the storeTokens rule
@@ -372,7 +393,7 @@ export async function getAccessToken(
   }
 
   try {
-    const refreshed = await impl.refresh(row.refresh_token);
+    const refreshed = await impl.refresh(tokens.refreshToken);
     const service = createServiceClient();
     const patch: Record<string, unknown> = {
       // #68 12b: both tokens re-sealed for this row under the current key, the
@@ -384,7 +405,7 @@ export async function getAccessToken(
         {
           accessToken: refreshed.accessToken,
           refreshToken: refreshed.refreshToken,
-          storedRefreshToken: row.refresh_token,
+          storedRefreshToken: tokens.refreshToken,
         },
       ),
       expires_at: refreshed.expiresAt,
@@ -464,7 +485,10 @@ export async function disconnect(
 
   let revokedAtProvider = false;
   const impl = getProvider(provider);
-  const token = row.refresh_token || row.access_token;
+  // Whichever copy opens (readTokens), refresh token first. The row is deleted
+  // next, so nothing is lazily sealed here.
+  const { accessToken, refreshToken } = readTokens(row);
+  const token = refreshToken || accessToken;
 
   if (impl && token) {
     // Never throws by contract — disconnect must proceed regardless.

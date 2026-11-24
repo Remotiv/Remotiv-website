@@ -1,6 +1,7 @@
 /**
  * #68 step 12b tripwire: token-columns.ts is the ONLY file that writes a
- * calendar token column. Anywhere else, an object literal or an assignment
+ * calendar token column, and (12c + 12d, at the end) the only one that reads
+ * one off a calendar_connections row. Anywhere else, an object literal or an assignment
  * naming access_token, refresh_token, access_token_enc, refresh_token_enc or
  * token_key_id is a write that skips the sealed copies (or forges them), and
  * fails here.
@@ -127,4 +128,129 @@ test("12b: the scan catches every raw shape, and skips type members, reads and t
     "5: access_token_enc in an object literal",
     "5: refresh_token_enc in an object literal",
   ]);
+});
+
+/* ── 12c + 12d: reads ─────────────────────────────────────────
+ *
+ * Reading a token column off a row anywhere but readTokens would skip the
+ * sealed copy (and, after 12e, read a column that is empty). A read is a
+ * property or element access, or a destructuring, naming access_token,
+ * refresh_token, access_token_enc or refresh_token_enc. Select strings and
+ * type members are not reads. Scope: access_token and refresh_token in every
+ * file that names the "calendar_connections" table in code (google.ts reads
+ * Google's own token response, `body.access_token`, and names no table); the
+ * two sealed columns in EVERY file, as nothing else has those names.
+ */
+const READ_COLUMNS = new Set([
+  "access_token",
+  "refresh_token",
+  "access_token_enc",
+  "refresh_token_enc",
+]);
+const SEALED_ONLY = new Set(["access_token_enc", "refresh_token_enc"]);
+
+/** Every token-column read in one file's text: "<line>: <what>". */
+export function tokenReads(file, text) {
+  const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+  const at = (n) => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+  let namesTable = false;
+  const scanTable = (n) => {
+    if (ts.isStringLiteral(n) && n.text === "calendar_connections") namesTable = true;
+    ts.forEachChild(n, scanTable);
+  };
+  scanTable(sf);
+  const counts = (name) => READ_COLUMNS.has(name) && (namesTable || SEALED_ONLY.has(name));
+  const assignedTo = (n) =>
+    ts.isBinaryExpression(n.parent) &&
+    n.parent.left === n &&
+    n.parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+    n.parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment;
+  const found = [];
+  const visit = (n) => {
+    if (ts.isPropertyAccessExpression(n) && counts(n.name.text) && !assignedTo(n)) {
+      found.push(`${at(n)}: .${n.name.text} read`);
+    }
+    if (ts.isElementAccessExpression(n) && !assignedTo(n)) {
+      const name = nameOf(n.argumentExpression);
+      if (name && counts(name)) found.push(`${at(n)}: ["${name}"] read`);
+    }
+    if (ts.isBindingElement(n) && ts.isObjectBindingPattern(n.parent)) {
+      const name = nameOf(n.propertyName ?? n.name);
+      if (name && counts(name)) found.push(`${at(n)}: ${name} destructured`);
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return found;
+}
+
+test("12d: no file but token-columns.ts reads a token column off a calendar_connections row", () => {
+  const offending = [];
+  let scanned = 0;
+  for (const p of sourceFiles(SRC)) {
+    const rel = relative(SRC, p);
+    scanned += 1;
+    if (rel === HELPER) continue;
+    for (const hit of tokenReads(rel, readFileSync(p, "utf8"))) offending.push(`${rel}:${hit}`);
+  }
+  assert.ok(scanned > 500, `the scan reached the tree (${scanned} files)`);
+  assert.deepEqual(offending, []);
+});
+
+test("12d: the helper itself reads them (the scan sees what it is looking for)", () => {
+  const hits = tokenReads(HELPER, readFileSync(join(SRC, HELPER), "utf8"));
+  for (const col of READ_COLUMNS) {
+    assert.ok(
+      hits.some((h) => h.includes(col)),
+      `helper reads ${col}`,
+    );
+  }
+});
+
+test("12d: the read scan catches every raw shape, and skips select strings, types, writes and Google's response", () => {
+  const onTable = [
+    'const { data: row } = await service.from("calendar_connections").select("access_token, refresh_token").maybeSingle();',
+    "const a = row.access_token;",
+    'const b = row["refresh_token"];',
+    "const { access_token, refresh_token: r } = row;",
+    "type Row = { access_token: string };",
+    "patch.access_token = x;",
+  ].join("\n");
+  assert.deepEqual(tokenReads("fixture.ts", onTable), [
+    "2: .access_token read",
+    '3: ["refresh_token"] read',
+    "4: access_token destructured",
+    "4: refresh_token destructured",
+  ]);
+  const google = "const t = body.access_token; const r = body.refresh_token;";
+  assert.deepEqual(tokenReads("google-like.ts", google), [], "no table named: Google's response");
+  assert.deepEqual(tokenReads("anywhere.ts", "const s = row.refresh_token_enc;"), [
+    "1: .refresh_token_enc read",
+  ]);
+});
+
+test("12d: every select that reads tokens names every column readTokens needs", () => {
+  const helper = readFileSync(join(SRC, HELPER), "utf8");
+  const type = helper.slice(helper.indexOf("export type TokenRow = {"));
+  const needed = [...type.slice(0, type.indexOf("};")).matchAll(/^\s+(\w+):/gm)].map((m) => m[1]);
+  assert.deepEqual(needed.sort(), [
+    "access_token",
+    "access_token_enc",
+    "id",
+    "member_id",
+    "provider",
+    "refresh_token",
+    "refresh_token_enc",
+    "token_key_id",
+    "updated_at",
+  ]);
+  const connections = readFileSync(join(SRC, "lib/calendar/connections.ts"), "utf8");
+  for (const name of ["ROW_COLUMNS", "STORED_TOKEN_COLUMNS"]) {
+    const m = new RegExp(`const ${name} =\\s*"([^"]+)";`).exec(connections);
+    assert.ok(m, `${name} is a same-file string`);
+    const cols = m[1].split(",").map((c) => c.trim());
+    for (const c of needed) assert.ok(cols.includes(c), `${name} names ${c}`);
+  }
+  assert.match(connections, /\.select\(ROW_COLUMNS\)/);
+  assert.match(connections, /\.select\(STORED_TOKEN_COLUMNS\)/);
 });

@@ -24,7 +24,7 @@ register(
 const STUBS = {
   "server-only": "",
   "@/lib/supabase/server": "export function createServiceClient() { return globalThis.__tc.service; }",
-  "./provider": "export function getProvider() { return { refresh: async () => { await globalThis.__tc.refreshGate; return globalThis.__tc.refreshed; } }; }",
+  "./provider": "export function getProvider() { return { refresh: async (token) => { globalThis.__tc.refreshedWith = token; await globalThis.__tc.refreshGate; return globalThis.__tc.refreshed; }, revoke: async (token) => { globalThis.__tc.revoked.push(token); return true; } }; }",
   "./google": "export const EXPIRY_SKEW_MS = 60000;",
   "./account-key": "export function accountKeyFor() { return 'acct-key'; }",
 };
@@ -37,9 +37,9 @@ export async function resolve(specifier, context, next) {
 );
 
 const { fakeService } = await import("../../test-support/fake-postgrest.mjs");
-const { tokenColumns } = await import("./token-columns.ts");
+const { readTokens, tokenColumns } = await import("./token-columns.ts");
 const { open, tokenAad } = await import("./token-crypto.ts");
-const { storeTokens, getAccessToken } = await import("./connections.ts");
+const { disconnect, storeTokens, getAccessToken } = await import("./connections.ts");
 
 const KEY_1 = randomBytes(32).toString("base64");
 const KEY_2 = randomBytes(32).toString("base64");
@@ -66,7 +66,13 @@ const opened = (r) => ({
 
 /** A calendar_connections table with upsert on (member_id, provider) and a default id. */
 function world(rows = []) {
-  const t = { rows: rows.map((r) => ({ ...r })), logs: [], failSealWrite: false, writes: [] };
+  const t = {
+    rows: rows.map((r) => ({ ...r })),
+    logs: [],
+    failSealWrite: false,
+    writes: [],
+    revoked: [],
+  };
   const matches = (row, calls) =>
     calls.filter((c) => c[0] === "eq").every(([, k, v]) => row[k] === v);
   t.service = fakeService((table, calls) => {
@@ -85,7 +91,7 @@ function world(rows = []) {
         t.rows.push(hit);
       }
       t.onUpsert?.(hit);
-      return { data: { id: hit.id, refresh_token: hit.refresh_token }, error: null };
+      return { data: { ...hit }, error: null };
     }
     const update = calls.find((c) => c[0] === "update");
     if (update) {
@@ -93,10 +99,18 @@ function world(rows = []) {
       if (t.failSealWrite && "access_token_enc" in update[1] && !("access_token" in update[1])) {
         return { data: null, error: { code: "57014", message: "timeout" } };
       }
-      for (const r of t.rows.filter((r) => matches(r, calls))) Object.assign(r, update[1]);
+      const matched = t.rows.filter((r) => matches(r, calls));
+      for (const r of matched) Object.assign(r, update[1]);
+      const returning = calls.some((c) => c[0] === "select");
+      return { data: returning ? matched.map((r) => ({ id: r.id })) : null, error: null };
+    }
+    if (calls.some((c) => c[0] === "delete")) {
+      t.rows = t.rows.filter((r) => !matches(r, calls));
       return { data: null, error: null };
     }
-    const hit = t.rows.filter((r) => matches(r, calls));
+    // Reads return copies, as the network does; onRead runs after the copy.
+    const hit = t.rows.filter((r) => matches(r, calls)).map((r) => ({ ...r }));
+    t.onRead?.();
     return {
       data: calls.some((c) => c[0] === "maybeSingle") ? (hit[0] ?? null) : hit,
       error: null,
@@ -250,7 +264,7 @@ test("a token refresh re-seals the new access token (and the refresh token) for 
   assert.equal(opened(stored).refresh, rotated);
 });
 
-test("keys missing or invalid: the connect and the refresh still work, plaintext written, sealed columns cleared, one reason-code line", async () => {
+test("keys missing or invalid: the connect and the refresh still work, plaintext written, sealed columns cleared, reason codes only", async () => {
   setKeys({ k1: KEY_1 }, "k1");
   const w = world();
   const refresh = tok("refresh");
@@ -290,7 +304,13 @@ test("keys missing or invalid: the connect and the refresh still work, plaintext
   );
   assert.equal(stored.access_token, fresh);
   assert.equal(stored.access_token_enc, null);
-  assert.deepEqual(w.logs, ["[calendar-token-crypto] seal_failed reason=keys_invalid"]);
+  assert.deepEqual(w.logs, [
+    // 12d: the read found no sealed copy and tried to seal it (no keys), then
+    // the refresh's own write.
+    "[calendar-token-crypto] seal_failed reason=keys_invalid",
+    "[calendar-token] read=plaintext sealed_now=false",
+    "[calendar-token-crypto] seal_failed reason=keys_invalid",
+  ]);
   for (const l of w.logs)
     assert.ok(!l.includes(fresh) && !l.includes(refresh) && !l.includes(KEY_1));
   setKeys({ k1: KEY_1 }, "k1");
@@ -376,4 +396,228 @@ test("a refresh lands between the upsert and its sealed write: the sealed write 
   const stored = w.rows[0];
   assert.equal(stored.access_token, newer);
   assert.equal(opened(stored).access, newer, "the sealed copy matches the plaintext the row holds");
+});
+
+/* ── 12c + 12d: every read goes through readTokens ─────────── */
+
+const LATER = () => new Date(Date.now() + 3600_000).toISOString();
+const EARLIER = () => new Date(Date.now() - 1000).toISOString();
+
+/** A sealed value with one ciphertext byte flipped: well-formed, but it does not open. */
+function tamper(sealed) {
+  const [v, id, iv, tag, ct] = sealed.split(".");
+  const b = Buffer.from(ct, "base64url");
+  b[0] ^= 1;
+  return [v, id, iv, tag, b.toString("base64url")].join(".");
+}
+
+/** A stored row whose sealed copies hold `sealed` and whose plaintext holds `plain`. */
+function storedRow(memberId, { sealed, plain, expiresAt = LATER() }) {
+  const id = randomUUID();
+  const cols = sealed
+    ? tokenColumns(
+        { id, memberId, provider: "google" },
+        { accessToken: sealed.access, refreshToken: sealed.refresh },
+      )
+    : { access_token_enc: null, refresh_token_enc: null, token_key_id: null };
+  return {
+    id,
+    company_id: CO,
+    member_id: memberId,
+    provider: "google",
+    provider_account: ACCOUNT.email,
+    status: "active",
+    expires_at: expiresAt,
+    updated_at: "2026-11-24T09:00:00.000Z",
+    ...cols,
+    access_token: plain.access,
+    refresh_token: plain.refresh,
+  };
+}
+
+// Negative control: make readTokens ignore the sealed copies (read the
+// plaintext always) and this test fails.
+test("12d: a sealed row is read from its sealed copies, not the plaintext", async () => {
+  setKeys({ k1: KEY_1 }, "k1");
+  const access = tok("access");
+  const refresh = tok("refresh");
+  const row = storedRow("m-sealed", {
+    sealed: { access, refresh },
+    plain: { access: "plaintext-decoy-access", refresh: "plaintext-decoy-refresh" },
+  });
+  const w = world([row]);
+  assert.deepEqual(readTokens(row), {
+    accessToken: access,
+    refreshToken: refresh,
+    source: "sealed",
+    missingSealed: false,
+    openFailed: false,
+  });
+  assert.equal(await capture(() => getAccessToken("m-sealed", "google")), access);
+  assert.deepEqual(w.logs, [], "a sealed read says nothing");
+  assert.deepEqual(w.writes, [], "and writes nothing");
+
+  w.rows[0].expires_at = EARLIER();
+  w.refreshed = { accessToken: tok("access"), refreshToken: null, expiresAt: LATER() };
+  await capture(() => getAccessToken("m-sealed", "google"));
+  assert.equal(w.refreshedWith, refresh, "the refresh used the sealed refresh token");
+});
+
+test("12c: a row with no sealed copy is read from plaintext and sealed now, for that row", async () => {
+  setKeys({ k1: KEY_1 }, "k1");
+  const access = tok("access");
+  const refresh = tok("refresh");
+  const w = world([storedRow("m-lazy", { plain: { access, refresh } })]);
+  assert.equal(await capture(() => getAccessToken("m-lazy", "google")), access);
+  const stored = w.rows[0];
+  assert.deepEqual(opened(stored), { access, refresh, keyOfAccess: "k1", keyOfRefresh: "k1" });
+  assert.equal(stored.token_key_id, "k1");
+  assert.deepEqual(w.logs, ["[calendar-token] read=plaintext sealed_now=true"]);
+  const seal = w.writes.at(-1)[1];
+  assert.ok(
+    !("access_token" in seal) && !("refresh_token" in seal),
+    "the plaintext is not rewritten",
+  );
+});
+
+// Negative control: drop `.eq("updated_at", row.updated_at)` from
+// sealIfMissing and this test fails.
+test("12c: the lazy seal stands down when the row changed after it was read", async () => {
+  setKeys({ k1: KEY_1 }, "k1");
+  const access = tok("access");
+  const w = world([storedRow("m-moved", { plain: { access, refresh: tok("refresh") } })]);
+  // A write lands between the read and the lazy seal (a refresh elsewhere).
+  w.onRead = () => {
+    w.onRead = undefined;
+    w.rows[0].updated_at = "2026-11-24T09:00:05.000Z";
+  };
+  assert.equal(await capture(() => getAccessToken("m-moved", "google")), access);
+  assert.equal(w.rows[0].access_token_enc, null, "nothing sealed over a row that moved");
+  assert.deepEqual(w.logs, ["[calendar-token] read=plaintext sealed_now=false"]);
+});
+
+test("12d: a sealed copy that does not open (tampered, or its key gone) falls back to plaintext, is logged, and is NOT re-sealed", async () => {
+  setKeys({ k1: KEY_1 }, "k1");
+  const access = tok("access");
+  const refresh = tok("refresh");
+  const row = storedRow("m-bad", { sealed: { access, refresh }, plain: { access, refresh } });
+  row.access_token_enc = tamper(row.access_token_enc);
+  const w = world([row]);
+  assert.equal(await capture(() => getAccessToken("m-bad", "google")), access);
+  assert.deepEqual(w.logs, ["[calendar-token] open_failed reason=auth_failed"]);
+  assert.equal(w.rows[0].access_token_enc, row.access_token_enc, "left for the right key");
+  assert.deepEqual(w.writes, []);
+
+  // The key that sealed it is no longer configured.
+  const oldKeyRow = storedRow("m-oldkey", {
+    sealed: { access, refresh },
+    plain: { access, refresh },
+  });
+  setKeys({ k2: KEY_2 }, "k2");
+  const w2 = world([oldKeyRow]);
+  assert.equal(await capture(() => getAccessToken("m-oldkey", "google")), access);
+  assert.deepEqual(w2.logs, [
+    "[calendar-token] open_failed reason=unknown_key",
+    "[calendar-token] open_failed reason=unknown_key",
+  ]);
+  assert.deepEqual(w2.writes, [], "a copy under a key we lack is never overwritten");
+  setKeys({ k1: KEY_1 }, "k1");
+
+  // One copy does not open and the other is missing: still nothing re-sealed,
+  // the lazy path stands down for the whole row.
+  // Negative control: drop the openFailed check in sealIfMissing and this fails.
+  const mixed = storedRow("m-mixed", { sealed: { access, refresh }, plain: { access, refresh } });
+  mixed.access_token_enc = tamper(mixed.access_token_enc);
+  mixed.refresh_token_enc = null;
+  const w3 = world([mixed]);
+  assert.equal(await capture(() => getAccessToken("m-mixed", "google")), access);
+  assert.deepEqual(w3.writes, [], "the failing copy is not overwritten by a lazy seal");
+  assert.deepEqual(w3.logs, [
+    "[calendar-token] open_failed reason=auth_failed",
+    "[calendar-token] read=plaintext sealed_now=false",
+  ]);
+});
+
+test("12d: nothing usable (sealed copies that do not open, no plaintext): the reconnect-needed state, no throw", async () => {
+  setKeys({ k1: KEY_1 }, "k1");
+  const row = storedRow("m-dead", {
+    sealed: { access: tok("access"), refresh: tok("refresh") },
+    plain: { access: null, refresh: null },
+    expiresAt: EARLIER(),
+  });
+  setKeys({ k2: KEY_2 }, "k2");
+  const w = world([row]);
+  assert.equal(await capture(() => getAccessToken("m-dead", "google")), null);
+  assert.equal(w.rows[0].status, "error", "marked for the recruiter to reconnect");
+  assert.ok(w.rows[0].last_error, "with the existing message");
+  assert.deepEqual(w.logs, [
+    "[calendar-token] open_failed reason=unknown_key",
+    "[calendar-token] open_failed reason=unknown_key",
+  ]);
+  setKeys({ k1: KEY_1 }, "k1");
+});
+
+test("12d: disconnect revokes with whichever copy opens: the sealed one, else the plaintext", async () => {
+  setKeys({ k1: KEY_1 }, "k1");
+  const refresh = tok("refresh");
+  const w = world([
+    storedRow("m-rev", {
+      sealed: { access: tok("access"), refresh },
+      plain: { access: "plaintext-decoy-access", refresh: "plaintext-decoy-refresh" },
+    }),
+  ]);
+  assert.deepEqual(await capture(() => disconnect("m-rev", "google")), {
+    deleted: true,
+    revokedAtProvider: true,
+  });
+  assert.deepEqual(w.revoked, [refresh], "the sealed refresh token was revoked");
+  assert.deepEqual(w.rows, []);
+
+  const plainRefresh = tok("refresh");
+  const row = storedRow("m-rev2", {
+    sealed: { access: tok("access"), refresh: tok("refresh") },
+    plain: { access: tok("access"), refresh: plainRefresh },
+  });
+  row.refresh_token_enc = tamper(row.refresh_token_enc);
+  const w2 = world([row]);
+  await capture(() => disconnect("m-rev2", "google"));
+  assert.deepEqual(
+    w2.revoked,
+    [plainRefresh],
+    "a copy that does not open: the plaintext is revoked",
+  );
+});
+
+test("12d: no token or key in any log line of any read path", async () => {
+  setKeys({ k1: KEY_1 }, "k1");
+  const secrets = [];
+  const t = (p) => {
+    const v = tok(p);
+    secrets.push(v);
+    return v;
+  };
+  const rows = [
+    storedRow("m-l1", {
+      sealed: { access: t("a"), refresh: t("r") },
+      plain: { access: t("a"), refresh: t("r") },
+    }),
+    storedRow("m-l2", { plain: { access: t("a"), refresh: t("r") } }),
+  ];
+  const bad = storedRow("m-l3", {
+    sealed: { access: t("a"), refresh: t("r") },
+    plain: { access: t("a"), refresh: t("r") },
+  });
+  bad.access_token_enc = tamper(bad.access_token_enc);
+  rows.push(bad);
+  const w = world(rows);
+  for (const m of ["m-l1", "m-l2", "m-l3"]) await capture(() => getAccessToken(m, "google"));
+  await capture(() => disconnect("m-l1", "google"));
+  const all = w.logs.join("\n");
+  for (const secret of [
+    ...secrets,
+    KEY_1,
+    ...rows.flatMap((r) => [r.access_token_enc, r.refresh_token_enc]).filter(Boolean),
+  ]) {
+    assert.ok(!all.includes(secret), "a token, key or sealed value reached a log");
+  }
 });
