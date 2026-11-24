@@ -8,6 +8,7 @@ import {
   type ProviderAccount,
   type TokenSet,
 } from "./provider";
+import { plainTokenColumns, sealedTokenColumns, tokenColumns, unsealed } from "./token-columns";
 
 /**
  * calendar_connections — reads, writes, and the one supported way to get an
@@ -197,6 +198,21 @@ async function readRow(memberId: string, provider: string): Promise<ConnectionRo
  * Upsert on the unique (member_id, provider): reconnecting replaces the grant
  * rather than accumulating rows, and a reconnect after a failure clears the
  * error state in the same write.
+ *
+ * ── Sealed copies (#68, 12b) ─────────────────────────────────
+ *
+ * The tokens are also written sealed (token-columns.ts), bound to the row's
+ * id. The upsert never sends an id, so a row keeps the one the database gave
+ * it: a reconnect, or two racing first connects, can never change it under a
+ * token refresh that read it. That means the id is known only after the write,
+ * so it is two writes:
+ *   1. the upsert: plaintext, with the sealed columns cleared; it returns the
+ *      stored row's id and refresh token (new, or the one kept);
+ *   2. the sealed columns for that id, only if the row is still as step 1 left
+ *      it (its updated_at): a refresh that landed in between wrote its own
+ *      sealed copy, which stands.
+ * A failed step 2 leaves the row plaintext-only, sealed columns cleared, and
+ * logs the reason code; the backfill seals it later. The connect succeeds.
  */
 export async function storeTokens(args: {
   companyId: string;
@@ -213,7 +229,13 @@ export async function storeTokens(args: {
     member_id: args.memberId,
     provider: args.provider,
     provider_account: args.account.email || null,
-    access_token: args.tokens.accessToken,
+    // THE LINE THAT MATTERS (plainTokenColumns keeps it): an absent refresh
+    // token leaves refresh_token out of the patch, so the upsert preserves the
+    // stored one.
+    ...plainTokenColumns({
+      accessToken: args.tokens.accessToken,
+      refreshToken: args.tokens.refreshToken,
+    }),
     expires_at: args.tokens.expiresAt,
     scope: args.tokens.scope,
     calendar_id: args.account.calendarId,
@@ -226,20 +248,35 @@ export async function storeTokens(args: {
     updated_at: now,
   };
 
-  // THE LINE THAT MATTERS. Absent refresh token → key omitted → existing value
-  // preserved by the upsert.
-  if (args.tokens.refreshToken) {
-    patch.refresh_token = args.tokens.refreshToken;
-  }
-
-  const { error } = await service
+  const { data: written, error } = await service
     .from("calendar_connections")
-    .upsert(patch, { onConflict: "member_id,provider" });
+    .upsert(patch, { onConflict: "member_id,provider" })
+    .select("id, refresh_token")
+    .single();
 
   if (error) {
     // The code only (#19): the message names columns and constraints.
     console.error(`[calendar] storeTokens failed: ${error.code ?? "error"}`);
     return { ok: false, error: error.code ?? "error" };
+  }
+
+  // 2. The sealed copies, for the row as stored.
+  const storedRow = written as { id: string; refresh_token: string | null } | null;
+  if (!storedRow?.id) {
+    unsealed("row_unknown");
+  } else {
+    const sealed = sealedTokenColumns(
+      { id: storedRow.id, memberId: args.memberId, provider: args.provider },
+      { accessToken: args.tokens.accessToken, refreshToken: storedRow.refresh_token },
+    );
+    if (sealed.token_key_id) {
+      const { error: sealError } = await service
+        .from("calendar_connections")
+        .update(sealed)
+        .eq("id", storedRow.id)
+        .eq("updated_at", now);
+      if (sealError) unsealed(`write_${sealError.code ?? "error"}`);
+    }
   }
   /*
    * Which account, as an HMAC (#56, account-key.ts): copied onto every event
@@ -338,17 +375,24 @@ export async function getAccessToken(
     const refreshed = await impl.refresh(row.refresh_token);
     const service = createServiceClient();
     const patch: Record<string, unknown> = {
-      access_token: refreshed.accessToken,
+      // #68 12b: both tokens re-sealed for this row under the current key, the
+      // refresh token from the new one if Google sent one, else the stored
+      // one; the plaintext refresh_token only when there is a new one (same
+      // rule as storeTokens: an absence must not destroy the one that works).
+      ...tokenColumns(
+        { id: row.id, memberId, provider },
+        {
+          accessToken: refreshed.accessToken,
+          refreshToken: refreshed.refreshToken,
+          storedRefreshToken: row.refresh_token,
+        },
+      ),
       expires_at: refreshed.expiresAt,
       status: "active" satisfies CalendarStatus,
       last_error: null,
       last_synced_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
-    // Same rule as storeTokens: a refresh response has no refresh token, and
-    // writing that absence would destroy the one that just worked.
-    if (refreshed.refreshToken) patch.refresh_token = refreshed.refreshToken;
-
     const { error } = await service
       .from("calendar_connections")
       .update(patch)
