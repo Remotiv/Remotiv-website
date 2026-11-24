@@ -168,6 +168,7 @@ async function log(
       | "resolve_needs_check"
       | "resolve_repeat_check"
       | "resolve_wording_check"
+      | "resolve_follow_up_check"
       | "resolve_style_check"
       | "resolve_failed_transcription";
     decision: "retry" | "score" | "exclude";
@@ -284,6 +285,32 @@ export async function resolveWordingCheck(
   if ((q?.wording_check ?? null) === null) throw new LiveRecoveryError("no_check", session.id);
   await log(deps, session, role, {
     action: "resolve_wording_check",
+    decision: input.decision,
+    note,
+    question_position: input.position,
+  });
+  return afterwards(deps, session.id);
+}
+
+/**
+ * A question held by a follow-up check (more follow-ups than the session
+ * allowed, migration 076), checked against the recording by a person: scored
+ * as usual, or left out. Only a question the outcome flags can be resolved
+ * here, and the decision clears no other check: a question also held for its
+ * wording still waits for that decision.
+ */
+export async function resolveFollowUpCheck(
+  input: { sessionId: string; position: number; decision: "score" | "exclude"; note: string },
+  deps: RecoveryDeps,
+): Promise<LiveScoreRow | null> {
+  const { session, role, note } = await authorised(deps, input.sessionId, input.note);
+  if (input.decision !== "score" && input.decision !== "exclude") {
+    throw new LiveRecoveryError("bad_input", session.id);
+  }
+  const q = session.live_outcome?.questions.find((x) => x.position === input.position);
+  if ((q?.follow_up_check ?? null) === null) throw new LiveRecoveryError("no_check", session.id);
+  await log(deps, session, role, {
+    action: "resolve_follow_up_check",
     decision: input.decision,
     note,
     question_position: input.position,

@@ -18,6 +18,7 @@ import { type FrozenLiveQuestion, readFrozenQuestionSet } from "@/lib/interviews
 import { isOutcomeDecided, type LiveOutcome } from "@/lib/interviews/live-ingest";
 import {
   excludedFailedTurns,
+  followUpCheckDecisions,
   type LiveActionRow,
   type NeedsCheckDecision,
   needsCheckDecisions,
@@ -144,6 +145,8 @@ export type ScoreReason =
   | "repeat_excluded"
   | "wording_check"
   | "wording_excluded"
+  | "follow_up_check"
+  | "follow_up_excluded"
   | "skipped"
   | "answered";
 
@@ -157,6 +160,8 @@ export function planLiveScoring(
     needsCheck: ReadonlyMap<number, NeedsCheckDecision>;
     repeatCheck: ReadonlyMap<number, NeedsCheckDecision>;
     wordingCheck: ReadonlyMap<number, NeedsCheckDecision>;
+    /** Its own decisions (076): absent means none yet, so a flagged question waits. */
+    followUpCheck?: ReadonlyMap<number, NeedsCheckDecision>;
     excludedPositions: ReadonlySet<number>;
   },
 ): QuestionPlan[] {
@@ -182,6 +187,13 @@ export function planLiveScoring(
       const d = resolved.wordingCheck.get(position);
       if (!d) return plan("wait", "wording_check");
       if (d === "exclude") return plan("left_out", "wording_excluded");
+    }
+    // A second reason on the same question waits for its own decision: a
+    // wording resolution above never releases it.
+    if ((f.follow_up_check ?? null) !== null) {
+      const d = resolved.followUpCheck?.get(position);
+      if (!d) return plan("wait", "follow_up_check");
+      if (d === "exclude") return plan("left_out", "follow_up_excluded");
     }
     if (f.status === "skipped") return plan("lowest", "skipped");
     if (f.confirmed !== true) return plan("wait", "unconfirmed");
@@ -477,6 +489,7 @@ export async function scoreLiveSession(
     needsCheck: needsCheckDecisions(actions),
     repeatCheck: repeatCheckDecisions(actions),
     wordingCheck: wordingCheckDecisions(actions),
+    followUpCheck: followUpCheckDecisions(actions),
     excludedPositions,
   });
 

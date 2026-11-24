@@ -348,10 +348,25 @@ const BROKEN = [
     },
   ],
   [
-    "a follow-up index of 3",
+    // 076 keeps 1 to 10: an 11th follow-up on one question is broken data.
+    "a follow-up index of 11",
     "bad_follow_up",
     (f) => {
-      f.turns[5].follow_up_index = 3;
+      f.turns[5].follow_up_index = 11;
+    },
+  ],
+  [
+    "a follow-up index of 0",
+    "bad_follow_up",
+    (f) => {
+      f.turns[5].follow_up_index = 0;
+    },
+  ],
+  [
+    "a fractional follow-up index",
+    "bad_follow_up",
+    (f) => {
+      f.turns[5].follow_up_index = 2.5;
     },
   ],
   [

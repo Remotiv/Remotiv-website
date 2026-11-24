@@ -133,13 +133,21 @@ export type LiveTurnKind = "base_question" | "follow_up" | "clarification" | "pr
  *   - audio_file_name is the provider's name for the turn's audio. The table
  *     keeps a Remotiv path, type, size and hash, filled when the file lands.
  */
+/**
+ * The highest follow-up index a turn may carry (migration 076): the most any
+ * job allows is 2, so 3 to 10 is an overrun that is kept and held for a
+ * person; above 10 on one question is broken data and the export is refused.
+ */
+export const FOLLOW_UP_INDEX_MAX = 10;
+
 export type LiveTurn = {
   provider_turn_id: string;
   sequence: number;
   speaker: LiveSpeaker;
   kind: LiveTurnKind | null;
   question_position: number | null;
-  follow_up_index: 1 | 2 | null;
+  /** 1 to FOLLOW_UP_INDEX_MAX on a follow-up; null on every other turn. */
+  follow_up_index: number | null;
   follow_up_reason: string | null;
   responds_to_provider_turn_id: string | null;
   /** Interviewer turns: the exact generated text. Candidate turns: always null. */

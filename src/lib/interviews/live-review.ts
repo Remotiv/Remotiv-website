@@ -21,6 +21,7 @@ import {
   LiveRecoveryError,
   type RecoveryDeps,
   resolveFailedTranscription,
+  resolveFollowUpCheck,
   resolveNeedsCheck,
   resolveRepeatCheck,
   resolveStyleCheck,
@@ -29,6 +30,7 @@ import {
 } from "@/lib/interviews/live-recovery";
 import {
   excludedFailedTurns,
+  followUpCheckDecisions,
   type LiveActionRow,
   needsCheckDecisions,
   repeatCheckDecisions,
@@ -199,6 +201,7 @@ const EXCLUDED_REASON: Record<string, string> = {
   style_excluded: "Left out after a review of the AI's explanation.",
   repeat_excluded: "Left out after a review of how the question was repeated.",
   wording_excluded: "Left out after a review of how the question was asked.",
+  follow_up_excluded: "Left out after a review of the follow-up questions asked.",
   scoring_failed: "Left out: the AI could not score it reliably.",
 };
 
@@ -207,6 +210,7 @@ const WAITING_REASON: Record<string, string> = {
   style_check: "Waiting for a check of the AI's explanation.",
   repeat_check: "Waiting for a check of how the question was repeated.",
   wording_check: "Waiting for a check of how the question was asked.",
+  follow_up_check: "Waiting for a check of the follow-up questions asked.",
   not_final: "Waiting for every answer to be transcribed.",
   unconfirmed: "Waiting for the transcript.",
   scoring_retry: "Scoring will be tried again.",
@@ -243,6 +247,11 @@ const WORDING_REASON: Record<WordingCheck, (interviewer: string, position: numbe
 
 export function wordingReason(check: WordingCheck, interviewer: string, position: number): string {
   return WORDING_REASON[check](interviewer, position);
+}
+
+/** Why a question is held for its follow-ups (live-ingest.ts FollowUpCheck), with the interviewer's name. */
+export function followUpReason(interviewer: string, position: number): string {
+  return `${interviewer} asked more follow-up questions on question ${position} than this interview allows. It is not scored until a person checks the recording.`;
 }
 
 /**
@@ -285,11 +294,16 @@ const REVIEW_WAITS: ReadonlySet<string> = new Set([
   "needs_check",
   "repeat_check",
   "wording_check",
+  "follow_up_check",
   "style_check",
 ]);
 
 /** Flags whose reason already names its question: listed as written. */
-const NAMES_ITS_QUESTION: ReadonlySet<LiveReviewFlag["kind"]> = new Set(["repeat", "wording"]);
+const NAMES_ITS_QUESTION: ReadonlySet<LiveReviewFlag["kind"]> = new Set([
+  "repeat",
+  "wording",
+  "follow_up",
+]);
 
 const RESTART_NOTE = "A restart is your decision for this interview.";
 
@@ -457,6 +471,7 @@ export function buildLiveReviewView(input: {
   const timing = needsCheckDecisions(input.actions);
   const repeat = repeatCheckDecisions(input.actions);
   const wording = wordingCheckDecisions(input.actions);
+  const followUp = followUpCheckDecisions(input.actions);
   const style = styleCheckDecisions(input.actions);
   const excludedSeqs = excludedFailedTurns(
     input.actions,
@@ -541,6 +556,16 @@ export function buildLiveReviewView(input: {
         turnId: null,
       });
     }
+    // A second reason on the same question is a second flag, with its own decision.
+    const followUpCheck = facts?.follow_up_check ?? null;
+    if (followUpCheck !== null) {
+      flags.push({
+        kind: "follow_up",
+        reason: followUpReason(interviewer, fq.position),
+        resolved: followUp.get(fq.position) ?? null,
+        turnId: null,
+      });
+    }
     if (entry?.style_check) {
       flags.push({
         kind: "style",
@@ -589,6 +614,9 @@ export function buildLiveReviewView(input: {
     } else if (wordingCheck !== null && !wording.has(fq.position)) {
       status = "waiting_review";
       statusReason = WAITING_REASON.wording_check;
+    } else if (followUpCheck !== null && !followUp.has(fq.position)) {
+      status = "waiting_review";
+      statusReason = WAITING_REASON.follow_up_check;
     } else {
       status = facts.status === "skipped" ? "skipped" : "answered";
     }
@@ -1361,6 +1389,7 @@ const QUESTION_RESOLVERS = {
   resolve_needs_check: resolveNeedsCheck,
   resolve_repeat_check: resolveRepeatCheck,
   resolve_wording_check: resolveWordingCheck,
+  resolve_follow_up_check: resolveFollowUpCheck,
   resolve_style_check: resolveStyleCheck,
 } as const;
 

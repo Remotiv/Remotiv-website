@@ -169,10 +169,12 @@ test("numbered 049: 047 is access-log retention, 048 is the repeat check, no sec
   );
 });
 
-test("the fake database accepts resolve_wording_check exactly as the migration does", () => {
+test("the fake database accepts resolve_wording_check as the migration does", () => {
   const lists = [...fakeDb.matchAll(/\[([^\]]*)\]\.includes\(row\.action\)/g)]
     .map((m) => [...m[1].matchAll(/"([a-z_]+)"/g)].map((x) => x[1]))
     .filter((l) => l.includes("resolve_needs_check"));
   assert.equal(lists.length, 2, "decision and target rules");
-  for (const l of lists) assert.deepEqual(l, PER_QUESTION);
+  // The fake mirrors the latest schema: 076 added resolve_follow_up_check
+  // (pinned exactly in migration-076.test.ts). Every action 049 names is still there.
+  for (const l of lists) for (const a of PER_QUESTION) assert.ok(l.includes(a), a);
 });

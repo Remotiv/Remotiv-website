@@ -5,7 +5,7 @@
  * and storage upload / list / remove / createSignedUrl.
  *
  * interview_turns rows are checked against the constraints of migrations 021,
- * 022 and 041 on every insert and update, and a multi-row insert lands whole
+ * 022, 041 and 076 on every insert and update, and a multi-row insert lands whole
  * or not at all, as one Postgres statement does. The three tables of migration
  * 042 (and 043) are checked too: job_question_scoring_guides (one per job and
  * wording, owned by the job's company), live_interview_scores (one per live
@@ -55,7 +55,13 @@ export function checkTurnRow(row, allRows, sessions) {
     fail("interview_turns_position_required");
   if (
     (row.kind === "follow_up") !== (row.follow_up_index !== null) ||
-    (row.follow_up_index !== null && ![1, 2].includes(row.follow_up_index))
+    // 076: any whole index 1 to 10 (was 1 or 2, migration 021).
+    (row.follow_up_index !== null &&
+      !(
+        Number.isInteger(row.follow_up_index) &&
+        row.follow_up_index >= 1 &&
+        row.follow_up_index <= 10
+      ))
   )
     fail("interview_turns_follow_up_index");
   if (row.kind === "follow_up" && row.follow_up_reason === null && row.content_purged_at == null)
@@ -205,6 +211,7 @@ export function checkScoringRow(table, row, allRows, tables) {
       "resolve_needs_check",
       "resolve_repeat_check",
       "resolve_wording_check",
+      "resolve_follow_up_check",
       "resolve_style_check",
     ].includes(row.action) &&
       ["score", "exclude"].includes(row.decision)) ||
@@ -215,6 +222,7 @@ export function checkScoringRow(table, row, allRows, tables) {
       "resolve_needs_check",
       "resolve_repeat_check",
       "resolve_wording_check",
+      "resolve_follow_up_check",
       "resolve_style_check",
     ].includes(row.action)
       ? row.question_position == null

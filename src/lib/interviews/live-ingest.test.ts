@@ -229,7 +229,7 @@ test("what the fixture produced: statuses, follow-ups, timing_suspect; candidate
     ["ending_unconfirmed", 5, 1, 2, 8, 63],
   );
   assert.deepEqual(outcome.end_check, { reason: "exit_unconfirmed", never_asked: 2 });
-  assert.equal(outcome.v, 6);
+  assert.equal(outcome.v, 7);
   // Provisional until every answer is transcribed: no restart decision yet.
   assert.deepEqual([outcome.final, outcome.restart_allowed], [false, null]);
   assert.equal(isOutcomeDecided(outcome), false);
@@ -705,7 +705,7 @@ test("both real exports (candidate_ended) are never completed, even once every a
   }
 });
 
-test("needs_review includes the ending, a repeat check and a wording check; the outcome version is 6; the shipped exit list is empty", () => {
+test("needs_review includes the ending, a repeat check and a wording check; the outcome version is 7; the shipped exit list is empty", () => {
   assert.equal(
     needsReview([{ needs_check: false }], [], { reason: "ending_unknown", never_asked: 0 }),
     true,
@@ -726,7 +726,7 @@ test("needs_review includes the ending, a repeat check and a wording check; the 
   }
   // Nor before version 4.
   assert.equal(needsReview([{ needs_check: false, wording_check: undefined }], [], null), false);
-  assert.equal(LIVE_OUTCOME_VERSION, 6);
+  assert.equal(LIVE_OUTCOME_VERSION, 7);
   assert.equal(CONFIRMED_EXIT_CODES.size, 0, "D10 unconfirmed: no status is a confirmed exit");
 });
 
@@ -1677,15 +1677,18 @@ test("limit 0 (Recruiter-Defined): every question with a follow-up is flagged an
   const facts = assessLiveExport(p, frozenOf(), 1, null, 0);
   for (const q of facts.questions) {
     if (byPos.has(q.position)) {
-      assert.equal(q.wording_check, "follow_up_over_limit", `question ${q.position}`);
+      assert.equal(q.follow_up_check, "over_limit", `question ${q.position}`);
       assert.equal(q.follow_ups, byPos.get(q.position).length, "every follow-up is still counted");
     } else {
-      assert.notEqual(q.wording_check, "follow_up_over_limit", `question ${q.position}`);
+      assert.equal(q.follow_up_check, null, `question ${q.position}`);
     }
   }
   // Every over-limit follow-up turn is marked for the reviewer.
   const sequences = [...byPos.values()].flat().map((t) => t.sequence);
-  for (const s of sequences) assert.ok(facts.wording_check_turns.includes(s), `turn ${s}`);
+  assert.deepEqual(
+    facts.follow_up_check_turns,
+    [...sequences].sort((a, b) => a - b),
+  );
   assert.equal(facts.needs_review, true);
 });
 
@@ -1693,14 +1696,11 @@ test("limit 1: only the follow-up past the limit is marked; its question is held
   const p = parsedFixture();
   const [position, followUps] = [...followUpsByPosition(p)].find(([, f]) => f.length === 2);
   const facts = assessLiveExport(p, frozenOf(), 1, null, 1);
-  assert.equal(
-    facts.questions.find((q) => q.position === position).wording_check,
-    "follow_up_over_limit",
-  );
+  assert.equal(facts.questions.find((q) => q.position === position).follow_up_check, "over_limit");
   const second = followUps.find((t) => t.follow_up_index === 2).sequence;
   const first = followUps.find((t) => t.follow_up_index === 1).sequence;
-  assert.ok(facts.wording_check_turns.includes(second));
-  assert.ok(!facts.wording_check_turns.includes(first), "the permitted one is not marked");
+  assert.ok(facts.follow_up_check_turns.includes(second));
+  assert.ok(!facts.follow_up_check_turns.includes(first), "the permitted one is not marked");
 });
 
 test("a question held for its follow-ups waits for a person: scored or left out only on their decision", () => {
@@ -1708,39 +1708,189 @@ test("a question held for its follow-ups waits for a person: scored or left out 
   const frozen = frozenOf();
   const f = assessLiveExport(p, frozen, 1, null, 0);
   const outcome = { ...f, ...outcomeFrom(f.questions, f.provider_status_code, 1, true, true) };
-  const held = f.questions.find((q) => q.wording_check === "follow_up_over_limit").position;
+  const held = f.questions.find((q) => q.follow_up_check === "over_limit").position;
   const none = new Map();
   // Its timing check (if any) already resolved, so the follow-up hold is what is left.
   const timingDone = new Map(f.questions.map((q) => [q.position, "score"]));
-  const plan = (wordingCheck) =>
+  const plan = (followUpCheck) =>
     planLiveScoring(outcome, frozen.questions, {
       needsCheck: timingDone,
       repeatCheck: none,
-      wordingCheck,
+      wordingCheck: none,
+      followUpCheck,
       excludedPositions: new Set(),
     }).find((x) => x.position === held);
-  assert.deepEqual(plan(none), { position: held, decision: "wait", reason: "wording_check" });
-  assert.equal(plan(new Map([[held, "exclude"]])).decision, "left_out");
+  assert.deepEqual(plan(none), { position: held, decision: "wait", reason: "follow_up_check" });
+  assert.deepEqual(plan(new Map([[held, "exclude"]])), {
+    position: held,
+    decision: "left_out",
+    reason: "follow_up_excluded",
+  });
   // "score" clears the hold: whatever it waits for next, it is no longer the follow-ups.
-  assert.notEqual(plan(new Map([[held, "score"]])).reason, "wording_check");
+  assert.notEqual(plan(new Map([[held, "score"]])).reason, "follow_up_check");
 });
 
 test("the save reads the session's frozen limit: a Recruiter-Defined interview with follow-ups is saved, held", async () => {
   const w = world({ session: frozenRow({ live_settings: settingsV4("structured") }) });
   const { outcome, saved } = await save(w);
   assert.equal(saved, true, "the interview is kept, never refused");
-  assert.ok(outcome.questions.some((q) => q.wording_check === "follow_up_over_limit"));
+  assert.ok(outcome.questions.some((q) => q.follow_up_check === "over_limit"));
   const ai = world({ session: frozenRow({ live_settings: settingsV4("ai_guided") }) });
   const second = await save(ai);
-  assert.ok(second.outcome.questions.every((q) => q.wording_check !== "follow_up_over_limit"));
+  assert.ok(second.outcome.questions.every((q) => q.follow_up_check === null));
 });
 
-test("a third follow-up cannot be stored (interview_turns allows index 1 or 2): still refused, as before", () => {
-  const three = parsedFixture();
-  const fu = three.turns.find((t) => t.kind === "follow_up" && t.question_position === 2);
-  three.turns.push({ ...fu, provider_turn_id: "third", sequence: 33 });
+test("two follow-ups with the same index are broken data: still refused", () => {
+  const dup = parsedFixture();
+  const fu = dup.turns.find((t) => t.kind === "follow_up" && t.question_position === 2);
+  dup.turns.push({ ...fu, provider_turn_id: "same-index", sequence: 33 });
   assert.throws(
-    () => assessLiveExport(three, frozenOf(), 1, null, 2),
+    () => assessLiveExport(dup, frozenOf(), 1, null, 2),
     (e) => e.code === "too_many_follow_ups",
   );
+});
+
+/** The fixture with a third follow-up (index 3) on the question that already has two. */
+function withThirdFollowUp() {
+  const p = parsedFixture();
+  const [position, followUps] = [...followUpsByPosition(p)].find(([, f]) => f.length === 2);
+  const second = followUps.find((t) => t.follow_up_index === 2);
+  const third = {
+    ...second,
+    provider_turn_id: "third-follow-up",
+    sequence: Math.max(...p.turns.map((t) => t.sequence)) + 1,
+    follow_up_index: 3,
+  };
+  p.turns.push(third);
+  return { parsed: p, position, third };
+}
+
+test("#48: a third follow-up (limit 2) is kept and holds only its question; the others are untouched", () => {
+  const { parsed, position, third } = withThirdFollowUp();
+  const plain = assessLiveExport(parsedFixture(), frozenOf(), 1, null, 2);
+  const facts = assessLiveExport(parsed, frozenOf(), 1, null, 2);
+  const q = facts.questions.find((x) => x.position === position);
+  assert.equal(q.follow_up_check, "over_limit");
+  assert.equal(q.follow_ups, 3, "all three are counted");
+  assert.deepEqual(
+    facts.follow_up_check_turns,
+    [third.sequence],
+    "only the third is past the limit",
+  );
+  for (const other of facts.questions.filter((x) => x.position !== position)) {
+    const before = plain.questions.find((x) => x.position === other.position);
+    assert.deepEqual(other, before, `question ${other.position} unchanged`);
+  }
+});
+
+test("#48: the save keeps the third follow-up's turn and audio, and the interview", async () => {
+  const { parsed, position, third } = withThirdFollowUp();
+  const w = world({ session: frozenRow({ live_settings: settingsV4("ai_guided") }) });
+  const { providerSessionId } = await w.provider.createSession({
+    remotiv_session_id: SESSION,
+    interviewer_name: "Sarah",
+    interview_minutes: 30,
+    questions: [{ position: 1, text: "Q" }],
+    candidate_first_name: "Alex",
+    cv_text: "",
+  });
+  const exported = { ...parsed, provider_session_id: PROVIDER_SESSION };
+  const result = await quiet(() =>
+    saveLiveExport(SESSION, exported, {
+      service: w.db.service,
+      fetchAudio: (name) => w.provider.fetchAudio(providerSessionId, name),
+      now: () => T0,
+    }),
+  );
+  assert.equal(result.saved, true, "never refused for an extra follow-up");
+  const row = w.db.tables.interview_turns.find((t) => t.sequence === third.sequence);
+  assert.ok(row, "the third follow-up's turn is stored");
+  assert.equal(row.follow_up_index, 3);
+  assert.equal(row.kind, "follow_up");
+  assert.ok(row.media_path && row.media_bytes > 0, "with its audio");
+  assert.ok(w.db.objects.has(row.media_path), "the audio file is in storage");
+  assert.equal(
+    result.outcome.questions.find((q) => q.position === position).follow_up_check,
+    "over_limit",
+  );
+});
+
+test("#48 scoring: wording and follow-ups on one question are two holds; one decision never releases both", () => {
+  const p = parsedFixture();
+  const [position] = [...followUpsByPosition(p)].find(([, f]) => f.length === 2);
+  // The frozen question differs from what was asked, and the limit is 0: two reasons.
+  const frozen = frozenOf({}, { [position]: "Describe a time you changed a plan mid-project." });
+  const f = assessLiveExport(p, frozen, 1, null, 0);
+  const q = f.questions.find((x) => x.position === position);
+  assert.deepEqual([q.wording_check, q.follow_up_check], ["altered_wording", "over_limit"]);
+  const outcome = { ...f, ...outcomeFrom(f.questions, f.provider_status_code, 1, true, true) };
+  const timingDone = new Map(f.questions.map((x) => [x.position, "score"]));
+  const plan = (wordingCheck, followUpCheck) =>
+    planLiveScoring(outcome, frozen.questions, {
+      needsCheck: timingDone,
+      repeatCheck: new Map(),
+      wordingCheck,
+      followUpCheck,
+      excludedPositions: new Set(),
+    }).find((x) => x.position === position).reason;
+  const yes = new Map([[position, "score"]]);
+  const none = new Map();
+  assert.equal(plan(none, none), "wording_check");
+  assert.equal(plan(yes, none), "follow_up_check", "the wording decision alone keeps it held");
+  assert.equal(plan(none, yes), "wording_check", "the follow-up decision alone keeps it held");
+  assert.ok(!["wording_check", "follow_up_check"].includes(plan(yes, yes)), "both: released");
+});
+
+/* ── Waleed, 25 Nov: a connection lost at or near the time limit ── */
+
+/** The fixture as the provider would export it at the limit, ending as `code`. */
+function endingAtLimit(code, graceful) {
+  const p = parsedFixture();
+  p.status = {
+    ...p.status,
+    code,
+    provider_status: code,
+    end_reason: code,
+    completed_gracefully: graceful,
+  };
+  return p;
+}
+
+test("at the limit: every turn and its audio are kept, whatever the ending; the outcome follows the ending", async () => {
+  for (const [code, graceful, outcome] of [
+    // Sarah closed the interview normally: completed.
+    ["completed", true, "completed"],
+    // The connection dropped: kept, and a person decides how it ended.
+    ["disconnected", false, "ending_unconfirmed"],
+    // The provider stopped at its time limit without a confirmed close: a person decides.
+    ["timed_out", false, "ending_unconfirmed"],
+  ]) {
+    const w = world();
+    const parsed = endingAtLimit(code, graceful);
+    const r = await save(w, { ...parsed, provider_session_id: PROVIDER_SESSION });
+    assert.equal(r.saved, true, `${code}: never lost`);
+    assert.equal(w.db.tables.interview_turns.length, parsed.turns.length, `${code}: every turn`);
+    for (const t of w.db.tables.interview_turns) {
+      assert.ok(w.db.objects.has(t.media_path), `${code}: audio of turn ${t.sequence}`);
+    }
+    // Once every answer is transcribed (final), the ending decides the outcome.
+    const decided = outcomeFrom(r.outcome.questions, r.outcome.provider_status_code, 1, true, true);
+    assert.equal(decided.outcome, outcome, code);
+    if (outcome === "ending_unconfirmed") {
+      assert.ok(decided.end_check, `${code}: flagged for a person`);
+    }
+  }
+});
+
+test("at the limit with a provider error: a person decides; with nothing usable it is a technical failure", () => {
+  const p = endingAtLimit("provider_error", false);
+  const f = assessLiveExport(p, frozenOf(), 1);
+  const usable = outcomeFrom(f.questions, "provider_error", 1, true, true);
+  assert.deepEqual(
+    [usable.outcome, usable.end_check.reason],
+    ["ending_unconfirmed", "provider_error_saved"],
+  );
+  const broken = outcomeFrom(f.questions, "provider_error", 1, true, false);
+  assert.equal(broken.outcome, "technical_failure");
+  assert.equal(broken.restart_allowed, true, "and a restart can be offered");
 });

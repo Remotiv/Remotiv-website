@@ -17,6 +17,7 @@ import { INITIAL, liveReducer } from "./machine";
 import type { MockVoiceLoader } from "./mock-lines";
 import type { MockStepsLoader } from "./mock-voxagent";
 import { type CheckState, type LiveConsentView, LiveScreens } from "./screens";
+import { endAtTimeLimit, limitReached, secondsLeft } from "./time-limit";
 import { createTransport, type TransportEvent, type VoxAgentTransport } from "./transport";
 import { baseMime, PieceRecorder, type PieceView, type RecorderLike } from "./video-pieces";
 
@@ -148,6 +149,8 @@ export function LiveFlowCore({
   const screenRef = useRef(state.screen);
   screenRef.current = state.screen;
   const reportedSaved = useRef(false);
+  /** The chosen length was reached here: whatever the closed connection says next is ours, not news. */
+  const limitHitRef = useRef(false);
   const endTimer = useRef<number | null>(null);
 
   const tab = useTabLock(tabKey);
@@ -262,6 +265,9 @@ export function LiveFlowCore({
 
   const onEvent = useCallback(
     (event: TransportEvent) => {
+      // After the hard stop the call is over: a close or drop that follows is
+      // the page's own, never reported as a lost connection.
+      if (limitHitRef.current) return;
       dispatch({ t: "transport", event });
       if (event.type === "started") {
         startedAtRef.current = performance.now();
@@ -355,22 +361,28 @@ export function LiveFlowCore({
     }, END_CONFIRM_MS);
   }, [server]);
 
-  // The time limit, on the conversation's clock. Shown and reported; the provider ends it.
+  // The time limit, on the conversation's clock (#49): at the chosen length the
+  // call ends here, whatever the provider does. The server's backstop is only
+  // the technical clean-up. Video pieces already recorded keep uploading.
   useEffect(() => {
     if (state.screen !== "interview") return;
-    const limit = p.minutes * 60;
     const id = window.setInterval(() => {
-      const started = startedAtRef.current;
-      if (started === null) return;
-      const left = limit - (performance.now() - started) / 1000;
-      setTimeLeft(Math.max(0, left));
-      if (left <= 0 && !state.timeUp) {
+      const now = performance.now();
+      const left = secondsLeft(p.minutes, startedAtRef.current, now);
+      if (left === null) return;
+      setTimeLeft(left);
+      if (limitReached(p.minutes, startedAtRef.current, now) && !limitHitRef.current) {
+        limitHitRef.current = true;
         dispatch({ t: "time_up" });
-        server.event("timer_reached");
+        endAtTimeLimit({
+          report: () => server.event("timer_reached"),
+          closeTransport: () => transportRef.current?.close(),
+          stopRecording,
+        });
       }
     }, 500);
     return () => window.clearInterval(id);
-  }, [state.screen, state.timeUp, p.minutes, server]);
+  }, [state.screen, p.minutes, server, stopRecording]);
 
   // Nothing left to save (every piece saved, or refused for good): the ending can show, and
   // the camera light goes off. Only a fully saved video is reported as saved.

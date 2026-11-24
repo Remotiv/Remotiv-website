@@ -39,7 +39,9 @@ export type EndCause =
   | { kind: "session_complete"; endReason: string | null; graceful: boolean | null }
   | { kind: "dropped" }
   | { kind: "error"; code: string }
-  | { kind: "no_answer_to_end" };
+  | { kind: "no_answer_to_end" }
+  /** The interview's chosen length was reached on this screen (#49): the call ends here. */
+  | { kind: "time_limit" };
 
 export type Blocked =
   | "phone"
@@ -199,7 +201,11 @@ export function liveReducer(s: LiveState, a: LiveAction): LiveState {
     case "end_timeout":
       return s.endPressed ? over(s, "candidate_ended", { kind: "no_answer_to_end" }) : s;
     case "time_up":
-      return { ...s, timeUp: true };
+      // The hard stop at the chosen length (#49): the conversation is over for
+      // the candidate, and the video goes on to be saved.
+      return s.screen === "interview" && !s.ending
+        ? { ...over(s, "timed_out", { kind: "time_limit" }), timeUp: true }
+        : { ...s, timeUp: true };
     case "video_saved":
       return s.screen === "saving" ? { ...s, screen: "done" } : s;
     case "block":

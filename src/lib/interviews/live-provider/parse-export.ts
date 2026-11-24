@@ -1,14 +1,14 @@
-import { MAX_FOLLOW_UPS_PER_BASE_QUESTION } from "@/lib/interviews/types";
-import type {
-  ExportStatus,
-  ExportStatusCode,
-  Interruption,
-  InterruptionAmbiguity,
-  LiveSpeaker,
-  LiveTurn,
-  LiveTurnKind,
-  ParsedExport,
-  TurnOverlap,
+import {
+  type ExportStatus,
+  type ExportStatusCode,
+  FOLLOW_UP_INDEX_MAX,
+  type Interruption,
+  type InterruptionAmbiguity,
+  type LiveSpeaker,
+  type LiveTurn,
+  type LiveTurnKind,
+  type ParsedExport,
+  type TurnOverlap,
 } from "./types";
 
 /**
@@ -381,12 +381,19 @@ export function parseExport(raw: unknown): ParsedExport {
       if (text === null) throw new LiveExportError("missing_interviewer_text", "no text", i);
     }
 
-    let followUpIndex: 1 | 2 | null = null;
+    let followUpIndex: number | null = null;
     let followUpReason: string | null = null;
     if (kind === "follow_up") {
+      // Any index the schema keeps (1 to FOLLOW_UP_INDEX_MAX, migration 076).
+      // One past the session's own limit is kept and held by the importer;
+      // only an index nothing can store is broken data.
       const n = t.follow_up_index;
-      if ((n !== 1 && n !== 2) || n > MAX_FOLLOW_UPS_PER_BASE_QUESTION) {
-        throw new LiveExportError("bad_follow_up", "follow_up_index must be 1 or 2", i);
+      if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > FOLLOW_UP_INDEX_MAX) {
+        throw new LiveExportError(
+          "bad_follow_up",
+          `follow_up_index must be a whole number from 1 to ${FOLLOW_UP_INDEX_MAX}`,
+          i,
+        );
       }
       followUpIndex = n;
       if (hasValue(t.follow_up_reason) && typeof t.follow_up_reason !== "string") {

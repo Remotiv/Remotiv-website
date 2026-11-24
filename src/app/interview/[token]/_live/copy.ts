@@ -222,6 +222,8 @@ export function endingNote(ending: Ending, cause: EndCause | null): string {
           ? "the connection closed without session_complete"
           : cause.kind === "error"
             ? `error ${JSON.stringify(cause.code)}`
-            : "no answer from the provider within 10 seconds of End";
+            : cause.kind === "time_limit"
+              ? "nothing: the time limit was reached on this screen"
+              : "no answer from the provider within 10 seconds of End";
   return `Demo: ending "${ending}". The provider sent: ${sent}.`;
 }

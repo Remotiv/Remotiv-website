@@ -78,7 +78,7 @@ export type LiveQuestionStatus =
   | "waiting";
 
 export type LiveReviewFlag = {
-  kind: "timing" | "repeat" | "wording" | "style" | "transcription_failed";
+  kind: "timing" | "repeat" | "wording" | "follow_up" | "style" | "transcription_failed";
   reason: string;
   /** The holding decision, or null while unresolved. */
   resolved: "score" | "exclude" | "retry" | null;
@@ -302,6 +302,7 @@ export type LiveRecoveryRequest =
         | "resolve_needs_check"
         | "resolve_repeat_check"
         | "resolve_wording_check"
+        | "resolve_follow_up_check"
         | "resolve_style_check";
       sessionId: string;
       position: number;

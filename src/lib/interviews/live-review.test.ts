@@ -1902,3 +1902,80 @@ test("F15b interruption speech is shown on its question, labelled, with its audi
     "Candidate",
   );
 });
+
+/* ── #48: a question held for its wording AND its follow-ups ───── */
+
+const { followUpReason } = await import("./live-review.ts");
+
+/** Question 2 asked in changed words, and followed up more than allowed: two reasons. */
+function bothReasonsInput() {
+  const input = wordingInput("altered_wording");
+  input.session.live_outcome.questions[1].follow_up_check = "over_limit";
+  input.row = null;
+  return input;
+}
+const resolveAt = (action, decision = "score", at = "2026-11-25T10:00:00.000Z") => ({
+  action,
+  decision,
+  question_position: 2,
+  turn_id: null,
+  turn_sequence: null,
+  created_at: at,
+});
+
+test("#48 two reasons on one question: both are shown, each on its own card with its own decision", () => {
+  const v = buildLiveReviewView(bothReasonsInput());
+  const q2 = byPos(v, 2);
+  assert.deepEqual(
+    q2.flags.map((f) => [f.kind, f.reason, f.resolved]),
+    [
+      ["wording", WORDING_TEXT.altered_wording("Maya", 2), null],
+      ["follow_up", followUpReason("Maya", 2), null],
+    ],
+  );
+  assert.equal(q2.status, "waiting_review");
+  assert.deepEqual(v.header.reviewReasons, [
+    WORDING_TEXT.altered_wording("Maya", 2),
+    followUpReason("Maya", 2),
+  ]);
+  assert.equal(
+    followUpReason("Maya", 2),
+    "Maya asked more follow-up questions on question 2 than this interview allows. It is not scored until a person checks the recording.",
+  );
+});
+
+test("#48 resolving one reason keeps the question held for the other; resolving both releases it", () => {
+  const input = bothReasonsInput();
+  input.actions = [resolveAt("resolve_wording_check")];
+  let q2 = byPos(buildLiveReviewView(input), 2);
+  assert.deepEqual(
+    q2.flags.map((f) => [f.kind, f.resolved]),
+    [
+      ["wording", "score"],
+      ["follow_up", null],
+    ],
+  );
+  assert.deepEqual(
+    [q2.status, q2.statusReason],
+    ["waiting_review", "Waiting for a check of the follow-up questions asked."],
+  );
+
+  input.actions = [resolveAt("resolve_follow_up_check")];
+  q2 = byPos(buildLiveReviewView(input), 2);
+  assert.deepEqual(
+    [q2.status, q2.statusReason],
+    ["waiting_review", "Waiting for a check of how the question was asked."],
+    "the other order holds too",
+  );
+
+  input.actions = [resolveAt("resolve_wording_check"), resolveAt("resolve_follow_up_check")];
+  q2 = byPos(buildLiveReviewView(input), 2);
+  assert.notEqual(q2.status, "waiting_review");
+  assert.deepEqual(
+    q2.flags.map((f) => [f.kind, f.resolved]),
+    [
+      ["wording", "score"],
+      ["follow_up", "score"],
+    ],
+  );
+});

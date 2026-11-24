@@ -7,12 +7,13 @@ import {
   readFrozenQuestionSet,
 } from "@/lib/interviews/frozen-questions";
 import { stampLiveEnded } from "@/lib/interviews/live-events";
-import type {
-  ExportStatusCode,
-  Interruption,
-  LiveTurn,
-  ParsedExport,
-  TurnAudio,
+import {
+  type ExportStatusCode,
+  FOLLOW_UP_INDEX_MAX,
+  type Interruption,
+  type LiveTurn,
+  type ParsedExport,
+  type TurnAudio,
 } from "@/lib/interviews/live-provider/types";
 import type { TranscriptionRequest } from "@/lib/interviews/live-transcribe";
 import { INTERVIEW_BUCKET } from "@/lib/interviews/session";
@@ -141,7 +142,8 @@ import type { createServiceClient } from "@/lib/supabase/server";
 
 type Service = ReturnType<typeof createServiceClient>;
 
-export const LIVE_OUTCOME_VERSION = 6;
+/** 7: follow_up_check and follow_up_check_turns (#48, 25 Nov). */
+export const LIVE_OUTCOME_VERSION = 7;
 /** One turn's audio, at most: Whisper's limit, and far above a spoken turn. */
 export const MAX_TURN_AUDIO_BYTES = 25 * 1024 * 1024;
 
@@ -212,11 +214,21 @@ export type WordingCheck =
   /** Anything else: changed, shortened or extended wording, a long lead-in, or no question. */
   | "altered_wording"
   /**
-   * More follow-ups on the question than the session's frozen limit (24 Nov):
-   * any follow-up at all in Recruiter-Defined (limit 0). Outranks the other
-   * two: the question was not put as agreed, whatever its first wording.
+   * LEGACY, never written since outcome v7: the follow-up limit was briefly a
+   * wording check value. It is its own check now (FollowUpCheck), so that a
+   * question held for both reasons shows both and needs both decisions. Kept
+   * so that any outcome saved in between still reads and renders.
    */
   | "follow_up_over_limit";
+
+/**
+ * Why a question's follow-ups need a person (#48, 25 Nov): more than the
+ * session's frozen limit (0 for Recruiter-Defined, 2 for AI-Guided). Every
+ * turn is kept, audio included; the question is held from scoring until a
+ * person resolves it (resolve_follow_up_check), independently of every other
+ * check: one decision never clears another.
+ */
+export type FollowUpCheck = "over_limit";
 
 /**
  * Why an interruption on a question needs a person (F15, 26 Oct 2026).
@@ -268,6 +280,11 @@ export type LiveQuestionFacts = {
    * outcome saved before version 5: read as null.
    */
   interruption_check: InterruptionCheck | null;
+  /**
+   * More follow-ups than the session allows. Holds the question from scoring
+   * until resolved (resolve_follow_up_check). Absent before outcome v7: null.
+   */
+  follow_up_check?: FollowUpCheck | null;
 };
 
 export type LiveOutcome = {
@@ -296,6 +313,8 @@ export type LiveOutcome = {
    * frozen, and of follow-ups past the session's follow-up limit.
    */
   wording_check_turns: number[];
+  /** Sequences of follow-ups past the session's limit. Absent before outcome v7. */
+  follow_up_check_turns?: number[];
   /** Sequences of marked repeats that did not ask their question as agreed. */
   repeat_check_turns: number[];
   /** Every interruption line, placed (parse-export.ts). Absent before version 5. */
@@ -440,14 +459,14 @@ function restartAllowed(outcome: LiveOutcomeCode, final: boolean, attempt: numbe
 
 /**
  * Whether the session needs a person: the ending needs a check, any question
- * needs_check or has a repeat_check or a wording_check, any interruption line
+ * needs_check or has a repeat_check, a wording_check or a follow_up_check, any interruption line
  * needs a check, or any turn failed transcription. The
  * per-question flags, the failed list and the end check stay as they are; this
  * is the session-level summary of all of them.
  */
 export function needsReview(
   questions: readonly (Pick<LiveQuestionFacts, "needs_check"> &
-    Partial<Pick<LiveQuestionFacts, "repeat_check" | "wording_check">>)[],
+    Partial<Pick<LiveQuestionFacts, "repeat_check" | "wording_check" | "follow_up_check">>)[],
   failedTurns: readonly number[],
   endCheck: EndCheck | null,
   interruptionCheckTurns: readonly number[] = [],
@@ -458,7 +477,10 @@ export function needsReview(
     interruptionCheckTurns.length > 0 ||
     questions.some(
       (q) =>
-        q.needs_check || (q.repeat_check ?? null) !== null || (q.wording_check ?? null) !== null,
+        q.needs_check ||
+        (q.repeat_check ?? null) !== null ||
+        (q.wording_check ?? null) !== null ||
+        (q.follow_up_check ?? null) !== null,
     )
   );
 }
@@ -781,8 +803,9 @@ export class LiveIngestError extends Error {
  * `candidateFirstName` is only compared (classifyAsked), never kept.
  * `followUpLimit` is the session's frozen max_follow_ups_per_base_question
  * (0 for Recruiter-Defined, 2 for AI-Guided): a follow-up past it holds its
- * question for a person (wording_check follow_up_over_limit), never refuses
- * the interview and is never scored silently.
+ * question for a person (follow_up_check over_limit), never refuses the
+ * interview and is never scored silently. Only more follow-ups on one question
+ * than FOLLOW_UP_INDEX_MAX, or two with the same index, is broken data.
  */
 export function assessLiveExport(
   parsed: ParsedExport,
@@ -848,6 +871,7 @@ export function assessLiveExport(
 
   const questions: LiveQuestionFacts[] = [];
   const wordingCheckTurns: number[] = [];
+  const followUpCheckTurns: number[] = [];
   const repeatCheckTurns: number[] = [];
   for (const q of frozen.questions) {
     // A marked repeat stays a procedural repeat whatever it said. One that did
@@ -878,9 +902,9 @@ export function assessLiveExport(
       (t) => t.kind === "follow_up" && t.question_position === q.position,
     );
     const indexes = new Set(followUps.map((t) => t.follow_up_index));
-    // More than the schema can hold (two, one per index) cannot be saved at
-    // all; within that, more than this session allows is held, not refused.
-    if (followUps.length > MAX_FOLLOW_UPS_PER_BASE_QUESTION || indexes.size !== followUps.length) {
+    // Broken data only: more than the schema keeps on one question (076), or
+    // two with the same index. More than this session allows is kept and held.
+    if (followUps.length > FOLLOW_UP_INDEX_MAX || indexes.size !== followUps.length) {
       throw new LiveIngestError(
         "too_many_follow_ups",
         `position ${q.position} has ${followUps.length} follow-ups`,
@@ -899,12 +923,12 @@ export function assessLiveExport(
     // harmless differences aside. Never asked: nothing to check.
     const wording =
       asked.length === 1 ? classifyAsked(q.text, asked[0].text ?? "", candidateFirstName) : null;
-    const askedCheck =
+    const wordingCheck =
       wording === "unexpected_lead_in" || wording === "altered_wording" ? wording : null;
-    if (askedCheck !== null) wordingCheckTurns.push(asked[0].sequence);
-    for (const t of overLimit) wordingCheckTurns.push(t.sequence);
-    const wordingCheck: WordingCheck | null =
-      overLimit.length > 0 ? "follow_up_over_limit" : askedCheck;
+    if (wordingCheck !== null) wordingCheckTurns.push(asked[0].sequence);
+    // Its own check, beside the wording one: both can hold the same question.
+    const followUpCheck: FollowUpCheck | null = overLimit.length > 0 ? "over_limit" : null;
+    for (const t of overLimit) followUpCheckTurns.push(t.sequence);
     questions.push({
       position: q.position,
       source: q.source,
@@ -919,6 +943,7 @@ export function assessLiveExport(
       repeat_check: repeatCheck,
       wording_check: wordingCheck,
       interruption_check: interruptionByPosition.get(q.position) ?? null,
+      follow_up_check: followUpCheck,
     });
   }
 
@@ -942,6 +967,7 @@ export function assessLiveExport(
     timing_suspect: suspect.length > 0,
     timing_suspect_turns: suspect,
     wording_check_turns: wordingCheckTurns.sort((a, b) => a - b),
+    follow_up_check_turns: followUpCheckTurns.sort((a, b) => a - b),
     repeat_check_turns: repeatCheckTurns.sort((a, b) => a - b),
     interruptions,
     interruption_check_turns: interruptionCheckTurns.sort((a, b) => a - b),

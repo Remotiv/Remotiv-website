@@ -142,18 +142,23 @@ test("the first end wins: nothing after it changes the screen or the ending", ()
   }
 });
 
-test("the interview: speaking, listening, thinking, captions, interruptions counted, time up shown", () => {
+test("the interview: speaking, listening, thinking, captions, interruptions counted; time up ends it here (#49)", () => {
   let s = go(...IN_INTERVIEW);
   s = liveReducer(s, T({ type: "agent", state: "speaking" }));
   s = liveReducer(s, T({ type: "agent_text", text: "Tell me about a project." }));
   s = liveReducer(s, T({ type: "interrupted" }));
   s = liveReducer(s, T({ type: "agent", state: "listening" }));
-  s = liveReducer(s, { t: "time_up" });
   assert.deepEqual(
     [s.agent, s.caption, s.interruptions, s.timeUp],
-    ["listening", "Tell me about a project.", 1, true],
+    ["listening", "Tell me about a project.", 1, false],
   );
-  assert.equal(s.screen, "interview", "time up does not end it: the provider does");
+  s = liveReducer(s, { t: "time_up" });
+  // The hard stop at the chosen length: the call is over for the candidate,
+  // the video is saved, then the time-limit ending is shown.
+  assert.deepEqual(
+    [s.screen, s.ending, s.endCause, s.timeUp, s.agent],
+    ["saving", "timed_out", { kind: "time_limit" }, true, null],
+  );
 });
 
 test("start: busy and failures go to 'try again' (nothing used up); consent needed goes back; the rest block", () => {
