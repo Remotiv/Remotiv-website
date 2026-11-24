@@ -11,7 +11,7 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { register } from "node:module";
-import { test } from "node:test";
+import { afterEach, test } from "node:test";
 
 register(new URL("../../test-support/node-resolve.mjs", import.meta.url));
 register(
@@ -35,6 +35,23 @@ function setKeys(map, current) {
   process.env.CALENDAR_TOKEN_KEY_CURRENT = current;
 }
 setKeys({ k1: KEY_A }, "k1");
+// Every test starts from these keys, even after one that failed half way
+// through its own setKeys calls.
+afterEach(() => setKeys({ k1: KEY_A }, "k1"));
+
+/**
+ * A sealed value with one byte of its ciphertext flipped, so it never opens.
+ * Not by editing the last base64url character: the last character also
+ * carries padding bits the decoder ignores (a 53-byte ciphertext leaves two),
+ * so swapping "A" for "B" there decodes to the same bytes 1 time in 16.
+ */
+function tamperCiphertext(sealed) {
+  const parts = sealed.split(".");
+  const ct = Buffer.from(parts[4], "base64url");
+  ct[0] ^= 0x01;
+  parts[4] = ct.toString("base64url");
+  return parts.join(".");
+}
 
 /** Run fn expecting a TokenCryptoError with this reason; returns the error. */
 function refuses(fn, reason) {
@@ -177,12 +194,7 @@ test("nothing it says, logs or throws contains a key, the token or the sealed va
       }
     };
     tryIt(() => open(sealed, tokenAad({ ...ROW, memberId: "m-other" })));
-    tryIt(() =>
-      open(
-        sealed.replace(/.$/, (c) => (c === "A" ? "B" : "A")),
-        AAD,
-      ),
-    );
+    tryIt(() => open(tamperCiphertext(sealed), AAD));
     setKeys({ k1: KEY_B }, "k1");
     tryIt(() => open(sealed, AAD));
     setKeys({ k1: `${KEY_A}x` }, "k1");
