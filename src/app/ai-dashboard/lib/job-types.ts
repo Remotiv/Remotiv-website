@@ -76,6 +76,38 @@ export const JOB_TEXT_COUNTER_FROM = 9_000;
 export const JOB_INTERVIEWER_NAME_MAX = 60;
 
 /**
+ * AI Video Interview settings on each job (migration 074, decided 24 Nov).
+ * Types only for now: no wizard field shows them and no save writes them yet,
+ * so they are deliberately NOT on CompanyJobInput or CompanyJobRow, whose
+ * selects and patches do not carry them. The step that wires them adds them
+ * there, with buildPatch validating against these constants.
+ *
+ * live_hiring_challenges is CONFIDENTIAL: recruiter text used only to generate
+ * questions. Never sent to VoxAgent, never on the public keep-list
+ * (lib/jobs.ts), never in a candidate payload.
+ */
+export const LIVE_INTERVIEW_MODES = ["structured", "ai_guided"] as const;
+export type LiveInterviewMode = (typeof LIVE_INTERVIEW_MODES)[number];
+/** Every job made before migration 074 is structured, through the column default. */
+export const DEFAULT_LIVE_INTERVIEW_MODE: LiveInterviewMode = "structured";
+
+/** Minutes. 60 is a maximum, not a target. NOT interview_duration_minutes (the Team Call). */
+export const LIVE_INTERVIEW_MINUTES = [30, 60] as const;
+export type LiveInterviewMinutes = (typeof LIVE_INTERVIEW_MINUTES)[number];
+export const DEFAULT_LIVE_INTERVIEW_MINUTES: LiveInterviewMinutes = 30;
+
+/** The column's CHECK (074): about 300 words. */
+export const LIVE_HIRING_CHALLENGES_MAX = 2000;
+
+/** The three columns as stored on public.jobs. */
+export type JobLiveInterviewSettings = {
+  live_interview_mode: LiveInterviewMode;
+  live_interview_minutes: LiveInterviewMinutes;
+  /** Null when the recruiter gave none. */
+  live_hiring_challenges: string | null;
+};
+
+/**
  * DB status enum. The design speaks Published/Draft/Closed; the column only has
  * these three values, so the UI maps onto them (see JOB_STATUS_LABELS).
  * Critically, ONLY 'open' is public — getInitialJobs filters status='open' —

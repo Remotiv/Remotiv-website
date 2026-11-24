@@ -78,6 +78,10 @@ const ALL_COLUMNS = [
   "interview_duration_minutes",
   "language",
   "listed_on_remotiv",
+  // Migration 074 (24 Nov): the AI Video Interview settings. Never public.
+  "live_hiring_challenges",
+  "live_interview_minutes",
+  "live_interview_mode",
   "location",
   "measure_relevancy",
   "positions",
@@ -143,9 +147,9 @@ const job = (n, over = {}) => {
  * columns ("*" is every one), eq/is/in filter. `honourSelect: false` returns
  * whole rows whatever was asked, to prove the readers' own projection.
  */
-function fakeDb({ honourSelect = true } = {}) {
+function fakeDb({ honourSelect = true, over = {} } = {}) {
   const tables = {
-    jobs: [job(1), job(2), job(3, { status: "closed" })],
+    jobs: [job(1, over), job(2, over), job(3, { ...over, status: "closed" })],
     companies: [
       {
         id: CO,
@@ -221,6 +225,9 @@ const NEVER = [
   "booking_hours_override",
   "avatar_interviewer_name",
   "cv_weight_domain",
+  "live_interview_mode",
+  "live_interview_minutes",
+  "live_hiring_challenges",
 ];
 function assertNoInternal(value) {
   const text = JSON.stringify(value);
@@ -271,6 +278,50 @@ test("the keep-lists are exactly the approved fields", () => {
     PUBLIC_JOB_SUMMARY_FIELDS.join(","),
     "LIST_SELECT is built from the keep-list",
   );
+});
+
+/* ── migration 074: the AI Video Interview settings ─────────────── */
+
+const LIVE_SETTINGS_COLUMNS = [
+  "live_interview_mode",
+  "live_interview_minutes",
+  "live_hiring_challenges",
+];
+/** What a recruiter might write. It must never appear in any public response. */
+const CHALLENGE_TEXT = "Confidential: the last two hires left within a month over on-call load.";
+
+test("074: the three AI Video Interview settings are on no keep-list, and no public reader sends them", async () => {
+  for (const c of LIVE_SETTINGS_COLUMNS) {
+    assert.ok(!PUBLIC_JOB_SUMMARY_FIELDS.includes(c), `${c} on the summary keep-list`);
+    assert.ok(!PUBLIC_JOB_DETAIL_FIELDS.includes(c), `${c} on the detail keep-list`);
+    assert.ok(!jobs.LIST_SELECT.split(",").includes(c), `${c} in LIST_SELECT`);
+  }
+  // honourSelect false: every row comes back whole, so only the readers' own projection protects it.
+  for (const honourSelect of [true, false]) {
+    fakeDb({
+      honourSelect,
+      over: {
+        live_interview_mode: "ai_guided",
+        live_interview_minutes: 60,
+        live_hiring_challenges: CHALLENGE_TEXT,
+      },
+    });
+    const sent = JSON.stringify([
+      await (await GET(request("/api/jobs"))).json(),
+      (await getInitialJobs()).value,
+      (await fetchCompanyJobs(CO)).value,
+      (await getJobBySlug("role-1")).value,
+    ]);
+    assert.ok(sent.includes("role-1"), "the readers did return jobs");
+    for (const c of LIVE_SETTINGS_COLUMNS) {
+      assert.ok(!sent.includes(`"${c}"`), `${c} was sent (honourSelect ${honourSelect})`);
+    }
+    assert.ok(
+      !sent.includes(CHALLENGE_TEXT),
+      `the challenge text was sent (honourSelect ${honourSelect})`,
+    );
+    assert.ok(!sent.includes("ai_guided"), `the mode was sent (honourSelect ${honourSelect})`);
+  }
 });
 
 /* ── each public reader ───────────────────────────────────────── */
