@@ -24,10 +24,10 @@ import { ADDRESS_TAG, EMAIL_TAG, LINK_TAG, PHONE_TAG } from "./cv-sanitize";
  * 4 job + 4 CV for 30 minutes) and keep it when read: readers use the frozen
  * copy. The freeze no longer runs that split and refuses those sessions.
  *
- * questionMixFor and describeQuestionMix still give the table's numbers ONLY
- * because the job wizard's read-only line is built from them
- * (jobs/new/_wizard-client.tsx), and its wording changes in its own step. No
- * invite uses questionMixFor any more.
+ * No invite and no screen uses the table any more: the wizard's words are
+ * jobs/new/ai-video-copy.ts (#12). questionMixFor stays only as the record of
+ * the time budget behind MAX_JOB_QUESTIONS (question-mix.test.ts) and of what
+ * a v2 session's frozen split means.
  *
  * ── The table: sized on the AVERAGE question, provisional ────
  *
@@ -127,8 +127,8 @@ export function jobQuestionMix(jobQuestionCount: number, sessionMinutes: number)
 /**
  * The TABLE's mix (question-mix-v1) for a session of this many minutes: the
  * nearest row at or below it, or the shortest row when it is below every row
- * or not a number. Never throws. Kept for the wizard's line only; no invite
- * uses it.
+ * or not a number. Never throws. No invite or screen uses it: see the top of
+ * this file.
  */
 export function questionMixFor(sessionMinutes: number): QuestionMix {
   const rows = [...QUESTION_MIX_TABLE].sort((a, b) => a.minutes - b.minutes);
@@ -156,11 +156,4 @@ export function cvSupportsQuestions(sanitizedCvText: string | null | undefined):
     .replace(CONTACT_TAGS_RE, "")
     .trim();
   return text.length >= MIN_CV_CHARS_FOR_CV_QUESTIONS;
-}
-
-/** The wizard's read-only line, e.g. "30 min interview: 4 job questions + 4 CV-based questions, same for every candidate." */
-export function describeQuestionMix(mix: QuestionMix): string {
-  const job = `${mix.job_questions} job question${mix.job_questions === 1 ? "" : "s"}`;
-  const cv = `${mix.cv_questions} CV-based question${mix.cv_questions === 1 ? "" : "s"}`;
-  return `${mix.session_minutes} min interview: ${job} + ${cv}, same for every candidate.`;
 }

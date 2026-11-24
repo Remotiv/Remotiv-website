@@ -55,7 +55,6 @@ import {
   weightsAreEqual,
 } from "@/app/ai-dashboard/lib/job-types";
 import { useModalFocus } from "@/hooks/use-modal-focus";
-import { describeQuestionMix, questionMixFor } from "@/lib/interviews/question-mix";
 import {
   ANSWER_SECONDS_MAX,
   ANSWER_SECONDS_MIN,
@@ -65,7 +64,6 @@ import {
   type InterviewLengthId,
   type InterviewQuestionInput,
   MAX_QUESTIONS,
-  MAX_SESSION_SECONDS,
   MIN_QUESTIONS,
   PREP_SECONDS_MAX,
   PREP_SECONDS_MIN,
@@ -88,6 +86,12 @@ import {
   suggestScreeningQuestions,
   updateCompanyJob,
 } from "../actions";
+import {
+  AI_VIDEO_OPTION_DESCRIPTION,
+  AI_VIDEO_QUESTION_COUNT_WARNING,
+  AI_VIDEO_QUESTIONS_HINT,
+  aiVideoQuestionCountOutOfRange,
+} from "./ai-video-copy";
 import { fieldErrorId, fieldErrorProps, firstInvalidFieldId } from "./field-errors";
 import { currencySymbol, salaryRange } from "./salary-range";
 
@@ -678,15 +682,6 @@ const INPUT_ERR_CLS = "border-[#E0524B] ring-[3px] ring-[#E0524B]/[0.14] focus:b
 const TEXTAREA_CLS = `${INPUT_CLS} min-h-24 resize-y leading-relaxed`;
 const LABEL_CLS = "mb-[7px] block text-xs font-semibold text-[var(--ai-t2)]";
 const HINT_CLS = "mt-[7px] text-xs leading-relaxed text-[var(--ai-t3)]";
-
-/**
- * Read-only: how many job and CV questions every AI Video Interview has. The
- * same policy the invite freezes (lib/interviews/question-mix.ts), for the one
- * live length there is, so this line cannot disagree with what is sent.
- */
-const AI_VIDEO_QUESTION_MIX_LINE = describeQuestionMix(questionMixFor(MAX_SESSION_SECONDS / 60));
-/** The job slots are the job's own questions, word for word: it needs at least this many. */
-const AI_VIDEO_JOB_QUESTIONS = questionMixFor(MAX_SESSION_SECONDS / 60).job_questions;
 
 /*
  * Step-rail states, transcribed from the designer's v2 `.step` spec. The rail
@@ -2893,7 +2888,7 @@ export function WizardClient({
                               both, in no enforced order. */}
                           <OptionRow
                             title="AI Video Interview"
-                            desc="A live spoken interview. Candidates answer out loud on camera while an AI interviewer asks questions about this job and their CV, and it can ask up to 2 follow-ups on an answer. Use it instead of the async screen, or as well."
+                            desc={AI_VIDEO_OPTION_DESCRIPTION}
                             on={state.avatar_interview_enabled}
                             onToggle={() =>
                               set("avatar_interview_enabled", !state.avatar_interview_enabled)
@@ -2909,14 +2904,12 @@ export function WizardClient({
                               value={state.avatar_interviewer_name}
                               onChange={(v) => set("avatar_interviewer_name", v)}
                             />
-                            <p className={HINT_CLS}>{AI_VIDEO_QUESTION_MIX_LINE}</p>
-                            {state.interview_questions.filter((q) => q.question.trim()).length <
-                              AI_VIDEO_JOB_QUESTIONS && (
+                            <p className={HINT_CLS}>{AI_VIDEO_QUESTIONS_HINT}</p>
+                            {aiVideoQuestionCountOutOfRange(
+                              state.interview_questions.filter((q) => q.question.trim()).length,
+                            ) && (
                               <p className="mt-1.5 text-xs text-[#C4362F]">
-                                AI Video Interview needs at least {AI_VIDEO_JOB_QUESTIONS} interview
-                                questions on this job. Every candidate is asked the first{" "}
-                                {AI_VIDEO_JOB_QUESTIONS}, word for word. Add them on the Interview
-                                questions step.
+                                {AI_VIDEO_QUESTION_COUNT_WARNING}
                               </p>
                             )}
                           </OptionRow>

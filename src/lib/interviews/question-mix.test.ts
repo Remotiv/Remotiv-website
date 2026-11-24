@@ -15,7 +15,6 @@ register(new URL("../../test-support/node-resolve.mjs", import.meta.url));
 
 const {
   CV_QUESTIONS_PER_INTERVIEW,
-  describeQuestionMix,
   jobQuestionMix,
   MAX_JOB_QUESTIONS,
   MIN_JOB_QUESTIONS,
@@ -144,13 +143,7 @@ test("the CV minimum is the CV scorer's: a CV too short to score is too short to
   assert.equal(MIN_CV_CHARS_FOR_CV_QUESTIONS, scorerMin);
 });
 
-test("the wizard's line: unchanged in #13 (its wording is the next step)", () => {
-  assert.equal(
-    describeQuestionMix(questionMixFor(30)),
-    "30 min interview: 4 job questions + 4 CV-based questions, same for every candidate.",
-  );
-  assert.equal(
-    describeQuestionMix(questionMixFor(15)),
-    "15 min interview: 2 job questions + 1 CV-based question, same for every candidate.",
-  );
+test("the old wizard line is gone: nothing here writes the 4 job + 4 CV text any more (#12)", () => {
+  const mixModule = readFileSync(new URL("./question-mix.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(mixModule, /export function describeQuestionMix|`[^`]*CV-based question/);
 });

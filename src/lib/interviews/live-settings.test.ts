@@ -111,11 +111,22 @@ test("an invite freezes v3: every one of the job's questions, no CV questions", 
   assert.deepEqual(settings.follow_up_rules, FOLLOW_UP_RULES);
 });
 
-test("a count outside 4..8 is stored as it is, never cut or padded: the freeze refuses it", async () => {
-  for (const n of [3, 9]) {
-    const settings = await frozenAtInvite(n);
-    assert.equal(settings.question_mix.job_questions, n);
-    assert.equal(settings.question_mix.cv_questions, 0);
+test("#19: fewer than 4 or more than 8 questions: the gate refuses with the approved text", async () => {
+  for (const n of [0, 1, 3, 9, 12, 50]) {
+    const { gate } = await gateFor(n);
+    assert.deepEqual(
+      gate,
+      {
+        ok: false,
+        error:
+          "This job needs 4 to 8 interview questions for an AI Video Interview. Please update the questions and try again.",
+      },
+      `${n} questions`,
+    );
+  }
+  for (const n of [4, 5, 6, 7, 8]) {
+    const { gate } = await gateFor(n);
+    assert.equal(gate.ok, true, `${n} questions`);
   }
 });
 

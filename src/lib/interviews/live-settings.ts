@@ -2,7 +2,7 @@ import "server-only";
 import { JOB_INTERVIEWER_NAME_MAX } from "@/app/ai-dashboard/lib/job-types";
 import type { createServiceClient } from "@/lib/supabase/server";
 import { liveInterviewsAvailableFor } from "./live-availability";
-import { jobQuestionMix } from "./question-mix";
+import { jobQuestionMix, MAX_JOB_QUESTIONS, MIN_JOB_QUESTIONS } from "./question-mix";
 import {
   LIVE_SETTINGS_VERSION,
   type LiveSettings,
@@ -66,6 +66,10 @@ export const FOLLOW_UP_RULES: LiveSettings["follow_up_rules"] = {
   ],
 };
 
+/** The send's refusal for a job with fewer than 4 or more than 8 questions (#19). */
+export const LIVE_QUESTION_COUNT_ERROR =
+  "This job needs 4 to 8 interview questions for an AI Video Interview. Please update the questions and try again.";
+
 /** Interviews are conducted in English; the transcriber is pinned to it too. */
 const LIVE_LANGUAGE = "en";
 
@@ -91,7 +95,10 @@ export type BuildLiveSettingsResult =
  *      (live-availability.ts). Checked before any database read, and here
  *      rather than in the action, so no caller can pass the gate without it.
  *   2. The job's toggle is on.
- *   3. The job has an interviewer name.
+ *   3. The job has 4 to 8 interview questions (#19, 23 Nov), counted here on
+ *      the server, before the send writes, freezes or sends anything. Never
+ *      the browser's count.
+ *   4. The job has an interviewer name.
  *
  * Mirrors how async_interview_enabled gates sendInterviewInvite
  * (applicants/interview-actions.ts):
@@ -153,11 +160,12 @@ export async function gateLiveInterviewInvite(
     .eq("company_id", input.companyId)
     .limit(50);
   if (questionsErr) return { ok: false, error: "Couldn't send - please try again." };
+  const jobQuestionCount = (questions ?? []).length;
+  if (jobQuestionCount < MIN_JOB_QUESTIONS || jobQuestionCount > MAX_JOB_QUESTIONS) {
+    return { ok: false, error: LIVE_QUESTION_COUNT_ERROR };
+  }
 
-  return buildLiveSettings({
-    interviewerName: row.avatar_interviewer_name,
-    jobQuestionCount: (questions ?? []).length,
-  });
+  return buildLiveSettings({ interviewerName: row.avatar_interviewer_name, jobQuestionCount });
 }
 
 /**
@@ -217,8 +225,8 @@ function buildLiveSettings(input: {
       follow_up_rules: FOLLOW_UP_RULES,
       // The policy's mix, copied now so a later policy change never reaches
       // an interview already sent: every job question, no CV questions
-      // (question-mix.ts). A count outside 4..8 is stored as it is and refused
-      // by the freeze, never cut or padded.
+      // (question-mix.ts). The gate has refused a count outside 4..8; the
+      // freeze checks it again against the invite's own snapshot.
       question_mix: jobQuestionMix(input.jobQuestionCount, MAX_SESSION_SECONDS / 60),
     },
   };
