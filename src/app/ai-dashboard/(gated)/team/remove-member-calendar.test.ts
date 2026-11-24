@@ -20,6 +20,7 @@
  */
 // @ts-nocheck - same reason as the other node:test files: Node's `.ts` specifier vs this tsconfig.
 import assert from "node:assert/strict";
+import { randomBytes, randomUUID } from "node:crypto";
 import { register } from "node:module";
 import { test } from "node:test";
 
@@ -62,6 +63,12 @@ const { removeMember } = await import("./actions.ts");
 const { disconnectAllForCompany, disconnectAllForMember } = await import(
   "../../../../lib/calendar/connections.ts"
 );
+const { sealedWrite } = await import("../../../../lib/calendar/token-columns.ts");
+
+// #68 12e: tokens are stored only sealed, so the fixture rows are sealed with
+// a key made for this run.
+process.env.CALENDAR_TOKEN_KEYS = JSON.stringify({ t1: randomBytes(32).toString("base64") });
+process.env.CALENDAR_TOKEN_KEY_CURRENT = "t1";
 
 const CO = "c0000000-0000-4000-8000-0000000000f6";
 const CTX = {
@@ -223,14 +230,21 @@ function calendarWorld(rows) {
   return table;
 }
 
-const conn = (member_id, provider, refresh_token) => ({
-  member_id,
-  provider,
-  provider_account: `${member_id}@example.test`,
-  access_token: `access-${member_id}`,
-  refresh_token,
-  status: "active",
-});
+const conn = (member_id, provider, refresh_token) => {
+  const id = randomUUID();
+  const sealed = sealedWrite(
+    { id, memberId: member_id, provider },
+    { accessToken: `access-${member_id}`, refreshToken: refresh_token },
+  );
+  return {
+    id,
+    member_id,
+    provider,
+    provider_account: `${member_id}@example.test`,
+    status: "active",
+    ...sealed.columns,
+  };
+};
 
 // Negative control: drop `.eq("member_id", memberId)` from disconnect's delete
 // and another member's connection is deleted with it.

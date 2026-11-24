@@ -88,7 +88,9 @@ test("E5. only our sentences can be stored as a connection's problem; a refresh 
   // Typed: markConnectionProblem takes one of CONNECTION_PROBLEM's values.
   assert.match(src, /message: \(typeof CONNECTION_PROBLEM\)\[keyof typeof CONNECTION_PROBLEM\],/);
   const calls = [...src.matchAll(/await markConnectionProblem\(([\s\S]*?)\);/g)].map((m) => m[1]);
-  assert.equal(calls.length, 3);
+  // 4 since #68 12e: a refresh whose new token cannot be sealed stores
+  // CONNECTION_PROBLEM.refreshFailed (and the loop below still holds it to the rule).
+  assert.equal(calls.length, 4);
   for (const c of calls) {
     assert.match(c, /CONNECTION_PROBLEM\.[a-zA-Z]+\s*,?\s*$/, c.trim());
     assert.doesNotMatch(c, /\bmessage\b/, "never the thrown message");

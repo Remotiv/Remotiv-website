@@ -1,130 +1,95 @@
 import "server-only";
-import type { createServiceClient } from "@/lib/supabase/server";
 import { open, seal, sealedKeyId, TokenCryptoError, tokenAad } from "./token-crypto";
 
 /**
- * The token columns of calendar_connections, plaintext and sealed (#68, step
- * 12). The ONLY place that writes them (12b, dual write) or reads them (12c and
- * 12d, readTokens): token-columns-tripwire.test.ts fails any other file that
- * does either.
+ * The token columns of calendar_connections (#68, step 12). The ONLY place
+ * that writes them (sealedWrite) or reads them (readTokens):
+ * token-columns-tripwire.test.ts fails any other file that does either.
+ *
+ * ── Sealed only (12e) ────────────────────────────────────────
+ *
+ * The sealed copies are the only store. Every write sets the plaintext
+ * columns to NULL, and nothing reads them: they are emptied by the 12e data
+ * step and dropped in 12f. A seal that fails (keys missing or invalid) fails
+ * the write: there is no plaintext to fall back to.
  *
  * ── Bound to the stored row ──────────────────────────────────
  *
  * Each token is sealed for its row (tokenAad: connection id | member id |
- * provider). `row.id` must be the id the row HAS: a write never sends an id,
- * so a row's id is the database's and never changes. Where the id is not
- * known before the write (storeTokens' upsert), the plaintext goes first with
- * the sealed columns cleared (plainTokenColumns), the upsert returns the
- * stored row, and the sealed columns follow for that id
- * (sealedTokenColumns).
+ * provider). `row.id` is the id the row has, or is inserted with, and a row's
+ * id never changes (storeTokens never upserts).
  *
- * ── One key per row ──────────────────────────────────────────
+ * ── One key per row; a missing refresh token never destroys one ──
  *
- * token_key_id names the key both sealed columns are under. So whenever the
- * access token is re-sealed, the refresh token is re-sealed too, from the new
- * one when the write carries one, else from the one already stored
- * (`storedRefreshToken`). The plaintext refresh_token is still written ONLY
- * when the write carries a new one (storeTokens' rule: an absent refresh token
- * must never overwrite a working one).
- *
- * ── A seal that fails does not block ─────────────────────────
- *
- * Missing or invalid keys must not stop a connect or a refresh in 12b: the
- * plaintext is written, the sealed columns and token_key_id are written NULL
- * (never left holding a copy of an older token), and one line is logged with
- * the reason code only. The backfill picks those rows up.
+ * token_key_id names the key both sealed columns are under, so the refresh
+ * token is re-sealed with the access token: the new one when the write carries
+ * one, else the one the row already holds (`storedRefreshToken`, opened by
+ * readTokens). With neither, refresh_token_enc is left OUT of the write, so
+ * the stored copy is kept as it is (Google sends a refresh token only on some
+ * authorisations, and never on a refresh).
  */
 
-export type TokenColumns = {
-  access_token: string;
-  refresh_token?: string;
-  access_token_enc: string | null;
-  refresh_token_enc: string | null;
-  token_key_id: string | null;
+type Row = { id: string; memberId: string; provider: string };
+
+/** The token columns of one write. The plaintext ones are always null. */
+export type SealedWrite = {
+  access_token: null;
+  refresh_token: null;
+  access_token_enc: string;
+  refresh_token_enc?: string;
+  token_key_id: string;
 };
 
-type Row = { id: string; memberId: string; provider: string };
-type SealedColumns = Pick<TokenColumns, "access_token_enc" | "refresh_token_enc" | "token_key_id">;
+export type SealResult = { ok: true; columns: SealedWrite } | { ok: false; reason: string };
 
-/** Plaintext and sealed together, for a write whose row id is known (the refresh). */
-export function tokenColumns(
+/**
+ * The token columns for a write to `row`. On a seal failure, `ok: false` and
+ * one line, "[calendar-token-crypto] seal_failed reason=<code>": the caller
+ * fails the connect or refresh.
+ */
+export function sealedWrite(
   row: Row,
   tokens: {
     accessToken: string;
     /** A refresh token this write carries, or null when it carries none. */
     refreshToken: string | null;
-    /** The refresh token already stored, re-sealed when the write carries none. */
+    /** The refresh token the row already holds (readTokens), re-sealed when the write carries none. */
     storedRefreshToken?: string | null;
   },
-): TokenColumns {
-  return {
-    ...plainTokenColumns(tokens),
-    ...sealedTokenColumns(row, {
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken || tokens.storedRefreshToken || null,
-    }),
-  };
-}
-
-/**
- * The plaintext, with the sealed columns cleared: the first of two writes when
- * the row id is not known yet. Cleared, so the row never holds a sealed copy
- * of an older token next to a newer plaintext one.
- */
-export function plainTokenColumns(tokens: {
-  accessToken: string;
-  refreshToken: string | null;
-}): TokenColumns {
-  return {
-    access_token: tokens.accessToken,
-    ...(tokens.refreshToken ? { refresh_token: tokens.refreshToken } : {}),
-    access_token_enc: null,
-    refresh_token_enc: null,
-    token_key_id: null,
-  };
-}
-
-/**
- * Just the sealed columns, for the row as stored: `refreshToken` is the
- * refresh token the row holds (new or kept). On a seal failure, all three
- * null and the one log line.
- */
-export function sealedTokenColumns(
-  row: Row,
-  tokens: { accessToken: string; refreshToken: string | null },
-): SealedColumns {
+): SealResult {
+  const refresh = tokens.refreshToken || tokens.storedRefreshToken || null;
   try {
     const aad = tokenAad(row);
     const accessEnc = seal(tokens.accessToken, aad);
     return {
-      access_token_enc: accessEnc,
-      refresh_token_enc: tokens.refreshToken ? seal(tokens.refreshToken, aad) : null,
-      token_key_id: sealedKeyId(accessEnc),
+      ok: true,
+      columns: {
+        access_token: null,
+        refresh_token: null,
+        access_token_enc: accessEnc,
+        ...(refresh ? { refresh_token_enc: seal(refresh, aad) } : {}),
+        token_key_id: sealedKeyId(accessEnc) as string,
+      },
     };
   } catch (err) {
-    return unsealed(err instanceof TokenCryptoError ? err.reason : "unexpected");
+    const reason = err instanceof TokenCryptoError ? err.reason : "unexpected";
+    console.error(`[calendar-token-crypto] seal_failed reason=${reason}`);
+    return { ok: false, reason };
   }
 }
 
-/** The sealed columns cleared, with the one log line; for a seal that failed or could not be tried. */
-export function unsealed(reason: string): SealedColumns {
-  console.error(`[calendar-token-crypto] seal_failed reason=${reason}`);
-  return { access_token_enc: null, refresh_token_enc: null, token_key_id: null };
-}
-
-// ── Reading (#68, 12c + 12d) ─────────────────────────────────
+// ── Reading ──────────────────────────────────────────────────
 
 /**
  * A calendar_connections row as a token read sees it. Every select that reads
- * tokens names all of these columns (token-columns-tripwire.test.ts checks
- * connections.ts' ROW_COLUMNS and STORED_TOKEN_COLUMNS).
+ * tokens names all of these columns, and no plaintext token column
+ * (token-columns-tripwire.test.ts checks connections.ts' ROW_COLUMNS and
+ * STORED_TOKEN_COLUMNS).
  */
 export type TokenRow = {
   id: string;
   member_id: string;
   provider: string;
-  access_token: string | null;
-  refresh_token: string | null;
   access_token_enc: string | null;
   refresh_token_enc: string | null;
   token_key_id: string | null;
@@ -134,101 +99,37 @@ export type TokenRow = {
 export type ReadTokens = {
   accessToken: string | null;
   refreshToken: string | null;
-  /** "sealed" when every token the row holds came from its sealed copy. */
-  source: "sealed" | "plaintext";
-  /** A token was read from plaintext because it had NO sealed copy: seal it now (sealIfMissing). */
-  missingSealed: boolean;
-  /** A sealed copy did not open. Then nothing on the row is re-sealed (see readTokens). */
+  /** A sealed copy was there but did not open. */
   openFailed: boolean;
 };
 
 /**
- * The row's tokens, from the sealed copies where they open, else plaintext.
- * Never throws.
- *
- *   - Sealed and it opens (for this row: tokenAad): used.
- *   - No sealed copy: the plaintext (the lazy path; the caller seals it now
- *     with sealIfMissing, guarded by updated_at).
- *   - Sealed but it does not open (wrong key, key missing, tampered, moved):
- *     the plaintext if there is one, and "[calendar-token] open_failed
- *     reason=<code>". NOT re-sealed: a wrong key in the configuration fails the
- *     same way, and re-sealing under it would overwrite a copy the right key
- *     can still open. With no plaintext either, that token is null, and the
- *     caller's own path for a dead grant applies.
+ * The row's tokens, from its sealed copies only. Never throws. A copy that
+ * does not open (wrong key, key missing, tampered, moved to another row) is
+ * null, with "[calendar-token] open_failed reason=<code>"; the caller's path
+ * for a dead grant applies (reconnect needed). Nothing is ever re-sealed here:
+ * a wrong key in the configuration fails the same way, and re-sealing under
+ * it would overwrite a copy the right key can still open.
  */
 export function readTokens(row: TokenRow): ReadTokens {
-  let fromPlain = false;
-  let missingSealed = false;
   let openFailed = false;
-  const one = (sealed: string | null, plain: string | null): string | null => {
-    if (sealed) {
-      try {
-        return open(
-          sealed,
-          tokenAad({ id: row.id, memberId: row.member_id, provider: row.provider }),
-        );
-      } catch (err) {
-        const reason = err instanceof TokenCryptoError ? err.reason : "unexpected";
-        console.error(`[calendar-token] open_failed reason=${reason}`);
-        openFailed = true;
-        if (plain) fromPlain = true;
-        return plain || null;
-      }
+  const one = (sealed: string | null): string | null => {
+    if (!sealed) return null;
+    try {
+      return open(
+        sealed,
+        tokenAad({ id: row.id, memberId: row.member_id, provider: row.provider }),
+      );
+    } catch (err) {
+      const reason = err instanceof TokenCryptoError ? err.reason : "unexpected";
+      console.error(`[calendar-token] open_failed reason=${reason}`);
+      openFailed = true;
+      return null;
     }
-    if (plain) {
-      fromPlain = true;
-      missingSealed = true;
-    }
-    return plain || null;
   };
-  const accessToken = one(row.access_token_enc, row.access_token);
-  const refreshToken = one(row.refresh_token_enc, row.refresh_token);
   return {
-    accessToken,
-    refreshToken,
-    source: fromPlain ? "plaintext" : "sealed",
-    missingSealed,
+    accessToken: one(row.access_token_enc),
+    refreshToken: one(row.refresh_token_enc),
     openFailed,
   };
-}
-
-/**
- * The lazy path: a token was read from plaintext because it had no sealed
- * copy, so both are sealed now for this row, but only if the row is still as
- * it was read (its updated_at): a write in between brought its own sealed
- * copies, which stand. Never when a sealed copy on the row failed to open
- * (that copy is left for the right key). Logs "[calendar-token]
- * read=plaintext sealed_now=<bool>". Never throws; a failure leaves the row
- * as it was.
- */
-export async function sealIfMissing(
-  service: ReturnType<typeof createServiceClient>,
-  row: TokenRow,
-  tokens: ReadTokens,
-): Promise<boolean> {
-  if (!tokens.missingSealed) return false;
-  if (tokens.openFailed || !tokens.accessToken) {
-    console.log("[calendar-token] read=plaintext sealed_now=false");
-    return false;
-  }
-  let sealedNow = false;
-  try {
-    const sealed = sealedTokenColumns(
-      { id: row.id, memberId: row.member_id, provider: row.provider },
-      { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken },
-    );
-    if (sealed.token_key_id) {
-      const { data, error } = await service
-        .from("calendar_connections")
-        .update(sealed)
-        .eq("id", row.id)
-        .eq("updated_at", row.updated_at)
-        .select("id");
-      sealedNow = !error && Array.isArray(data) && data.length > 0;
-    }
-  } catch {
-    sealedNow = false;
-  }
-  console.log(`[calendar-token] read=plaintext sealed_now=${sealedNow}`);
-  return sealedNow;
 }

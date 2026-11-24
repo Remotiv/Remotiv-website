@@ -63,7 +63,11 @@ export function tokenWrites(file, text) {
     if (ts.isObjectLiteralExpression(n) && !toGoogle(n)) {
       for (const p of n.properties) {
         const name = nameOf(p.name);
-        if (name && COLUMNS.has(name)) found.push(`${at(p)}: ${name} in an object literal`);
+        if (name && COLUMNS.has(name)) {
+          const isNull =
+            ts.isPropertyAssignment(p) && p.initializer.kind === ts.SyntaxKind.NullKeyword;
+          found.push(`${at(p)}: ${name} in an object literal${isNull ? " (null)" : ""}`);
+        }
       }
     }
     if (
@@ -102,7 +106,7 @@ test("12b: the helper itself writes them (the scan sees what it is looking for)"
   const hits = tokenWrites(HELPER, readFileSync(join(SRC, HELPER), "utf8"));
   for (const col of COLUMNS) {
     assert.ok(
-      hits.some((h) => h.endsWith(`${col} in an object literal`)),
+      hits.some((h) => h.includes(`: ${col} in an object literal`)),
       `helper writes ${col}`,
     );
   }
@@ -150,10 +154,10 @@ const READ_COLUMNS = new Set([
 const SEALED_ONLY = new Set(["access_token_enc", "refresh_token_enc"]);
 
 /** Every token-column read in one file's text: "<line>: <what>". */
-export function tokenReads(file, text) {
+export function tokenReads(file, text, { everyFile = false } = {}) {
   const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
   const at = (n) => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
-  let namesTable = false;
+  let namesTable = everyFile;
   const scanTable = (n) => {
     if (ts.isStringLiteral(n) && n.text === "calendar_connections") namesTable = true;
     ts.forEachChild(n, scanTable);
@@ -197,14 +201,52 @@ test("12d: no file but token-columns.ts reads a token column off a calendar_conn
   assert.deepEqual(offending, []);
 });
 
-test("12d: the helper itself reads them (the scan sees what it is looking for)", () => {
+test("12d: the helper itself reads the sealed columns (the scan sees what it is looking for)", () => {
   const hits = tokenReads(HELPER, readFileSync(join(SRC, HELPER), "utf8"));
-  for (const col of READ_COLUMNS) {
+  for (const col of SEALED_ONLY) {
     assert.ok(
       hits.some((h) => h.includes(col)),
       `helper reads ${col}`,
     );
   }
+});
+
+/* ── 12e: plaintext is never written and never read, the helper included ── */
+
+const PLAINTEXT = ["access_token", "refresh_token"];
+
+// Negative control: write a token in plaintext again (sealedWrite's
+// `access_token: null` back to the token) and this test fails.
+test("12e: no file, the helper included, writes a plaintext token column except as null", () => {
+  const offending = [];
+  let helperNulls = 0;
+  for (const p of sourceFiles(SRC)) {
+    const rel = relative(SRC, p);
+    for (const hit of tokenWrites(rel, readFileSync(p, "utf8"))) {
+      const plain = PLAINTEXT.some((c) => new RegExp(`: ${c} (in|assigned)`).test(hit));
+      if (!plain) continue;
+      if (rel === HELPER && hit.endsWith("(null)")) helperNulls += 1;
+      else offending.push(`${rel}:${hit}`);
+    }
+  }
+  assert.deepEqual(offending, []);
+  assert.equal(helperNulls, 2, "the helper sets both plaintext columns to null on every write");
+});
+
+// Negative control: put a plaintext fallback back into readTokens
+// (row.access_token) and this test fails.
+test("12e: no file, the helper included, reads a plaintext token column", () => {
+  const offending = [];
+  for (const p of sourceFiles(SRC)) {
+    const rel = relative(SRC, p);
+    const text = readFileSync(p, "utf8");
+    for (const hit of tokenReads(rel, text, { everyFile: rel === HELPER })) {
+      if (PLAINTEXT.some((c) => new RegExp(`\\b${c}\\b(?!_enc)`).test(hit))) {
+        offending.push(`${rel}:${hit}`);
+      }
+    }
+  }
+  assert.deepEqual(offending, []);
 });
 
 test("12d: the read scan catches every raw shape, and skips select strings, types, writes and Google's response", () => {
@@ -229,17 +271,15 @@ test("12d: the read scan catches every raw shape, and skips select strings, type
   ]);
 });
 
-test("12d: every select that reads tokens names every column readTokens needs", () => {
+test("12d + 12e: every select that reads tokens names every column readTokens needs, and no plaintext one", () => {
   const helper = readFileSync(join(SRC, HELPER), "utf8");
   const type = helper.slice(helper.indexOf("export type TokenRow = {"));
   const needed = [...type.slice(0, type.indexOf("};")).matchAll(/^\s+(\w+):/gm)].map((m) => m[1]);
   assert.deepEqual(needed.sort(), [
-    "access_token",
     "access_token_enc",
     "id",
     "member_id",
     "provider",
-    "refresh_token",
     "refresh_token_enc",
     "token_key_id",
     "updated_at",
@@ -250,6 +290,8 @@ test("12d: every select that reads tokens names every column readTokens needs", 
     assert.ok(m, `${name} is a same-file string`);
     const cols = m[1].split(",").map((c) => c.trim());
     for (const c of needed) assert.ok(cols.includes(c), `${name} names ${c}`);
+    // 12e: no plaintext token column, so 12f can drop them.
+    for (const c of PLAINTEXT) assert.ok(!cols.includes(c), `${name} does not name ${c}`);
   }
   assert.match(connections, /\.select\(ROW_COLUMNS\)/);
   assert.match(connections, /\.select\(STORED_TOKEN_COLUMNS\)/);
