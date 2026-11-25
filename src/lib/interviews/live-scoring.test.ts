@@ -36,6 +36,8 @@ const {
   rowStatus,
   countingLiveScore,
   requestLiveScoring,
+  rowPromptVersion,
+  LIVE_SCORING_MIXED_VERSIONS,
 } = await import("./live-scoring.ts");
 const {
   buildLiveScoringMessage,
@@ -453,6 +455,153 @@ test("a partial interview: the overall from answered and skipped only, completio
     assert.deepEqual([row.prompt_version, row.rev >= 1], [LIVE_SCORING_PROMPT_VERSION, true]);
     assert.equal(overallFrom(row.questions).overall, 58);
   }));
+
+test("v3: a new live score records live-interview-scoring-v3; a score saved under v2 keeps v2", async () => {
+  const db = await decided();
+  // Scored before this change, for another session: never touched by it.
+  const old = {
+    session_id: "5b0f2c1e-0000-4000-8000-0000000000f2",
+    company_id: CO,
+    status: "scored",
+    questions: [],
+    overall_score: 71,
+    prompt_version: "live-interview-scoring-v2",
+    rev: 3,
+  };
+  db.tables.live_interview_scores.push(structuredClone(old));
+  const model = fakeModel();
+  await resolveAllChecks(db, model);
+  assert.equal(scoreRow(db).prompt_version, "live-interview-scoring-v3");
+  assert.deepEqual(
+    db.tables.live_interview_scores.find((r) => r.session_id === old.session_id),
+    old,
+    "the v2 score is left exactly as it was",
+  );
+  // And the scorer was sent the v3 prompt, fairness rules included.
+  assert.ok(model.requests.length > 0);
+  for (const r of model.requests) {
+    assert.ok(JSON.stringify(r.system).includes("FAIRNESS - THIS BINDS EVERY SCORE"));
+  }
+});
+
+/* ── which prompt scored what (per question) ──────────────────── */
+
+const V2 = "live-interview-scoring-v2";
+const V3 = "live-interview-scoring-v3";
+const aiScored = (row) => row.questions.filter((q) => q.model !== null);
+
+/**
+ * The session's row as the v2 scorer stored it: the row says v2 and no
+ * question entry carries a version. `clear` drops those questions' AI result,
+ * so the next pass has to buy it again.
+ */
+function asStoredUnderV2(db, clear = []) {
+  const row = scoreRow(db);
+  row.prompt_version = V2;
+  for (const q of row.questions) {
+    delete q.prompt_version;
+    if (clear.includes(q.position)) {
+      Object.assign(q, {
+        score: null,
+        confidence: null,
+        rationale: null,
+        quotes: [],
+        dropped_quotes: 0,
+        model: null,
+        input_tokens: 0,
+        output_tokens: 0,
+      });
+    }
+  }
+}
+
+test("the row's version: one version, the mixed marker, or the fallback; null entries ignored", () => {
+  assert.equal(LIVE_SCORING_MIXED_VERSIONS, "live-interview-scoring-mixed");
+  const of = (...v) => v.map((prompt_version) => ({ prompt_version }));
+  assert.equal(rowPromptVersion(of(V2, null, V2), V3), V2);
+  assert.equal(rowPromptVersion(of(V3, V3), V2), V3);
+  assert.equal(rowPromptVersion(of(V2, null, V3), V3), LIVE_SCORING_MIXED_VERSIONS);
+  assert.equal(rowPromptVersion(of(null, null), V2), V2);
+  assert.equal(rowPromptVersion([], V3), V3);
+});
+
+test("a fresh session is v3 everywhere: every AI-scored question and the row", async () => {
+  const db = await decided();
+  const model = fakeModel();
+  await resolveAllChecks(db, model);
+  const row = scoreRow(db);
+  assert.equal(row.status, "scored");
+  assert.ok(aiScored(row).length >= 3, "enough AI scores to prove it");
+  assert.ok(model.requests.length >= aiScored(row).length);
+  for (const q of row.questions) {
+    assert.equal(q.prompt_version, q.model === null ? null : V3, `q${q.position}`);
+  }
+  assert.equal(row.prompt_version, V3);
+});
+
+test("a session scored under v2 and run again (0 model calls) stays v2: the row and every question", async () => {
+  const db = await decided();
+  const model = fakeModel();
+  await resolveAllChecks(db, model);
+  asStoredUnderV2(db);
+  const before = structuredClone(scoreRow(db));
+  const calls = model.requests.length;
+
+  await scorer(db, model)(SESSION);
+  let row = scoreRow(db);
+  assert.equal(model.requests.length, calls, "nothing re-scored");
+  assert.equal(row.rev, before.rev + 1, "the row was rewritten, so the version was decided again");
+  assert.ok(aiScored(row).length >= 3);
+  for (const q of row.questions) {
+    assert.equal(q.prompt_version, q.model === null ? null : V2, `q${q.position}`);
+  }
+  assert.equal(row.prompt_version, V2);
+  assert.deepEqual(
+    row.questions.map((q) => [q.position, q.status, q.score, q.rationale]),
+    before.questions.map((q) => [q.position, q.status, q.score, q.rationale]),
+  );
+
+  // Again, now that each entry carries v2 itself: still v2, still no call.
+  await scorer(db, model)(SESSION);
+  row = scoreRow(db);
+  assert.equal(model.requests.length, calls);
+  assert.equal(row.prompt_version, V2);
+  for (const q of aiScored(row)) assert.equal(q.prompt_version, V2, `q${q.position}`);
+});
+
+test("mixed: kept v2 scores stay v2, a question scored now is v3, the row shows the mixed marker", async () => {
+  const db = await decided();
+  const model = fakeModel();
+  await resolveAllChecks(db, model);
+  const rescored = aiScored(scoreRow(db)).find((q) => q.status === "scored").position;
+  asStoredUnderV2(db, [rescored]);
+  const before = byPosition(structuredClone(scoreRow(db)));
+  const calls = model.requests.length;
+
+  await scorer(db, model)(SESSION);
+  let row = scoreRow(db);
+  assert.equal(model.requests.length, calls + 1, "only the cleared question is bought again");
+  const now = byPosition(row);
+  assert.equal(now[rescored].prompt_version, V3);
+  const kept = aiScored(row).filter((q) => q.position !== rescored);
+  assert.ok(kept.length >= 2);
+  for (const q of kept) {
+    assert.equal(q.prompt_version, V2, `q${q.position} keeps v2`);
+    assert.equal(q.score, before[q.position].score);
+    assert.equal(q.rationale, before[q.position].rationale);
+  }
+  assert.equal(row.prompt_version, LIVE_SCORING_MIXED_VERSIONS);
+
+  // A further pass buys nothing and changes no question's version.
+  await scorer(db, model)(SESSION);
+  row = scoreRow(db);
+  assert.equal(model.requests.length, calls + 1);
+  assert.deepEqual(
+    row.questions.map((q) => [q.position, q.prompt_version]),
+    Object.values(now).map((q) => [q.position, q.prompt_version]),
+  );
+  assert.equal(row.prompt_version, LIVE_SCORING_MIXED_VERSIONS);
+});
 
 test("re-scoring a scored session buys nothing again and changes no score", async () => {
   const db = await decided();
@@ -1454,8 +1603,9 @@ test("the latest attempt is the only one that counts, even while pending; the ea
 
 /* ── fix round: style-neutral scoring ──────────────────────────── */
 
-test("v2 prompt: content and evidence only, never speaking style", () => {
-  assert.equal(LIVE_SCORING_PROMPT_VERSION, "live-interview-scoring-v2");
+test("v2 prompt: content and evidence only, never speaking style (kept in v3)", () => {
+  // v3 (#71): the shared fairness rules added; this wording is unchanged.
+  assert.equal(LIVE_SCORING_PROMPT_VERSION, "live-interview-scoring-v3");
   for (const w of [
     "hesitation",
     "hedging",

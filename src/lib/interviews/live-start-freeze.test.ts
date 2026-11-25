@@ -41,6 +41,7 @@ const { freezeFailureReason } = await import("./live-review.ts");
 const { hashSessionToken } = await import("./tokens.ts");
 const { jobQuestionMix } = await import("./question-mix.ts");
 const { fakeLiveDb } = await import("../../test-support/fake-live-db.mjs");
+const { FAIRNESS_RULES } = await import("../ai/fairness.ts");
 const LIVE = "../../app/interview/[token]/_live";
 const { startAnswerFrom } = await import(`${LIVE}/live-server.ts`);
 const { liveReducer, INITIAL } = await import(`${LIVE}/machine.ts`);
@@ -823,4 +824,45 @@ test("the candidate's screens: a concurrent start is 'try again shortly', a free
   assert.equal(screenFor(refused), "blocked:locked");
   assert.equal(BLOCKED.locked.heading, "This interview isn't open yet");
   assert.doesNotMatch(BLOCKED.locked.body("Acme"), /too_few|reason|question/i);
+});
+
+/* ── #71: the fairness rules are Remotiv's scorer's, never the interviewer's ── */
+
+test("VoxAgent (Sarah) never receives the fairness rules or any rubric: payload and source", async () => {
+  const { readFileSync, readdirSync } = await import("node:fs");
+  // A question with no rubric gets a written guide at freeze: that guide must not travel either.
+  const db = world([needsGuide()]);
+  const model = guideModel();
+  const p = recordingProvider();
+  const r = await run(() => start(db, p, TOKEN, { questionsClient: model }));
+  assert.equal(r.status, 200);
+  const sent = JSON.stringify(p.seen);
+  for (const line of FAIRNESS_RULES.split("\n")) {
+    assert.ok(!sent.includes(line), `fairness text: ${line.slice(0, 40)}`);
+  }
+  assert.ok(!/FAIRNESS|job-related evidence/i.test(sent));
+  const frozen = db.tables.interview_sessions[0].live_settings.questions_frozen;
+  assert.ok(frozen, "frozen with guides");
+  const written = db.tables.job_question_scoring_guides.map((x) => x.guide);
+  assert.equal(written.length, 1, "a guide was written, so the check below is not empty");
+  const rubrics = db.tables.interview_sessions[0].scoring_snapshot.map((x) => x.rubric);
+  for (const g of [...rubrics, ...written].filter(Boolean)) {
+    assert.ok(!sent.includes(g), "no rubric or scoring guide");
+  }
+  // And nothing on the provider path can reach them: no import of the
+  // fairness rules or the scoring prompt.
+  const dir = new URL("./live-provider/", import.meta.url);
+  const files = [
+    new URL("./live-start.ts", import.meta.url),
+    ...readdirSync(dir)
+      .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
+      .map((f) => new URL(f, dir)),
+  ];
+  for (const f of files) {
+    assert.doesNotMatch(
+      readFileSync(f, "utf8"),
+      /ai\/fairness|live-interview-scoring|FAIRNESS_RULES/,
+      f.pathname.split("/").pop(),
+    );
+  }
 });

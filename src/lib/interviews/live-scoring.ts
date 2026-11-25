@@ -103,6 +103,16 @@ import { createServiceClient } from "@/lib/supabase/server";
  * provider failure leaves its question waiting, writes what was scored, and
  * rethrows so the queue retries; a terminal one leaves that question out.
  *
+ * ── Which prompt scored what ─────────────────────────────────
+ *
+ * Each AI result records the prompt version that produced it, on its own
+ * question entry. A result kept from the stored row keeps its version; one
+ * stored before entries carried a version takes the row's saved version, the
+ * only prompt that row was ever scored with. A kept score is never relabelled
+ * with the current version. The row's prompt_version is read from its
+ * questions (rowPromptVersion): their one version, or LIVE_SCORING_MIXED_VERSIONS
+ * when they differ.
+ *
  * ── After retention ──────────────────────────────────────────
  *
  * Once a session's turns are purged there are no words to score: the scorer
@@ -226,6 +236,11 @@ export type StoredQuestionScore = {
   quotes: string[];
   dropped_quotes: number;
   model: string | null;
+  /**
+   * The prompt version that produced this AI result; null when there is none
+   * (lowest, or never scored). Absent on entries stored before it existed.
+   */
+  prompt_version: string | null;
   input_tokens: number;
   output_tokens: number;
   scored_at: string | null;
@@ -242,6 +257,23 @@ export type StoredQuestionScore = {
   // overall. A 'left_out' or 'waiting' question may still hold the AI result
   // already paid for (score, rationale, quotes), never counted while it is.
 };
+
+/** The row's prompt_version when its questions were scored by more than one prompt. */
+export const LIVE_SCORING_MIXED_VERSIONS = "live-interview-scoring-mixed";
+
+/**
+ * The row's prompt_version, from its questions' own versions: their one
+ * version, or LIVE_SCORING_MIXED_VERSIONS when they differ. With no AI result
+ * yet, `fallback` (the stored row's version, or the current one). Pure.
+ */
+export function rowPromptVersion(
+  entries: readonly Pick<StoredQuestionScore, "prompt_version">[],
+  fallback: string,
+): string {
+  const versions = new Set(entries.flatMap((e) => (e.prompt_version ? [e.prompt_version] : [])));
+  if (versions.size > 1) return LIVE_SCORING_MIXED_VERSIONS;
+  return [...versions][0] ?? fallback;
+}
 
 /** The weighted average over questions with a score. Null when none has one. Pure. */
 export function overallFrom(entries: readonly StoredQuestionScore[]): {
@@ -524,12 +556,19 @@ export async function scoreLiveSession(
   for (let attempt = 0; attempt < WRITE_TRIES; attempt++) {
     const { data: rData, error: rErr } = await service
       .from("live_interview_scores")
-      .select("session_id, questions, rev")
+      .select("session_id, questions, rev, prompt_version")
       .eq("session_id", sessionId)
       .maybeSingle();
     if (rErr) throw new LiveScoringError("db_error", sessionId);
-    const stored = rData as { questions: StoredQuestionScore[]; rev: number } | null;
+    const stored = rData as {
+      questions: StoredQuestionScore[];
+      rev: number;
+      prompt_version: string;
+    } | null;
     const before = new Map((stored?.questions ?? []).map((q) => [q.position, q]));
+    // A kept result's own version; one stored before entries had it, the row's.
+    const keptVersion = (q: StoredQuestionScore): string | null =>
+      q.prompt_version ?? stored?.prompt_version ?? null;
 
     const entries: StoredQuestionScore[] = [];
     for (const plan of plans) {
@@ -549,6 +588,7 @@ export async function scoreLiveSession(
         quotes: [],
         dropped_quotes: 0,
         model: null,
+        prompt_version: null,
         input_tokens: 0,
         output_tokens: 0,
         scored_at: null,
@@ -578,6 +618,7 @@ export async function scoreLiveSession(
                 quotes: had.quotes,
                 dropped_quotes: had.dropped_quotes,
                 model: had.model,
+                prompt_version: keptVersion(had),
                 input_tokens: had.input_tokens,
                 output_tokens: had.output_tokens,
                 scored_at: had.scored_at,
@@ -595,6 +636,7 @@ export async function scoreLiveSession(
       }
       // An AI result already stored (counted, held for a style check, or held
       // while a person had it left out) is reused, never re-bought.
+      const keptFrom = had && had.model !== null && had.score !== null ? had : null;
       let result: LiveQuestionScore | undefined =
         had && had.model !== null && had.score !== null
           ? {
@@ -656,6 +698,7 @@ export async function scoreLiveSession(
         quotes: result.quotes,
         dropped_quotes: result.dropped_quotes,
         model: result.model,
+        prompt_version: keptFrom ? keptVersion(keptFrom) : LIVE_SCORING_PROMPT_VERSION,
         input_tokens: result.input_tokens,
         output_tokens: result.output_tokens,
         scored_at: had?.scored_at ?? new Date(now()).toISOString(),
@@ -684,7 +727,10 @@ export async function scoreLiveSession(
         ? outcome.outcome !== "completed" || outcome.held_from_ranking === true
         : false,
       ai_model: model,
-      prompt_version: LIVE_SCORING_PROMPT_VERSION,
+      prompt_version: rowPromptVersion(
+        entries,
+        stored?.prompt_version ?? LIVE_SCORING_PROMPT_VERSION,
+      ),
       input_tokens: entries.reduce((s, e) => s + e.input_tokens, 0),
       output_tokens: entries.reduce((s, e) => s + e.output_tokens, 0),
       rev: (stored?.rev ?? -1) + 1,

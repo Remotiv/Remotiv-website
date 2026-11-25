@@ -10,6 +10,7 @@ import {
   type JobContext,
   providerRequestOptions,
 } from "@/lib/queue/job-context";
+import { FAIRNESS_RULES } from "./fairness";
 import { resolveInterviewScoringModel, SCORE_BANDS } from "./interview-scoring";
 import {
   acceptsTemperature,
@@ -69,9 +70,20 @@ import {
  * confidence of delivery or "I think" is asked for ONCE more; if the second
  * reply still does, the offending sentences are removed and the question is
  * flagged (style_flagged) so a person reviews it before it counts.
+ *
+ * ── v3: the shared fairness rules (#71) ──────────────────────
+ *
+ * FAIRNESS_RULES (fairness.ts), interpolated right after "You know nothing
+ * about this person", as in the async interview scorer. No other wording
+ * changed; this prompt's stricter rules (grammar, accent and fluency never
+ * affect the score, with no exception) still apply, as the rules' last
+ * sentence says. Nothing is re-scored by the change: a score saved under v2
+ * keeps v2, on its question entry and on the row, through any later pass
+ * (live-scoring.ts, "Which prompt scored what"). A row holding both v2 and v3
+ * scores says LIVE_SCORING_MIXED_VERSIONS.
  */
 
-export const LIVE_SCORING_PROMPT_VERSION = "live-interview-scoring-v2";
+export const LIVE_SCORING_PROMPT_VERSION = "live-interview-scoring-v3";
 
 const MAX_TOKENS = 1000;
 const SCORING_TEMPERATURE = 0;
@@ -85,6 +97,8 @@ export const LIVE_SYSTEM_PROMPT = `You are an experienced interviewer scoring ON
 The interview was run by an AI interviewer. For this question you are given the question that was asked, the competency it assesses, a private scoring guide, and the exchange: what the interviewer said and what the candidate answered, in order. The interviewer may have asked short follow-up questions; the candidate's answers to them are part of the answer to this question.
 
 You are reading machine transcripts of speech. You have no audio and no video. You know nothing about this person beyond these words.
+
+${FAIRNESS_RULES}
 
 ## What you are scoring
 

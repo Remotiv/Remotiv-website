@@ -39,6 +39,11 @@ const SCORING_PROMPTS = [
     what: "interview summary for the hiring team",
   },
   { file: "lib/ai-matching.ts", name: "systemPrompt", what: "AI talent matching rank" },
+  {
+    file: "lib/ai/live-interview-scoring.ts",
+    name: "LIVE_SYSTEM_PROMPT",
+    what: "live interview question score",
+  },
 ];
 
 function constsOf(sf) {
@@ -107,9 +112,18 @@ test("every prompt that scores or ranks a person carries the shared fairness rul
   }
 });
 
-test.todo(
-  "live interview question score (lib/ai/live-interview-scoring.ts LIVE_SYSTEM_PROMPT): blocked, App chat's live-scoring.test.ts pins live-interview-scoring-v2",
-);
+test("all five scoring prompts are covered, the live interview scorer's included", () => {
+  assert.deepEqual(
+    SCORING_PROMPTS.map((p) => p.what),
+    [
+      "CV score",
+      "async interview answer score",
+      "interview summary for the hiring team",
+      "AI talent matching rank",
+      "live interview question score",
+    ],
+  );
+});
 
 test("the rules say what Waleed decided: job-related evidence only, and the full list never used or inferred", () => {
   assert.match(
@@ -236,6 +250,8 @@ test("the prompt versions moved with the text, in the same scoring generation; n
   const interview = readFileSync(join(SRC, "lib/ai/interview-scoring.ts"), "utf8");
   assert.match(cv, /export const PROMPT_VERSION = "cv-scoring-v14";/);
   assert.match(interview, /export const PROMPT_VERSION = "interview-scoring-v10";/);
+  const live = readFileSync(join(SRC, "lib/ai/live-interview-scoring.ts"), "utf8");
+  assert.match(live, /export const LIVE_SCORING_PROMPT_VERSION = "live-interview-scoring-v3";/);
   const { CV_SCORING_GENERATIONS, INTERVIEW_SCORING_GENERATIONS, scoringGeneration } = await import(
     "./scoring-generations.ts"
   );
