@@ -4,6 +4,7 @@ import { track } from "@vercel/analytics";
 import { Check, Lock } from "lucide-react";
 import { type FormEvent, useRef, useState } from "react";
 import { submitContact } from "@/app/contact/actions";
+import { PrivacyAgreement } from "@/components/privacy-agreement";
 
 const CHECKS = [
   "We respond within 24 hours",
@@ -313,6 +314,7 @@ export function CtaInquiry() {
                 <Lock className="size-[9px] shrink-0" strokeWidth={2} aria-hidden />
                 Your data is encrypted and 100% confidential
               </p>
+              <PrivacyAgreement className="mt-1.5 text-center font-sans text-[10px] text-[#666]" />
             </form>
           )}
         </div>

@@ -5461,6 +5461,13 @@ textarea.avi12-input {
 .avi12-submit:last-child {
   margin-bottom: 0;
 }
+/* #67 part 3: the privacy line under the submit, in the padlock line's place. */
+.avi12-legal {
+  margin: 10px 0 0;
+  font: 400 10px / 14px var(--font-sans);
+  text-align: center;
+  color: var(--a12-muted);
+}
 .avi12-submit:hover {
   transform: translateY(-1px);
 }

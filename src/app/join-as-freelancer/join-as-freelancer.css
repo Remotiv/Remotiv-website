@@ -170,6 +170,7 @@
 
 .bta-form-footer { padding:20px 32px; border-top:1px solid rgba(0,0,0,.07); display:flex; align-items:center; justify-content:space-between; gap:16px; }
 .bta-footer-note { font-size:.7rem; color:#bbb; display:flex; align-items:center; gap:7px; }
+.bta-legal { font-size:.7rem; color:#888; text-align:center; margin:0; padding:0 32px 20px; }
 .bta-form-actions { display:flex; gap:10px; align-items:center; }
 .bta-btn-ghost {
   font-family:'Sora',sans-serif; font-size:.75rem; font-weight:700; letter-spacing:.06em;

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { submitContact } from "@/app/contact/actions";
 import { Navbar } from "@/components/navbar";
+import { PrivacyAgreement } from "@/components/privacy-agreement";
 import type { CSSPropertiesWithVars } from "@/lib/css-types";
 import "./ai-video-interviews.css";
 
@@ -2130,6 +2131,7 @@ export default function AIVideoInterviewsPage() {
                     <span className="avi12-sub-idle">Send Inquiry →</span>
                     <span className="avi12-sub-busy">Sending…</span>
                   </button>
+                  <PrivacyAgreement className="avi12-legal" />
                 </form>
               </div>
             </div>

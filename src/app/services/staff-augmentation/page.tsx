@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRef, useState } from "react";
 import { submitContact } from "@/app/contact/actions";
 import { Navbar } from "@/components/navbar";
+import { PrivacyAgreement } from "@/components/privacy-agreement";
 import { MARKETING_STATS } from "@/lib/marketing-stats";
 import { CalendarIcon, CheckBadge, ShieldIcon, TeamIcon } from "./_icons";
 
@@ -1228,6 +1229,7 @@ function CtaInquiry() {
                 </svg>
                 Your data is encrypted and 100% confidential
               </p>
+              <PrivacyAgreement className="m-0 mt-1.5 text-center text-[10px] text-remotiv-text-light" />
             </>
           )}
         </div>

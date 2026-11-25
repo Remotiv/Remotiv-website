@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { Navbar } from "@/components/navbar";
+import { PrivacyAgreement } from "@/components/privacy-agreement";
 import { looksLikeClaimToken } from "@/lib/claim-token-shape";
 import "./join-as-talent.css";
 
@@ -2175,6 +2176,7 @@ export default function BecomeATalentPage() {
                         with verified companies and hiring teams on the Remotiv platform who have
                         an active subscription to access talent profiles.
                       </p>
+                      <PrivacyAgreement className="bta-tos-text" />
                     </div>
                   )}
                 </>

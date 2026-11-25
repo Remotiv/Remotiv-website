@@ -2,6 +2,7 @@
 
 import { ArrowLeft, ArrowRight, Check, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { PrivacyAgreement } from "@/components/privacy-agreement";
 import { isValidEmail } from "@/lib/validators";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { submitHireRequest } from "./hire-request-action";
@@ -671,6 +672,11 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
                   </button>
                 )}
               </div>
+              {step === 3 && (
+                <PrivacyAgreement
+                  style={{ margin: "12px 0 0", fontSize: 12, color: "#666", textAlign: "center" }}
+                />
+              )}
           </>
         )}
 

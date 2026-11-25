@@ -6,6 +6,7 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { submitContact } from "./actions";
 import { isValidEmail } from "@/lib/validators";
 import { Navbar } from "@/components/navbar";
+import { PrivacyAgreement } from "@/components/privacy-agreement";
 import { MARKETING_STATS } from "@/lib/marketing-stats";
 
 const INQUIRY_CARDS = [
@@ -550,6 +551,7 @@ export default function ContactPage() {
                     <Lock className="size-[9px]" />
                     Your data is encrypted and kept 100% confidential.
                   </p>
+                  <PrivacyAgreement className="mt-1.5 text-center text-[10px] text-[#666]" />
                 </form>
               )}
             </div>

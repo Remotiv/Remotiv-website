@@ -14,6 +14,7 @@ import {
 } from "react";
 import { isValidEmail } from "@/lib/validators";
 import { Navbar } from "@/components/navbar";
+import { PrivacyAgreement } from "@/components/privacy-agreement";
 
 // Validation thresholds — keep client and server in agreement (server caps
 // CV/photo at 5 MB via MAX_CV_BYTES / MAX_PHOTO_BYTES in the API route).
@@ -1596,6 +1597,7 @@ function Step4(props: {
           </button>
         </div>
       </div>
+      <PrivacyAgreement className="bta-legal" />
     </div>
   );
 }

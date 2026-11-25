@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Fragment, useRef, useState } from "react";
 import { submitContact } from "@/app/contact/actions";
 import { Navbar } from "@/components/navbar";
+import { PrivacyAgreement } from "@/components/privacy-agreement";
 import type { CSSPropertiesWithVars } from "@/lib/css-types";
 import { MARKETING_STATS } from "@/lib/marketing-stats";
 
@@ -1591,6 +1592,7 @@ function InquiryForm() {
         </svg>
         Your data is encrypted and 100% confidential
       </p>
+      <PrivacyAgreement className="m-0 mt-1.5 text-center text-[10px] text-remotiv-text-light" />
     </div>
   );
 }

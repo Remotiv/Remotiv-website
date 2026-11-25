@@ -3,6 +3,7 @@
 import { track } from "@vercel/analytics";
 import { Check, Lock } from "lucide-react";
 import { cloneElement, type FormEvent, type ReactElement, useEffect, useId, useRef, useState } from "react";
+import { PrivacyAgreement } from "@/components/privacy-agreement";
 import { isValidEmail } from "@/lib/validators";
 import { submitBooking } from "./actions";
 
@@ -315,6 +316,7 @@ export default function BookingForm() {
             <Lock className="size-3" />
             Your data is encrypted and kept 100% confidential.
           </p>
+          <PrivacyAgreement className="text-center text-xs text-white/70" />
         </div>
       </form>
     </div>

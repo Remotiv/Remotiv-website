@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { PrivacyAgreement } from "@/components/privacy-agreement";
 import { createClient } from "@/lib/supabase/client";
 import { initiateOutcome, REASON_BANNER, verifyOutcome } from "./claim-responses";
 
@@ -392,6 +393,7 @@ export function TalentLoginClient({
               >
                 {busy ? "Sending…" : "Send me a 6-digit code"}
               </button>
+              <PrivacyAgreement className="text-center text-xs text-gray-400" />
             </form>
           )}
 
