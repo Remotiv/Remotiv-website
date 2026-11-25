@@ -81,8 +81,10 @@ const nextConfig: NextConfig = {
      * Scoped to this prefix so the rest of the site keeps camera=() and
      * microphone=() and its media fallback to default-src. Later entries win
      * per key, so every other directive is inherited from the block above
-     * untouched — geolocation and interest-cohort are restated here only
-     * because a Permissions-Policy header replaces the whole value.
+     * untouched; geolocation is restated here only because a
+     * Permissions-Policy header replaces the whole value. (interest-cohort,
+     * FLoC's opt-out, was dropped in #72 step 13: browsers no longer know the
+     * feature and Chrome logs an "unrecognized feature" warning for it.)
      */
     const INTERVIEW_PREFIX = "/interview/:path*";
     const DASHBOARD_PREFIX = "/ai-dashboard/:path*";
@@ -127,7 +129,7 @@ const nextConfig: NextConfig = {
           },
           {
             key: "Permissions-Policy",
-            value: "camera=(), microphone=(), geolocation=(), interest-cohort=()",
+            value: "camera=(), microphone=(), geolocation=()",
           },
           // Enforced (was report-only until pre-launch audit)
           {
@@ -147,7 +149,7 @@ const nextConfig: NextConfig = {
         headers: [
           {
             key: "Permissions-Policy",
-            value: "camera=(self), microphone=(self), geolocation=(), interest-cohort=()",
+            value: "camera=(self), microphone=(self), geolocation=()",
           },
           {
             key: "Content-Security-Policy",

@@ -5,6 +5,7 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import { AIChatWidget } from "@/components/ai-chat-widget";
 import { FooterWrapper } from "@/components/footer-wrapper";
+import { SCROLL_RESTORATION_SCRIPT } from "@/lib/security/csp";
 
 const sora = Sora({
   variable: "--font-heading",
@@ -109,7 +110,7 @@ export default function RootLayout({
         <script
           // biome-ignore lint/security/noDangerouslySetInnerHtml: tiny inline bootstrap — disables browser scroll restoration to avoid the loading.tsx → SSR height swap producing a "jump to footer then top" flash on slow-SSR routes (e.g. /browse-talent). Next.js App Router handles scroll-to-top on internal navigation itself.
           dangerouslySetInnerHTML={{
-            __html: `if("scrollRestoration" in history){history.scrollRestoration="manual";}`,
+            __html: SCROLL_RESTORATION_SCRIPT,
           }}
         />
       </head>

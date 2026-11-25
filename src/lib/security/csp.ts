@@ -102,6 +102,56 @@ export function mediaDirectives(input: CspInput): string[] {
 
 export const toCsp = (directives: string[]): string => directives.join("; ");
 
+// ── Report-Only: script-src without 'unsafe-inline' (#72 step 13) ──
+//
+// Sent ALONGSIDE the enforced policy above, which is unchanged: a browser
+// enforces the first and only reports against this one, so nothing is blocked.
+// Where it is sent (src/proxy.ts): the dashboard and admin, every page of which
+// renders per request, so Next stamps the request's nonce on its own inline
+// scripts (the streamed page data, self.__next_f.push) and on its script tags.
+// The one inline script Next does not stamp, the root layout's scroll script,
+// is allowed by its hash (SCROLL_RESTORATION_SHA256 below). Not sent on marketing pages,
+// which are static: their inline page-data scripts cannot carry a per-request
+// nonce and their bytes are not known when these headers are built, so a
+// policy without 'unsafe-inline' would only ever report them.
+
+/**
+ * The one executable inline script every page carries (the root layout imports
+ * it from here), and its hash for the Report-Only policy. Kept beside the hash
+ * so the two cannot drift: csp-report-only.test.ts recomputes the SHA-256 of
+ * this exact string and fails if the constant does not match. A pure string,
+ * not computed: the proxy imports this module on every request.
+ */
+export const SCROLL_RESTORATION_SCRIPT = `if("scrollRestoration" in history){history.scrollRestoration="manual";}`;
+export const SCROLL_RESTORATION_SHA256 = "'sha256-RYIsiYRCEXlZQQQGMYuOmCpGtjfmUc1k3nbZdEs2bZw='";
+
+/** Where browsers post Report-Only violations: app/api/csp-report/route.ts. */
+export const CSP_REPORT_PATH = "/api/csp-report";
+
+/**
+ * script-src for the Report-Only policy: this request's nonce and the scroll
+ * script's hash instead of 'unsafe-inline'. 'unsafe-eval' in development only,
+ * as in the enforced policy.
+ */
+export function reportOnlyScriptSrc(nonce: string, isProduction: boolean): string {
+  const evalSource = isProduction ? "" : " 'unsafe-eval'";
+  return `script-src 'self' 'nonce-${nonce}' ${SCROLL_RESTORATION_SHA256}${evalSource} https://assets.calendly.com`;
+}
+
+/**
+ * The Report-Only policy: the dashboard's enforced directives with script-src
+ * swapped for reportOnlyScriptSrc, and a report-uri. Everything else is the
+ * same, so the only reports are about scripts.
+ */
+export function reportOnlyDirectives(input: CspInput & { nonce: string }): string[] {
+  return [
+    ...mediaDirectives(input).map((d) =>
+      d.startsWith("script-src ") ? reportOnlyScriptSrc(input.nonce, input.isProduction) : d,
+    ),
+    `report-uri ${CSP_REPORT_PATH}`,
+  ];
+}
+
 /** The one remotePattern next/image needs: the configured Supabase host's storage. */
 export function supabaseImagePattern(host: string) {
   return {

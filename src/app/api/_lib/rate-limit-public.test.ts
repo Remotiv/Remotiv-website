@@ -445,11 +445,12 @@ const EXPECTED = [
   "app/api/check-duplicate-bulk/route.ts  check-duplicate-bulk  public",
   "app/api/hire-remote-profiles/route.ts  hire-remote  public",
   "app/api/hire-remote/candidates/route.ts  hire-remote-candidates  public",
-  // Public, memory only (slice 2): 4.
+  // Public, memory only (slice 2): 4, and the CSP report sink (#72 step 13).
   "app/api/check-duplicate/route.ts  check-duplicate  local",
   "app/api/jobs/route.ts  jobs  local",
   "app/api/track/follow-click/route.ts  track-follow-click  local",
   "app/api/health/worker/route.ts  health-worker  local",
+  "app/api/csp-report/route.ts  csp-report  local",
   // Interview (slice 1): 10.
   "app/api/interview/submit/route.ts  interview-submit  interview",
   "app/api/interview/upload-url/route.ts  interview-upload-url  interview",
@@ -463,9 +464,9 @@ const EXPECTED = [
   "app/api/interview/live/video-confirm/route.ts  live-video-confirm  interview",
 ].sort();
 
-test("census: all 42 limiter call sites have a group, none left ungrouped", () => {
+test("census: all 43 limiter call sites have a group, none left ungrouped", () => {
   const found = census();
-  assert.equal(EXPECTED.length, 42);
+  assert.equal(EXPECTED.length, 43);
   assert.deepEqual(
     found.filter((l) => l.endsWith("UNGROUPED")),
     [],
