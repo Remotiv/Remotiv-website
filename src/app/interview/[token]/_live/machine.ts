@@ -9,7 +9,8 @@ import type { AgentState, TransportEvent } from "./transport";
  *   welcome -> consent -> check -> connecting -> interview -> saving -> done
  *
  * plus busy (try again shortly; nothing used up) and blocked (a phone, an
- * unsupported browser, another tab, closed, already started, locked).
+ * unsupported browser, another tab, closed, already started, locked, or
+ * closed under a running interview: interview_closed, #54).
  *
  * The ending shown is what the screen saw. It is the candidate's message,
  * never an outcome: Completed is decided from the provider's export alone.
@@ -51,7 +52,9 @@ export type Blocked =
   | "locked"
   | "closed"
   | "already_started"
-  | "unavailable";
+  | "unavailable"
+  /** Closed while it ran (#54): cancelled, being deleted, or gone. Nothing more is heard or sent. */
+  | "interview_closed";
 
 export type LiveState = {
   screen: Screen;
@@ -86,6 +89,8 @@ export type LiveAction =
   | { t: "time_up" }
   | { t: "video_saved" }
   | { t: "block"; blocked: Blocked }
+  /** The server says the interview was closed under the candidate (#54). */
+  | { t: "closed_under" }
   | { t: "unblock" };
 
 export const INITIAL: LiveState = {
@@ -165,7 +170,8 @@ export function liveReducer(s: LiveState, a: LiveAction): LiveState {
     }
     case "transport": {
       const e = a.event;
-      if (s.ending) return s;
+      // Closed under the candidate: whatever the provider still sends is not heard.
+      if (s.ending || s.blocked === "interview_closed") return s;
       switch (e.type) {
         case "started":
           return { ...s, screen: "interview", starting: false };
@@ -210,6 +216,8 @@ export function liveReducer(s: LiveState, a: LiveAction): LiveState {
       return s.screen === "saving" ? { ...s, screen: "done" } : s;
     case "block":
       return block(s, a.blocked);
+    case "closed_under":
+      return { ...block(s, "interview_closed"), agent: null, caption: null, confirmingEnd: false };
     case "unblock":
       return s.blocked === "duplicate" ? { ...s, screen: "welcome", blocked: null } : s;
   }

@@ -242,6 +242,6 @@ test("the screen wires it: the limit check, the hard stop, and nothing reported 
   );
   assert.match(
     flow,
-    /if \(limitHitRef\.current\) return;\s*dispatch\(\{ t: "transport", event \}\);/,
+    /if \(limitHitRef\.current \|\| closedRef\.current\) return;\s*dispatch\(\{ t: "transport", event \}\);/,
   );
 });

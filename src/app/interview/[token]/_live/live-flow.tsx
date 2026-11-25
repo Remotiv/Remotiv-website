@@ -11,6 +11,7 @@ import {
 import { useTabLock } from "../_tab-lock";
 import { InterviewShell } from "../_terminal";
 import { createWebAudioOut } from "./audio-out";
+import { endClosedInterview } from "./closed";
 import { INTERVIEW, SAVING } from "./copy";
 import { httpLiveServer, type LiveServer } from "./live-server";
 import { INITIAL, liveReducer } from "./machine";
@@ -39,6 +40,15 @@ import { baseMime, PieceRecorder, type PieceView, type RecorderLike } from "./vi
  * dropping, the time limit) is a record only. It never restarts a
  * conversation: once started, the link shows "This interview has ended". It
  * does no end-of-turn detection: that stays behind the transport.
+ *
+ * ── Unless the interview is closed under it (#54) ─────────────
+ *
+ * When the server answers a piece with interview_closed (cancelled, the
+ * applicant being deleted) or not_found (the row gone), the recorder lets go
+ * of every unsaved piece and this screen ends the interview on its own side
+ * (endClosedInterview): the provider connection is closed here, the camera and
+ * microphone stop, nothing more is uploaded, and "This interview has been
+ * closed" shows. Nothing the provider sends after that is heard or reported.
  *
  * ── The video is protected ───────────────────────────────────
  *
@@ -152,6 +162,8 @@ export function LiveFlowCore({
   /** The chosen length was reached here: whatever the closed connection says next is ours, not news. */
   const limitHitRef = useRef(false);
   const endTimer = useRef<number | null>(null);
+  /** Closed under the candidate (#54): nothing from the provider is heard or reported after this. */
+  const closedRef = useRef(false);
 
   const tab = useTabLock(tabKey);
 
@@ -263,11 +275,24 @@ export function LiveFlowCore({
     recorder.stop();
   }, [stopMedia]);
 
+  const closeHere = useCallback(() => {
+    if (closedRef.current) return;
+    closedRef.current = true;
+    if (endTimer.current !== null) window.clearTimeout(endTimer.current);
+    endTimer.current = null;
+    endClosedInterview({
+      closeTransport: () => transportRef.current?.close(),
+      stopMedia,
+      show: () => dispatch({ t: "closed_under" }),
+    });
+  }, [stopMedia]);
+
   const onEvent = useCallback(
     (event: TransportEvent) => {
-      // After the hard stop the call is over: a close or drop that follows is
-      // the page's own, never reported as a lost connection.
-      if (limitHitRef.current) return;
+      // After the hard stop, or once the interview was closed under the
+      // candidate, the call is over: a close or drop that follows is the
+      // page's own, never reported as a lost connection.
+      if (limitHitRef.current || closedRef.current) return;
       dispatch({ t: "transport", event });
       if (event.type === "started") {
         startedAtRef.current = performance.now();
@@ -298,6 +323,7 @@ export function LiveFlowCore({
             now: () => performance.now() - (startedAtRef.current ?? performance.now()),
             pieceMs,
             onChange: setPieces,
+            onClosed: closeHere,
           });
           recorderRef.current = recorder;
           recorder.start();
@@ -313,7 +339,7 @@ export function LiveFlowCore({
         stopRecording();
       }
     },
-    [server, stopRecording, pieceMs],
+    [server, stopRecording, pieceMs, closeHere],
   );
 
   const start = useCallback(async () => {

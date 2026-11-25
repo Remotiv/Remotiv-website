@@ -198,6 +198,10 @@ export const BLOCKED: Record<Blocked, { heading: string; body: (company: string)
     body: (c) =>
       `It can't be started again from this link. ${c}'s hiring team will see the answers you gave and decide what happens next.`,
   },
+  interview_closed: {
+    heading: "This interview has been closed",
+    body: () => "Nothing more is being recorded. You can close this tab.",
+  },
   unavailable: {
     heading: "The interview couldn't connect",
     body: (c) =>

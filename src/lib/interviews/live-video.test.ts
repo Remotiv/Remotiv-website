@@ -42,14 +42,13 @@ const { createElement } = await import("react");
 const { renderToStaticMarkup } = await import("react-dom/server");
 globalThis.__h = createElement;
 
-const { reservePieceUpload, confirmPiece, piecePath, PIECE_MAX_BYTES } = await import(
-  "./live-video.ts"
-);
+const { reservePieceUpload, confirmPiece, piecePath, PIECE_MAX_BYTES, INTERVIEW_CLOSED } =
+  await import("./live-video.ts");
 const { videoTimeline, videoPositionAt, GAP_TOLERANCE_MS } = await import(
   "./live-video-timeline.ts"
 );
 const { signLiveVideoPiece, buildLiveReviewView } = await import("./live-review.ts");
-const { handleInterviewPurge } = await import("./purge.ts");
+const { handleInterviewPurge, runInterviewOrphanSweep } = await import("./purge.ts");
 const { hashSessionToken } = await import("./tokens.ts");
 const { LiveReviewClient } = await import(
   "../../app/ai-dashboard/(gated)/interviews/[sessionId]/_live-review-client.tsx"
@@ -172,7 +171,6 @@ test("an open interview: invited or started, not ended, not past its link's expi
   assert.equal((await reserve(world({ status: "started" }).deps, 0)).status, 200);
   for (const [label, over] of [
     ["link expired", { expires_at: new Date(Date.now() - 1000).toISOString() }],
-    ["cancelled", { status: "cancelled" }],
     [
       "abandoned long ago",
       { status: "abandoned", live_ended_at: new Date(Date.now() - DAY).toISOString() },
@@ -183,6 +181,11 @@ test("an open interview: invited or started, not ended, not past its link's expi
     assert.deepEqual([r.status, r.body.code], [409, "not_open"], label);
     assert.equal(pieces(w.db).length, 0, label);
   }
+  // Cancelled is closed under the candidate (#54): its own code, which the screen acts on.
+  const w = world({ status: "cancelled" });
+  const r = await reserve(w.deps, 0);
+  assert.deepEqual([r.status, r.body.code], [409, "interview_closed"], "cancelled");
+  assert.equal(pieces(w.db).length, 0, "cancelled");
 });
 
 /* ── reserve, upload, confirm ─────────────────────────────────── */
@@ -505,6 +508,114 @@ test("purge: a due session's pieces go, rows keep no path; confirmed pieces are 
     `${SESSION}/v0.webm`,
     "the later session's rows are untouched",
   );
+});
+
+/* ── #54 / #55: closed under a running interview ─────────────── */
+
+/** 071's Close on this session, as its one transaction leaves the row. */
+function close071(db, id = SESSION) {
+  const row = db.tables.interview_sessions.find((s) => s.id === id);
+  const at = new Date(Date.now() - 1).toISOString();
+  row.delete_after = at;
+  if (row.status === "invited" || row.status === "started") row.status = "cancelled";
+  row.live_ended_at ??= at;
+}
+
+/** Counts the upload links storage is asked to sign. */
+function countSigning(db) {
+  const from = db.service.storage.from.bind(db.service.storage);
+  const n = { signed: 0 };
+  db.service.storage.from = (bucket) => {
+    const b = from(bucket);
+    const sign = b.createSignedUploadUrl.bind(b);
+    b.createSignedUploadUrl = (...a) => {
+      n.signed += 1;
+      return sign(...a);
+    };
+    return b;
+  };
+  return n;
+}
+
+test("#55 once the delete begins: no upload link, for a new piece or one reserved before; no confirm either", async () => {
+  for (const [label, close] of [
+    ["the applicant's delete (071 Close)", (db) => close071(db)],
+    [
+      "the session cancelled",
+      (db) => {
+        db.tables.interview_sessions[0].status = "cancelled";
+      },
+    ],
+    [
+      "delete_after due",
+      (db) => {
+        db.tables.interview_sessions[0].delete_after = new Date(Date.now() - 1).toISOString();
+      },
+    ],
+  ]) {
+    const w = world();
+    await record(w, 0);
+    const before = await reserve(w.deps, 1); // reserved while the call ran
+    await w.db.putSigned(before.body.url, WEBM(), "video/webm");
+    close(w.db);
+    const signing = countSigning(w.db);
+    for (const i of [1, 2]) {
+      const r = await reserve(w.deps, i);
+      assert.deepEqual(
+        [r.status, r.body.code, r.body.url],
+        [409, INTERVIEW_CLOSED, undefined],
+        `${label}: piece ${i}`,
+      );
+    }
+    const c = await quiet(() => confirm(w.deps, 1));
+    assert.deepEqual([c.status, c.body.code], [409, INTERVIEW_CLOSED], `${label}: confirm`);
+    assert.equal(signing.signed, 0, `${label}: storage never asked for a link`);
+    assert.equal(pieces(w.db).length, 2, `${label}: no new piece row`);
+    assert.equal(piece(w.db, 1).status, "pending", `${label}: never confirmed`);
+  }
+});
+
+test("#54 the session's row gone (Finish): not_found, which the screen reads as closed", async () => {
+  const w = world();
+  await record(w, 0);
+  w.db.tables.interview_sessions.length = 0;
+  const r = await reserve(w.deps, 1);
+  assert.deepEqual([r.status, r.body.code], [404, "not_found"]);
+});
+
+test("#54 a normal interview is unaffected: reserve and confirm as before", async () => {
+  const w = world();
+  for (const i of [0, 1, 2]) await record(w, i);
+  assert.deepEqual(
+    pieces(w.db).map((p) => [p.piece_index, p.status]),
+    [
+      [0, "confirmed"],
+      [1, "confirmed"],
+      [2, "confirmed"],
+    ],
+  );
+});
+
+test("#55 a file that lands after the delete's cleanup (a link signed before it): the orphan sweep removes it after 24 hours, ours only", async () => {
+  const GONE = "5b0f2c1e-0000-4000-8000-0000000000e5";
+  const w = world();
+  await record(w, 0); // a live session's confirmed piece: referenced, kept
+  // The deleted session's folder after Finish: its row is gone, a late piece
+  // and a late turn audio arrived after the storage step.
+  const late = [`${GONE}/v3.webm`, `${GONE}/t7.${"a".repeat(16)}.webm`];
+  for (const path of late) {
+    await w.db.service.storage
+      .from("interview-videos")
+      .upload(path, WEBM(), { contentType: "video/webm" });
+  }
+  w.db.tables.background_jobs = [];
+  // Younger than the grace: kept for now.
+  await quiet(() => runInterviewOrphanSweep({ id: "sweep-55a", payload: {} }));
+  for (const path of late) assert.ok(w.db.objects.has(path), `${path}: inside the grace, kept`);
+  for (const path of [...w.db.objects.keys()]) w.db.age(path, 2 * DAY);
+  await quiet(() => runInterviewOrphanSweep({ id: "sweep-55b", payload: {} }));
+  for (const path of late) assert.equal(w.db.objects.has(path), false, `${path}: swept`);
+  assert.ok(w.db.objects.has(`${SESSION}/v0.webm`), "the live session's confirmed piece is kept");
 });
 
 /* ── the review page ──────────────────────────────────────────── */

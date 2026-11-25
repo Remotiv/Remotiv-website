@@ -59,6 +59,16 @@ import type { createServiceClient } from "@/lib/supabase/server";
  * new piece is reserved, and a piece already reserved still has its 30
  * minutes to be confirmed.
  *
+ * ── Closed under a running interview (#54, 25 Nov) ───────────
+ *
+ * A session cancelled, or with its delete_after due (the applicant's delete
+ * sets both, 071's Close), answers every reserve and confirm with
+ * INTERVIEW_CLOSED (409), before anything else, the consent included. The
+ * candidate's screen reserves a piece every 30 seconds while the call runs,
+ * so it learns within about that long, and ends the interview on its side
+ * (_live/closed.ts): the call, the recorder and every upload stop. A session
+ * whose row is gone answers not_found, which the screen reads the same way.
+ *
  * ── Never logged ─────────────────────────────────────────────
  *
  * Tokens, paths, signed URLs. Log lines carry the session id and piece number.
@@ -76,6 +86,9 @@ const EXT = { "video/webm": "webm", "video/mp4": "mp4" } as const;
 export type PieceMime = keyof typeof EXT;
 
 export type VideoResult = { status: number; body: Record<string, unknown> };
+
+/** The code a reserve or confirm answers once the interview has been closed under it (#54). */
+export const INTERVIEW_CLOSED = "interview_closed";
 
 const fail = (status: number, code: string, error: string): VideoResult => ({
   status,
@@ -144,6 +157,11 @@ type PieceRow = {
   media_path: string | null;
 };
 
+/** Closed under the candidate (#54): cancelled, or its delete_after due (an applicant's delete sets both). */
+export function closedUnder(s: Pick<SessionRow, "status" | "delete_after">, now: number): boolean {
+  return s.status === "cancelled" || retentionPassed(s.delete_after, now);
+}
+
 /** Where in its life the session is, for video. */
 function phase(s: SessionRow, now: number): "open" | "window" | "closed" {
   if (retentionPassed(s.delete_after, now)) return "closed";
@@ -176,6 +194,10 @@ async function gate(
 ): Promise<{ session: SessionRow; phase: "open" | "window" | "closed" } | VideoResult> {
   const session = await sessionFor(deps.service, token);
   if (!session) return fail(404, "not_found", "This interview link isn't valid.");
+  const now = deps.now ?? Date.now;
+  if (closedUnder(session, now())) {
+    return fail(409, INTERVIEW_CLOSED, "This interview has been closed.");
+  }
   try {
     await requireLiveConsent(deps.service, session.id);
   } catch (err) {
@@ -184,7 +206,6 @@ async function gate(
     }
     return fail(502, "unavailable", "Couldn't check this interview. Please try again.");
   }
-  const now = deps.now ?? Date.now;
   // The server-side backstop first: past the time limit plus the grace, the interview has ended.
   if (session.live_ended_at === null) {
     const due = liveEndDueAt(session);

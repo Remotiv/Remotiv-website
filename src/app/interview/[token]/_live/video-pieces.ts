@@ -38,6 +38,15 @@ import { type Clock, realClock } from "./clock";
  * When only refused pieces are left, the recorder is finished: the screen
  * moves on and says calmly that some video could not be saved.
  *
+ * ── Unless the interview was closed under it (#54) ────────────
+ *
+ * A reserve or confirm answered INTERVIEW_CLOSED (the session cancelled, or
+ * the applicant's delete begun), or not_found (the session's row gone), means
+ * nothing more may be recorded or sent: every piece not yet saved is let go,
+ * the recorder is stopped, nothing is uploaded again, and onClosed tells the
+ * screen once. A piece is reserved as it starts, every PIECE_MS, so while the
+ * call runs the screen learns within about that long.
+ *
  * One backoff for the whole queue (RETRY_MS, growing to 30 s), so a long
  * outage costs one try every 30 s, not one per piece: about 3 requests per
  * piece plus 20 tries per 10 minutes, under the routes' 120 per 10 minutes.
@@ -82,6 +91,17 @@ export function isPermanent(status: number | null): boolean {
 }
 
 const refusedBy = (e: unknown) => e instanceof PieceHttpError && isPermanent(e.status);
+
+/** The server's code for an interview closed under the candidate (live-video.ts, #54). */
+export const INTERVIEW_CLOSED = "interview_closed";
+
+/** The interview was closed under the candidate: cancelled, being deleted, or its row gone. */
+export function closedBy(e: unknown): boolean {
+  return (
+    e instanceof PieceHttpError &&
+    (e.code === INTERVIEW_CLOSED || (e.status === 404 && e.code === "not_found"))
+  );
+}
 
 export type PieceSink = {
   /** The upload URL for piece N (reserving it), or that it is already saved. */
@@ -135,6 +155,8 @@ export type PieceRecorderOptions = {
   pieceMs?: number;
   clock?: Clock;
   onChange?: (pieces: PieceView[]) => void;
+  /** The interview was closed under the candidate (closedBy): called once, everything already stopped. */
+  onClosed?: () => void;
 };
 
 export class PieceRecorder {
@@ -146,6 +168,8 @@ export class PieceRecorder {
   /** Failed tries in a row across the queue: the backoff. */
   private failures = 0;
   private stopped = false;
+  /** Closed under the candidate: nothing is recorded, uploaded or confirmed again. */
+  private closed = false;
   private readonly clock: Clock;
   private readonly opts: PieceRecorderOptions;
 
@@ -166,6 +190,48 @@ export class PieceRecorder {
     if (this.rotateTimer !== null) this.clock.clearTimeout(this.rotateTimer);
     this.rotateTimer = null;
     this.finishCurrent(true);
+  }
+
+  /**
+   * The interview was closed under the candidate: stop recording without
+   * keeping the piece in progress, let every unsaved piece go, upload nothing
+   * more. Called by the recorder itself on the server's answer (closedBy).
+   */
+  abandon(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.stopped = true;
+    if (this.rotateTimer !== null) this.clock.clearTimeout(this.rotateTimer);
+    this.rotateTimer = null;
+    const recorder = this.recorder;
+    this.recorder = null;
+    if (recorder) {
+      recorder.ondataavailable = null;
+      recorder.onstop = null;
+      recorder.stop();
+    }
+    this.pending.length = 0;
+    for (const p of this.pieces) {
+      if (p.state !== "saved") {
+        p.state = "refused";
+        p.blob = null;
+      }
+    }
+    this.changed();
+  }
+
+  /** Whether the interview was closed under the candidate. */
+  get closedUnder(): boolean {
+    return this.closed;
+  }
+
+  private noticeClosed(e: unknown): boolean {
+    if (!closedBy(e)) return false;
+    if (!this.closed) {
+      this.abandon();
+      this.opts.onClosed?.();
+    }
+    return true;
   }
 
   view(): PieceView[] {
@@ -204,7 +270,10 @@ export class PieceRecorder {
       failures: 0,
     };
     // Reserved as it starts (044); a failure here is retried at upload.
-    piece.reserved = this.opts.sink.reserve(index, this.opts.mime).catch(() => null);
+    piece.reserved = this.opts.sink.reserve(index, this.opts.mime).catch((e) => {
+      this.noticeClosed(e);
+      return null;
+    });
     this.pieces.push(piece);
     // Each piece's own chunks: the previous recorder's last chunk can arrive
     // after the next piece has started.
@@ -244,6 +313,8 @@ export class PieceRecorder {
   }
 
   private enqueue(piece: Piece): void {
+    // A piece whose recorder stopped just after the close: let go, never queued.
+    if (this.closed) return void this.letGo(piece);
     piece.state = "waiting";
     this.pending.push(piece);
     this.changed();
@@ -273,12 +344,15 @@ export class PieceRecorder {
   /** One try at reserving, uploading and confirming a piece. */
   private async upload(piece: Piece): Promise<"saved" | "retry" | "refused"> {
     const blob = piece.blob;
+    if (this.closed) return this.letGo(piece);
     if (!blob) return "saved";
     if (piece.state !== "failed") piece.state = "uploading";
     this.changed();
     try {
       await piece.reserved;
+      if (this.closed) return this.letGo(piece);
       const reserved = await this.opts.sink.reserve(piece.index, this.opts.mime);
+      if (this.closed) return this.letGo(piece);
       if (!("alreadyConfirmed" in reserved)) {
         const sent = await this.opts.sink.upload(reserved.url, blob, this.opts.mime).then(
           () => true,
@@ -287,6 +361,7 @@ export class PieceRecorder {
             throw e;
           },
         );
+        if (this.closed) return this.letGo(piece);
         try {
           await this.opts.sink.confirm({
             index: piece.index,
@@ -307,12 +382,21 @@ export class PieceRecorder {
       this.changed();
       return "saved";
     } catch (e) {
+      if (this.noticeClosed(e) || this.closed) return this.letGo(piece);
       if (!refusedBy(e)) return "retry";
       piece.state = "refused";
       piece.blob = null;
       this.changed();
       return "refused";
     }
+  }
+
+  /** Closed under the candidate: this piece is let go, never uploaded or confirmed. */
+  private letGo(piece: Piece): "refused" {
+    piece.state = "refused";
+    piece.blob = null;
+    this.changed();
+    return "refused";
   }
 
   private changed(): void {
