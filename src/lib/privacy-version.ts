@@ -33,5 +33,11 @@
  * "no expiry date" instead of "until you ask us to remove it". Section 8 says
  * unsubscribe records are kept. Same rule, same safety: written once at
  * insert, read nowhere.
+ *
+ * 2026-11-25: WhatsApp is opt-in (#67). Section 1 says the apply form's
+ * WhatsApp box is recorded with its time and that no tick means email only;
+ * the Meta items say WhatsApp is used only for someone who asked for it, and
+ * that STOP ends it. Same rule, same safety: written once at insert, read
+ * nowhere.
  */
-export const PRIVACY_NOTICE_VERSION = "2026-11-17";
+export const PRIVACY_NOTICE_VERSION = "2026-11-25";

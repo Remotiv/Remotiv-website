@@ -16,6 +16,11 @@ import { type BrandPreset, brandTokens } from "@/components/white-label/brand";
 import { useModalFocus } from "@/hooks/use-modal-focus";
 import { looksLikeClaimToken } from "@/lib/claim-token-shape";
 import type { Job, ScreeningQuestion } from "@/lib/jobs";
+import {
+  WHATSAPP_OPT_IN_FIELD,
+  WHATSAPP_OPT_IN_LABEL,
+  WHATSAPP_OPT_IN_TICKED,
+} from "@/lib/whatsapp/consent";
 import "./apply-modal.css";
 
 // Server cap is 5 MB; align the client so the UX rejects what the API would
@@ -89,6 +94,8 @@ export default function ApplyModal({
   const [cvFile, setCvFile] = useState<File | null>(null);
   const [cvError, setCvError] = useState<string | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  // Unticked by default and never required (#67): no tick, email only.
+  const [whatsAppOptIn, setWhatsAppOptIn] = useState(false);
   // Reveals inline required-field errors after a submit attempt — never
   // permanently disables the button (soft-gate, matching the design).
   const [tried, setTried] = useState(false);
@@ -208,6 +215,7 @@ export default function ApplyModal({
       // the payload honest about what the candidate actually answered.
       if (form.noticePeriod) fd.append("notice_period", form.noticePeriod);
       if (form.availability) fd.append("availability", form.availability);
+      if (whatsAppOptIn) fd.append(WHATSAPP_OPT_IN_FIELD, WHATSAPP_OPT_IN_TICKED);
       fd.append("cv", cvFile as File);
       // New: screening answers, normalized to strings and keyed by question id.
       // Ignored by /api/apply until its own step reads this key.
@@ -648,6 +656,16 @@ export default function ApplyModal({
                   answer at a time and read the exact cut-off off the warning
                   appearing and disappearing. Screening answers are still
                   captured and scored server-side, unchanged. */}
+
+              <label htmlFor="apply-whatsapp" className="ap-optin">
+                <input
+                  id="apply-whatsapp"
+                  type="checkbox"
+                  checked={whatsAppOptIn}
+                  onChange={(e) => setWhatsAppOptIn(e.target.checked)}
+                />
+                <span>{WHATSAPP_OPT_IN_LABEL}</span>
+              </label>
 
               {submitError && (
                 <p role="alert" className="ap-errbanner">

@@ -47,6 +47,8 @@ const AddToBatchModal = dynamic(
 import { PaginationControls, paginate } from "./pagination-controls";
 import { ScreeningAnswersView, ScreeningBadge } from "./screening-answers-view";
 import { StatusBadge } from "./_shared/status-badge";
+import { requestWhatsAppLink } from "./whatsapp-link-request";
+import { CHAT_STOP_NOTE } from "@/lib/whatsapp/consent";
 import type { CvExtractFailure, ExtractedTalentFields } from "@/lib/cv-extract";
 import {
   updateApplicationStatus,
@@ -55,6 +57,8 @@ import {
   deleteApplication,
   deleteApplicationAnyway,
   fetchComments,
+  getApplicationWhatsAppLink,
+  type ApplicationWhatsAppLink,
   type ApplicationTag,
   type JobApplication,
   type ApplicationStatus,
@@ -68,7 +72,6 @@ import {
 } from "@/app/ai-dashboard/(gated)/applicants/_deletion-pending";
 import { isValidEmail } from "@/lib/validators";
 import { TRY_AGAIN_SOON } from "@/lib/rate-limit-copy";
-import { toWhatsAppDigits } from "@/lib/normalize";
 import {
   EditableCell,
   extractPdfText,
@@ -242,6 +245,9 @@ function AppPanel({
   const [text, setText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [visible, setVisible] = useState(false);
+  // Null while checking. Built on the server only for a candidate who opted in
+  // and has not replied STOP (#67); otherwise the reason it is unavailable.
+  const [waLink, setWaLink] = useState<ApplicationWhatsAppLink | null>(null);
 
   // Animate in
   useEffect(() => {
@@ -255,6 +261,12 @@ function AppPanel({
       setComments(c);
       setLoadingComments(false);
     });
+  }, [app.id]);
+
+  // The cleanup drops an answer for an applicant this drawer no longer shows.
+  useEffect(() => {
+    setWaLink(null);
+    return requestWhatsAppLink(getApplicationWhatsAppLink, app.id, setWaLink);
   }, [app.id]);
 
   function handleClose() {
@@ -343,19 +355,11 @@ function AppPanel({
               Actions
             </p>
 
-            {(() => {
-              const waDigits = toWhatsAppDigits(app.phone);
-              const candidateName =
-                [app.first_name, app.last_name].filter(Boolean).join(" ").trim() || "there";
-              const roleText = app.job_title?.trim() || "the role";
-              const waMessage = `Hi ${candidateName}, this is Remotiv. Congratulations, you've been shortlisted for the ${roleText} position. We'd love to discuss the next steps with you. When would be a good time for a quick call?`;
-              const waHref = waDigits
-                ? `https://wa.me/${waDigits}?text=${encodeURIComponent(waMessage)}`
-                : null;
-              return waHref ? (
+            {waLink?.ok ? (
+              <>
                 <button
                   type="button"
-                  onClick={() => window.open(waHref, "_blank", "noopener,noreferrer")}
+                  onClick={() => window.open(waLink.href, "_blank", "noopener,noreferrer")}
                   className={`${actionBtn} text-remotiv-green hover:bg-remotiv-green/5`}
                 >
                   <span className="flex size-7 items-center justify-center rounded-lg bg-remotiv-green/10">
@@ -363,20 +367,18 @@ function AppPanel({
                   </span>
                   Message on WhatsApp
                 </button>
-              ) : (
-                <button
-                  type="button"
-                  disabled
-                  title="Phone number format unclear. Message this candidate manually."
-                  className={`${actionBtn} cursor-not-allowed text-gray-300`}
-                >
-                  <span className="flex size-7 items-center justify-center rounded-lg bg-gray-100">
-                    <MessageCircle className="size-3.5 text-gray-300" strokeWidth={2} />
-                  </span>
-                  Message on WhatsApp
-                </button>
-              );
-            })()}
+                <p className="mb-1 px-4 text-[11px] leading-snug text-gray-400">
+                  {CHAT_STOP_NOTE}
+                </p>
+              </>
+            ) : (
+              <p className={`${actionBtn} text-gray-400`}>
+                <span className="flex size-7 items-center justify-center rounded-lg bg-gray-100">
+                  <MessageCircle className="size-3.5 text-gray-300" strokeWidth={2} />
+                </span>
+                {waLink ? waLink.label : "Checking WhatsApp…"}
+              </p>
+            )}
 
             <button
               type="button"

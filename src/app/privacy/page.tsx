@@ -137,7 +137,7 @@ export const metadata: Metadata = {
 };
 
 /** Shown at the top. Update whenever the substance below changes. */
-const LAST_UPDATED = "17 November 2026";
+const LAST_UPDATED = "25 November 2026";
 
 const CONTACT = "talent@remotiv.work";
 
@@ -232,7 +232,9 @@ export default function PrivacyPage() {
             collect your first and last name, email address, phone number, LinkedIn profile URL
             (which is required), your CV, your answers to any screening questions the role asks,
             your notice period and availability, and, where you give them, your city and country and
-            years of experience.
+            years of experience. If you tick the box asking for updates on WhatsApp, we record that
+            you did and when; if you don&apos;t, we contact you about that application by email
+            only.
           </P>
           <Callout>
             <strong className="font-semibold text-[#111]">
@@ -557,7 +559,7 @@ export default function PrivacyPage() {
             </li>
             <li>
               <strong className="font-semibold text-[#111]">Global</strong>: Google, for interview
-              calendar events, and Meta, where WhatsApp invitations are enabled. Both operate
+              calendar events, and Meta, if you asked for updates on WhatsApp. Both operate
               internationally.
             </li>
           </UL>
@@ -616,9 +618,9 @@ export default function PrivacyPage() {
                   this list are unaffected; this one wraps differently. */}
               <strong className="font-semibold text-[#111]">Meta (WhatsApp)</strong>
               {" - "}
-              where WhatsApp messaging is enabled for a role, we send interview invitations through
-              it, which means Meta receives your first name and phone number along with the
-              company&apos;s name.
+              if you asked for updates on WhatsApp when you applied, we send interview invitations
+              and reminders through it, which means Meta receives your first name and phone number
+              along with the company&apos;s name. Reply STOP at any time to stop them.
             </li>
           </UL>
 

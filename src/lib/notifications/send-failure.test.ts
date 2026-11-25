@@ -105,6 +105,9 @@ function world({ bells = "ok", jobLookup = "ok", updateMatches = 1, webhookRow =
           job_title_snapshot: "Engineer",
           company_id_snapshot: COMPANY,
           pipeline_stage: "interview",
+          // Opted in (#67), so the WhatsApp failure paths are reached.
+          whatsapp_opt_in: true,
+          whatsapp_opt_in_at: "2026-11-15T09:00:00.000Z",
         });
       }
       case "companies":

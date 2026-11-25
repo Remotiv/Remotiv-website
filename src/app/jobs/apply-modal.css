@@ -498,6 +498,24 @@
   opacity: 0.85;
 }
 
+/* ── WhatsApp opt-in (#67): optional, unticked by default ────── */
+.applymodal .ap-optin {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #3a3550;
+  cursor: pointer;
+}
+.applymodal .ap-optin input {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  accent-color: var(--brand, #7e47ff);
+}
+
 /* ── Error banner ───────────────────────────────────────────── */
 .applymodal .ap-errbanner {
   border-radius: 10px;

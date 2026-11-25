@@ -218,8 +218,9 @@ if(!e.classList.contains("avi9-in")&&e.getBoundingClientRect().top<innerHeight)s
 })();`;
 
 // Section 9. Two flows that ship today, kept in the order a candidate meets
-// them and never merged. The async video interview invite goes over WhatsApp
-// and email, and its one reminder is queued for 24 hours before the deadline
+// them and never merged. The async video interview invite goes by email, and
+// on WhatsApp too only for a candidate who ticked the box when applying (#67);
+// its one reminder is queued for 24 hours before the deadline
 // and skipped once the candidate has submitted. Booking is separate and
 // email-only: a team member sends the link, the candidate picks a slot the
 // host's calendar and working hours leave open — never an open calendar, so
@@ -227,7 +228,7 @@ if(!e.classList.contains("avi9-in")&&e.getBoundingClientRect().top<innerHeight)s
 // and any reschedule are emailed to both sides. WhatsApp carries no booking
 // message, which is why the depicted WhatsApp is the interview invite.
 const AVI9_STEPS = [
-  { name: "Invite", line: "Video interview, over WhatsApp and email" },
+  { name: "Invite", line: "Video interview by email, and WhatsApp if they asked for it" },
   {
     name: "Reminder",
     line: "The day before it closes, if they haven’t finished",
@@ -1745,9 +1746,10 @@ export default function AIVideoInterviewsPage() {
                 From invitation to booked interview, without the back-and-forth.
               </h2>
               <p className="avi9-lede">
-                Interview invitations and reminders go out over WhatsApp and email. Booking links
-                let candidates pick a slot from your team&rsquo;s availability, and confirmations
-                and any rescheduling reach both sides.
+                Interview invitations and reminders go by email, and on WhatsApp too if the
+                candidate asked for it when applying. Booking links let candidates pick a slot from
+                your team&rsquo;s availability, and confirmations and any rescheduling reach both
+                sides.
               </p>
             </header>
 

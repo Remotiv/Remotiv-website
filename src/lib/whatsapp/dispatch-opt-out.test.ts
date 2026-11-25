@@ -62,6 +62,9 @@ function world({ optOuts = [], inbound = [], failing = null, staleQueued = false
           job_id: "job-1",
           job_title_snapshot: "Engineer",
           company_id_snapshot: "company-1",
+          // Opted in (#67): the opt-out must still win over a tick.
+          whatsapp_opt_in: true,
+          whatsapp_opt_in_at: "2026-11-15T09:00:00.000Z",
         });
       case "companies":
         return ok({ name: "Acme" });

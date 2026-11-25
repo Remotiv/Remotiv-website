@@ -22,6 +22,7 @@ import { skipJob } from "@/lib/job-skip";
 import { alertSendFailure, updatedOne } from "@/lib/notifications/send-failure";
 import { TerminalJobError } from "@/lib/queue/failure-class";
 import { createServiceClient } from "@/lib/supabase/server";
+import { hasWhatsAppOptIn, NO_OPT_IN_REASON } from "@/lib/whatsapp/consent";
 import { isWhatsAppOptedOut } from "@/lib/whatsapp/opt-out";
 import {
   resolveRecipient,
@@ -81,6 +82,9 @@ type ApplicationRow = {
   job_id: string | null;
   job_title_snapshot: string | null;
   company_id_snapshot: string | null;
+  /** Migration 079 (#67): the candidate's tick on the apply form, and when. */
+  whatsapp_opt_in: boolean | null;
+  whatsapp_opt_in_at: string | null;
 };
 
 export type WhatsAppSendPayload = {
@@ -166,7 +170,9 @@ export async function handleWhatsAppMessage(job: {
     status: appStatus,
   } = await service
     .from("job_applications")
-    .select("id, first_name, phone, job_id, job_title_snapshot, company_id_snapshot")
+    .select(
+      "id, first_name, phone, job_id, job_title_snapshot, company_id_snapshot, whatsapp_opt_in, whatsapp_opt_in_at",
+    )
     .eq("id", applicationId)
     .maybeSingle();
   if (appError) throw dbFailure("the application read", appError, appStatus);
@@ -229,8 +235,8 @@ export async function handleWhatsAppMessage(job: {
     if (resolution.kind === "owned") owned = resolution.owned;
   }
 
-  // ── 3 and 4. Can this number be addressed, and may we write to it? ──
-  const target = await sendTarget(service, app.phone);
+  // ── 3 and 4. Did they opt in, can this number be addressed, may we write to it? ──
+  const target = await sendTarget(service, app);
 
   /*
    * A decision not to send, recorded where the row lives: on the owned row
@@ -556,7 +562,7 @@ async function sendQueuedManual(
     return;
   }
 
-  const target = await sendTarget(service, app.phone);
+  const target = await sendTarget(service, app);
   if (!target.send) {
     await service
       .from("communication_logs")
@@ -627,7 +633,9 @@ export async function queueManualWhatsApp(
   const template = EVENT_TEMPLATES[input.event];
   const { data: appData, error: appError } = await service
     .from("job_applications")
-    .select("id, first_name, phone, job_id, job_title_snapshot, company_id_snapshot")
+    .select(
+      "id, first_name, phone, job_id, job_title_snapshot, company_id_snapshot, whatsapp_opt_in, whatsapp_opt_in_at",
+    )
     .eq("id", input.applicationId)
     .eq("company_id_snapshot", input.companyId)
     .maybeSingle();
@@ -645,7 +653,7 @@ export async function queueManualWhatsApp(
     ...(input.minutes ? { minutes: input.minutes } : {}),
   };
 
-  const target = await sendTarget(service, app.phone);
+  const target = await sendTarget(service, app);
   if (!target.send) {
     const written = await writeLog(service, {
       companyId: input.companyId,
@@ -684,12 +692,18 @@ export async function queueManualWhatsApp(
 }
 
 /**
- * Where this message would go, or why it must not go there.
+ * Where this message would go, or why it must not go there. THE guard: every
+ * send in this file asks it first (a tripwire test holds that).
  *
- * Both are local decisions, made before spending a message, and both are
- * recorded as a skipped row rather than dropped, so the Messages page can show
- * WHY this candidate got an email but no WhatsApp — silence there would look
- * like the integration was broken.
+ * All local decisions, made before spending a message, and all recorded as a
+ * skipped row rather than dropped, so the Messages page can show WHY this
+ * candidate got an email but no WhatsApp — silence there would look like the
+ * integration was broken.
+ *
+ * Consent first (#67, consent.ts), from the application row each caller has
+ * just read: no tick on the apply form, no WhatsApp, whatever else is true. A
+ * tick never overrides a STOP: the opt-out check below still runs for a
+ * candidate who opted in.
  *
  * The opt-out is global: that person never hears from us again. By phone OR by
  * any BSUID seen with that phone, and closed on any lookup error. The rule and
@@ -697,9 +711,16 @@ export async function queueManualWhatsApp(
  */
 async function sendTarget(
   service: ReturnType<typeof createServiceClient>,
-  phone: string | null,
+  app: Pick<ApplicationRow, "phone" | "whatsapp_opt_in" | "whatsapp_opt_in_at">,
 ): Promise<{ send: true; digits: string } | { send: false; toAddress: string; reason: string }> {
-  const recipient = resolveRecipient(phone);
+  const recipient = resolveRecipient(app.phone);
+  if (!hasWhatsAppOptIn(app)) {
+    return {
+      send: false,
+      toAddress: recipient.ok ? recipient.digits : "unknown",
+      reason: NO_OPT_IN_REASON,
+    };
+  }
   if (!recipient.ok) return { send: false, toAddress: "unknown", reason: recipient.reason };
   const optOut = await isWhatsAppOptedOut(service, recipient.digits);
   if (optOut.status !== "clear") {

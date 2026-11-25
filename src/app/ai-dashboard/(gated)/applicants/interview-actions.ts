@@ -15,6 +15,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import { roleAllowsJobAction } from "@/app/ai-dashboard/lib/job-scope";
 import { escapeHtml } from "@/lib/email/candidate/render";
+import { hasWhatsAppOptIn } from "@/lib/whatsapp/consent";
 import { queueManualWhatsApp } from "@/lib/whatsapp/dispatch";
 import {
   deliverInvite,
@@ -238,6 +239,10 @@ export async function sendInterviewInvite(
    *
    * ASYNC ONLY. The approved WhatsApp template describes recording answers in
    * your own time, which is not what an AI Video Interview is.
+   *
+   * Opt-in only (#67): a candidate who did not tick the WhatsApp box is never
+   * messaged there. The guard in dispatch.ts records the skip as a row the
+   * Messages page shows, and the drawer says so before the send.
    */
   try {
     // The row and its job in ONE transaction (queue_manual_whatsapp, 064, #52):
@@ -959,15 +964,20 @@ export async function fetchInterviewPanel(
     liveEnabled: false,
     liveAvailable: false,
     jobId: null,
+    whatsAppOptIn: false,
   };
 
   const { data: appData } = await service
     .from("job_applications")
-    .select("id, job_id")
+    .select("id, job_id, whatsapp_opt_in, whatsapp_opt_in_at")
     .eq("id", applicationId)
     .eq("company_id_snapshot", ctx.companyId)
     .maybeSingle();
-  const app = appData as { job_id: string | null } | null;
+  const app = appData as {
+    job_id: string | null;
+    whatsapp_opt_in: boolean | null;
+    whatsapp_opt_in_at: string | null;
+  } | null;
   if (!app) return NOTHING;
   if (!(await roleAllowsJobAction(ctx, app.job_id ?? ""))) return NOTHING;
 
@@ -987,6 +997,7 @@ export async function fetchInterviewPanel(
     // drawer never offers the live send there.
     liveAvailable: liveInterviewsAvailableFor(ctx.companyId),
     jobId: app.job_id,
+    whatsAppOptIn: hasWhatsAppOptIn(app),
   };
 
   const { data } = await service

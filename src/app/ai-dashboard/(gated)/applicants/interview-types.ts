@@ -90,4 +90,10 @@ export type InterviewPanelState = {
   liveAvailable: boolean;
   /** For the "turn it on" link. Null when the application has no job. */
   jobId: string | null;
+  /**
+   * Whether the candidate ticked the WhatsApp box when they applied (#67).
+   * Advisory, like asyncEnabled: it explains in the drawer why an invite goes
+   * by email only. The send re-reads it in dispatch.ts's guard.
+   */
+  whatsAppOptIn: boolean;
 };

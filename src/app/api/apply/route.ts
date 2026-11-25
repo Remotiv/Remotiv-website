@@ -12,6 +12,7 @@ import { PRIVACY_NOTICE_VERSION } from "@/lib/privacy-version";
 import { type NumericMode, resolveNumericMode } from "@/lib/screening";
 import { createServiceClient } from "@/lib/supabase/server";
 import { isValidEmail } from "@/lib/validators";
+import { optInColumns, WHATSAPP_OPT_IN_FIELD } from "@/lib/whatsapp/consent";
 
 // LinkedIn URL gate — applied to every submission regardless of `source`.
 // Defense in depth: the bulk-upload UI already blocks invalid rows, but a
@@ -754,6 +755,9 @@ export async function POST(request: NextRequest) {
         // privacy-version.ts). A server constant, never client input; rows
         // from before this existed stay NULL.
         privacy_notice_version: PRIVACY_NOTICE_VERSION,
+        // WhatsApp only if the candidate ticked the box (#67, migration 079),
+        // with the server's time. An admin's bulk upload is never consent.
+        ...optInColumns(form.get(WHATSAPP_OPT_IN_FIELD), source, new Date()),
       })
       .select("id")
       .single();

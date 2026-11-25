@@ -40,6 +40,10 @@ export const DEFAULT_APP = {
   job_id: "job-1",
   job_title_snapshot: "Engineer",
   company_id_snapshot: COMPANY_ID,
+  // A candidate who ticked the WhatsApp box (#67, 079): these tests are about
+  // what happens after consent. The consent tests override both.
+  whatsapp_opt_in: true,
+  whatsapp_opt_in_at: "2026-11-15T09:00:00.000Z",
 };
 
 /** A filter call applied to one row. Unknown filters fail loudly. */

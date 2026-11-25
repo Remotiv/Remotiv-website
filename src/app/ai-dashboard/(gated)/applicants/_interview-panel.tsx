@@ -424,7 +424,9 @@ function AsyncSection({
       setError(result.error);
       return;
     }
-    onToast(reissue ? "New link sent" : "Interview sent");
+    const sent = reissue ? "New link sent" : "Interview sent";
+    // Email only (#67): the note under the card says why.
+    onToast(state?.whatsAppOptIn ? sent : `${sent} by email only`);
     await load();
   }
 
@@ -528,7 +530,10 @@ function AsyncSection({
                 </>
               ) : (
                 <>
-                  Sends a fresh invitation by email, and queues a WhatsApp message as well. The link
+                  {state?.whatsAppOptIn
+                    ? "Sends a fresh invitation by email, and queues a WhatsApp message as well."
+                    : "Sends a fresh invitation by email."}{" "}
+                  The link
                   {fmt(session.sentAt) ? ` from ${fmt(session.sentAt)}` : " they already have"}{" "}
                   stops working straight away - they haven&apos;t started, so nothing is lost.
                 </>
@@ -594,6 +599,14 @@ function AsyncSection({
             </span>
           )}{" "}
           to send one.
+        </p>
+      )}
+
+      {/* Why there is no WhatsApp (#67): shown before a send, not only after one. */}
+      {(canResend || canReissue) && !asyncOff && state && !state.whatsAppOptIn && (
+        <p className="m-0 mt-2.5 text-[11.5px] leading-relaxed text-[var(--ai-t3)]">
+          WhatsApp unavailable: this candidate didn&apos;t opt in when they applied, so invitations
+          go by email only.
         </p>
       )}
 

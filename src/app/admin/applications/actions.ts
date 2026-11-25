@@ -16,6 +16,8 @@ import {
 } from "@/lib/applicant-deletion-complete";
 import { removeApplicationFiles } from "@/lib/application-files";
 import { deriveCvPathFromUrl } from "@/lib/cv-path";
+import { whatsAppChatLink } from "@/lib/whatsapp/chat-link";
+import { CHAT_LINK_UNAVAILABLE } from "@/lib/whatsapp/consent";
 
 export type ApplicationStatus = "new" | "shortlisted" | "not_a_fit" | "maybe";
 export type ApplicationSource = "job_application" | "manual_upload";
@@ -593,4 +595,56 @@ export async function getApplicationCvSignedUrl(
     });
 
   return { ok: true, url: signed.signedUrl };
+}
+
+export type ApplicationWhatsAppLink = { ok: true; href: string } | { ok: false; label: string };
+
+/**
+ * The drawer's "Message on WhatsApp" link (#67): only for an application whose
+ * candidate ticked the WhatsApp box and has not replied STOP. Read here, on
+ * the server, from the row as it is now. Anything else, a failed read
+ * included, answers the line the drawer shows instead of the link.
+ */
+export async function getApplicationWhatsAppLink(
+  applicationId: string,
+): Promise<ApplicationWhatsAppLink> {
+  const refused = (reason: keyof typeof CHAT_LINK_UNAVAILABLE): ApplicationWhatsAppLink => ({
+    ok: false,
+    label: CHAT_LINK_UNAVAILABLE[reason],
+  });
+  if (typeof applicationId !== "string" || applicationId.length < 1 || applicationId.length > 100) {
+    return refused("check_failed");
+  }
+  try {
+    await requireAdmin();
+  } catch {
+    return refused("check_failed");
+  }
+
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("job_applications")
+    .select(
+      "phone, first_name, last_name, job_title_snapshot, whatsapp_opt_in, whatsapp_opt_in_at, jobs(title)",
+    )
+    .eq("id", applicationId)
+    // The same scope as the CV link: never a company applicant's row.
+    .or(await adminApplicationScope())
+    .maybeSingle();
+  if (error || !data) return refused("check_failed");
+
+  const row = data as {
+    phone: string | null;
+    first_name: string | null;
+    last_name: string | null;
+    job_title_snapshot: string | null;
+    whatsapp_opt_in: boolean | null;
+    whatsapp_opt_in_at: string | null;
+    jobs: { title?: string | null } | null;
+  };
+  const link = await whatsAppChatLink(service, {
+    ...row,
+    job_title: row.jobs?.title ?? row.job_title_snapshot,
+  });
+  return link.ok ? link : refused(link.reason);
 }

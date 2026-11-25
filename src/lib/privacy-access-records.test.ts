@@ -54,9 +54,10 @@ test("the promise is backed: the purge is scheduled daily, and the notice versio
   // to 25 October 2026, #72A's section 3 paragraph on the by-hand clearing of
   // message records took it to 6 November 2026, and #99's rewording of the CV
   // access item (served through the dashboard, no link) took it to 10 November
-  // 2026, and #91's account of what the notice had left out took it to 17
-  // November 2026. The pin follows the latest, so the page and the stored
-  // version can never disagree.
-  assert.match(page, /const LAST_UPDATED = "17 November 2026";/);
-  assert.match(version, /export const PRIVACY_NOTICE_VERSION = "2026-11-17";/);
+  // 2026, #91's account of what the notice had left out took it to 17
+  // November 2026, and #67's WhatsApp opt-in took it to 25 November 2026. The
+  // pin follows the latest, so the page and the stored version can never
+  // disagree.
+  assert.match(page, /const LAST_UPDATED = "25 November 2026";/);
+  assert.match(version, /export const PRIVACY_NOTICE_VERSION = "2026-11-25";/);
 });
