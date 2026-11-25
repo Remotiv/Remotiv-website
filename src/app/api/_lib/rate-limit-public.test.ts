@@ -458,15 +458,16 @@ const EXPECTED = [
   "app/api/interview/playback/route.ts  interview-playback  interview",
   "app/api/interview/consent/route.ts  interview-consent  interview",
   "app/api/interview/live/start/route.ts  live-start  interview",
+  "app/api/interview/live/status/route.ts  live-status  interview",
   "app/api/interview/live/consent/route.ts  live-consent  interview",
   "app/api/interview/live/event/route.ts  live-event  interview",
   "app/api/interview/live/video-upload-url/route.ts  live-video-upload  interview",
   "app/api/interview/live/video-confirm/route.ts  live-video-confirm  interview",
 ].sort();
 
-test("census: all 43 limiter call sites have a group, none left ungrouped", () => {
+test("census: all 44 limiter call sites have a group, none left ungrouped", () => {
   const found = census();
-  assert.equal(EXPECTED.length, 43);
+  assert.equal(EXPECTED.length, 44);
   assert.deepEqual(
     found.filter((l) => l.endsWith("UNGROUPED")),
     [],
