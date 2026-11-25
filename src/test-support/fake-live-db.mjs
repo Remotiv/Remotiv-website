@@ -473,6 +473,9 @@ function usesListOperators(calls) {
 
 function orMatches(row, clause) {
   return clause.split(",").some((part) => {
+    // `col.gt."<ISO time>"` (live-start's stillOpen, #22): a later time, never a null.
+    const gt = part.match(/^([a-z_]+)\.gt\."([^"]+)"$/);
+    if (gt) return row[gt[1]] != null && Date.parse(row[gt[1]]) > Date.parse(gt[2]);
     const m = part.match(/^([a-z_]+)\.(not\.)?is\.null$/);
     if (!m) throw new Error(`fake-live-db: unsupported or() part ${part}`);
     const isNull = row[m[1]] == null;

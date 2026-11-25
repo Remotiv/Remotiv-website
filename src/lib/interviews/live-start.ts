@@ -83,6 +83,24 @@ import type { createServiceClient } from "@/lib/supabase/server";
  *      the attempt, a restart is the Owner's or Admin's call, F10). Nothing here
  *      uses the allowance: that was used once, at invite.
  *
+ * ── Never for an applicant being deleted (#22, 25 Nov) ───────
+ *
+ * The applicant's delete closes every session in one transaction (071's
+ * Close): the marker (deletion_started_at), delete_after now, and invited or
+ * started becomes cancelled. So the session row itself says "being deleted",
+ * and both writes that matter are conditional on it: the claim and the final
+ * write land only on a row that still exists, is invited or started, and has
+ * no delete_after due (stillOpen). A Close that commits first leaves those
+ * writes nothing to match; one that waits behind the final write cancels a
+ * session already started, which the delete pipeline then closes. The
+ * applicant's marker is also read before the claim, before the provider is
+ * asked, after it answers, and before a rejoin's join details go back
+ * (deletionBegun), so a delete that began mid-start costs no provider session
+ * where it can be seen in time. Whenever a check fails after the provider
+ * answered: the provider session is cancelled, the claim given back, nothing
+ * recorded, no join details sent, and the candidate sees "This interview isn't
+ * open yet".
+ *
  * ── A claim never sticks (CLAIM_STALE_MS, 2 minutes) ─────────
  *
  * A start that fails (the provider refuses, times out after
@@ -164,6 +182,12 @@ const SESSION_COLUMNS =
   "id, company_id, application_id, job_id, kind, status, expires_at, live_settings, live_ended_at, started_at, provider, provider_session_id, delete_after, purged_at, questions_snapshot, scoring_snapshot";
 
 const NOT_FOUND = (): StartResult => fail(404, "not_found", "This interview link isn't valid.");
+/**
+ * Closed while this start ran (#22): the applicant's delete began, or the
+ * session was closed. `not_ready` is the code the candidate's page shows as
+ * "This interview isn't open yet" (live-server.ts), never the reason.
+ */
+const NOT_OPEN_YET = (): StartResult => fail(409, "not_ready", "This interview isn't open yet.");
 const NOT_READY = (): StartResult => fail(409, "not_ready", "This interview isn't ready yet.");
 const ALREADY_STARTED = (): StartResult =>
   fail(409, "already_started", "This interview has already started, so it can't start again.");
@@ -302,6 +326,50 @@ export async function proveLiveStartEntitlement(
 }
 
 /**
+ * The conditions every start write carries (#22): the row is invited or
+ * started (071's Close makes it cancelled) and no delete_after is due (the
+ * Close sets it to now). A row deleted by Finish matches nothing anyway.
+ */
+function stillOpen<Q extends { in: (c: string, v: string[]) => Q; or: (f: string) => Q }>(
+  query: Q,
+  nowMs: number,
+): Q {
+  const at = new Date(nowMs).toISOString();
+  return query.in("status", OPEN_STATUSES).or(`delete_after.is.null,delete_after.gt."${at}"`);
+}
+
+/**
+ * Whether the applicant's delete has begun, or the session has been closed,
+ * since the entitlement was proved (#22): read again at each step of a start.
+ * "unknown" when a read failed: the start does not go on.
+ */
+async function deletionBegun(
+  service: Service,
+  row: Pick<SessionRow, "id" | "company_id" | "application_id">,
+  nowMs: number,
+  open: readonly string[] = OPEN_STATUSES,
+): Promise<"clear" | "closed" | "unknown"> {
+  const { data, error } = await service
+    .from("interview_sessions")
+    .select("status, delete_after, purged_at")
+    .eq("id", row.id)
+    .maybeSingle();
+  if (error) return "unknown";
+  const now = data as Pick<SessionRow, "status" | "delete_after" | "purged_at"> | null;
+  if (!now || !open.includes(now.status) || retentionOver(now, nowMs)) return "closed";
+  // The applicant's marker, on the session's own company, as the entitlement reads it.
+  const { data: app, error: appErr } = await service
+    .from("job_applications")
+    .select("deletion_started_at")
+    .eq("id", row.application_id ?? "")
+    .eq("company_id_snapshot", row.company_id)
+    .maybeSingle();
+  if (appErr) return "unknown";
+  const a = app as { deletion_started_at: string | null } | null;
+  return !a || a.deletion_started_at ? "closed" : "clear";
+}
+
+/**
  * Claims the session for this start before anything costly: one claim lands,
  * every other start is told to try again shortly. Written over no claim, or
  * over exactly a stale one (CLAIM_STALE_MS).
@@ -310,26 +378,34 @@ async function claimStart(
   service: Service,
   sessionId: string,
   nowMs: number,
-): Promise<Claim | "taken" | "failed"> {
+): Promise<Claim | "taken" | "failed" | "closed"> {
   const { data, error } = await service
     .from("interview_sessions")
-    .select("live_settings, provider_session_id")
+    .select("live_settings, provider_session_id, status, delete_after, purged_at")
     .eq("id", sessionId)
     .maybeSingle();
-  if (error || !data) return "failed";
-  const row = data as { live_settings: unknown; provider_session_id: string | null };
+  if (error) return "failed";
+  if (!data) return "closed";
+  const row = data as Pick<
+    SessionRow,
+    "live_settings" | "provider_session_id" | "status" | "delete_after" | "purged_at"
+  >;
   if (row.provider_session_id) return "taken";
+  if (!OPEN_STATUSES.includes(row.status) || retentionOver(row, nowMs)) return "closed";
   const current = claimOf(row.live_settings, sessionId);
   if (current && nowMs - current.atMs < CLAIM_STALE_MS) return "taken";
   const raw = (row.live_settings as Record<string, unknown>)[CLAIM_KEY];
   const value = `${sessionId}|${nowMs}|${randomUUID()}`;
   const settings = { ...(row.live_settings as Record<string, unknown>), [CLAIM_KEY]: value };
-  const write = service
-    .from("interview_sessions")
-    .update({ live_settings: settings })
-    .eq("id", sessionId)
-    .eq("kind", "live")
-    .is("provider_session_id", null);
+  const write = stillOpen(
+    service
+      .from("interview_sessions")
+      .update({ live_settings: settings })
+      .eq("id", sessionId)
+      .eq("kind", "live")
+      .is("provider_session_id", null),
+    nowMs,
+  );
   const { data: landed, error: wErr } = await (typeof raw === "string"
     ? write.eq(`live_settings->>${CLAIM_KEY}`, raw)
     : write.is(`live_settings->>${CLAIM_KEY}`, null)
@@ -415,15 +491,23 @@ async function createWithin(
 
 /** A start retried just after it succeeded: the same conversation, never a new one. */
 async function rejoinStarted(
+  service: Service,
   row: SessionRow,
   provider: LiveJoinProvider,
   maxFollowUps: number,
+  now: () => number,
 ): Promise<StartResult> {
   if (!provider.rejoinSession || provider.name !== row.provider || !row.provider_session_id) {
     return ALREADY_STARTED();
   }
   try {
     const join = await provider.rejoinSession(row.provider_session_id, maxFollowUps);
+    // Never handed back for an applicant whose delete began meanwhile (#22).
+    const check = await deletionBegun(service, row, now(), ["started"]);
+    if (check !== "clear") {
+      console.warn(`[live-start] session ${row.id}: closed during the rejoin, not joined again`);
+      return check === "closed" ? NOT_OPEN_YET() : fail(503, "unavailable", TRY_AGAIN_SHORTLY);
+    }
     console.log(`[live-start] session ${row.id}: joined again (${provider.name})`);
     return { status: 200, body: { join } };
   } catch {
@@ -453,12 +537,29 @@ export async function startLiveInterview(
   const script =
     isMockScriptId(body.mockScript) || body.mockScript === "busy" ? body.mockScript : "completed";
   const provider = deps.provider ?? createMockJoinProvider(script);
-  if (rejoin) return rejoinStarted(row, provider, settings.max_follow_ups_per_base_question);
+  if (rejoin) {
+    return rejoinStarted(
+      deps.service,
+      row,
+      provider,
+      settings.max_follow_ups_per_base_question,
+      now,
+    );
+  }
 
-  // 2. One start at a time, claimed before anything costly.
+  // 2. One start at a time, claimed before anything costly, and never for an
+  // applicant whose delete began since the entitlement (#22).
+  const before = await deletionBegun(deps.service, row, now());
+  if (before === "closed") return NOT_OPEN_YET();
+  if (before === "unknown") return fail(502, "unavailable", TRY_AGAIN_SHORTLY);
   const claim = await claimStart(deps.service, row.id, now());
+  if (claim === "closed") return NOT_OPEN_YET();
   if (claim === "failed") return fail(502, "unavailable", TRY_AGAIN_SHORTLY);
-  if (claim === "taken") return fail(503, "busy", TRY_AGAIN_SHORTLY, { retryAfterSeconds: 5 });
+  if (claim === "taken") {
+    // The claim's own conditions refuse a row the delete closed: not busy, closed.
+    if ((await deletionBegun(deps.service, row, now())) === "closed") return NOT_OPEN_YET();
+    return fail(503, "busy", TRY_AGAIN_SHORTLY, { retryAfterSeconds: 5 });
+  }
 
   // 3. The questions, frozen once, from the session's own invitation snapshot.
   let frozen: FrozenLiveQuestionSet;
@@ -515,6 +616,14 @@ export async function startLiveInterview(
     await releaseClaim(deps.service, row.id, claim);
     return fail(503, "busy", TRY_AGAIN_SHORTLY, { retryAfterSeconds: 5 });
   }
+  const beforeProvider = await deletionBegun(deps.service, row, now());
+  if (beforeProvider !== "clear") {
+    console.warn(`[live-start] session ${row.id}: closed before the provider was asked`);
+    await releaseClaim(deps.service, row.id, claim);
+    return beforeProvider === "closed"
+      ? NOT_OPEN_YET()
+      : fail(503, "unavailable", TRY_AGAIN_SHORTLY);
+  }
   let created: { providerSessionId: string; join: JoinTicket };
   try {
     created = await createWithin(provider, input, timeoutMs, row.id);
@@ -530,28 +639,51 @@ export async function startLiveInterview(
     return fail(503, "unavailable", TRY_AGAIN_SHORTLY);
   }
 
-  // 5. One conversation per session: claimed as started by the start holding the claim.
-  const { data: claimed, error: claimErr } = await deps.service
-    .from("interview_sessions")
-    .update({
-      provider: provider.name,
-      provider_session_id: created.providerSessionId,
-      status: "started",
-      started_at: new Date(now()).toISOString(),
-    })
-    .eq("id", row.id)
-    .eq("kind", "live")
-    .is("provider_session_id", null)
-    .eq(`live_settings->>${CLAIM_KEY}`, claim.value)
-    .in("status", OPEN_STATUSES)
-    .select("id");
-  if (claimErr || ((claimed ?? []) as unknown[]).length === 0) {
-    // Never joined: give the provider session back, so it holds no slot.
-    await provider.cancelSession(created.providerSessionId).catch(() => {
+  // Never joined: give the provider session back, so it holds no slot.
+  const giveBack = () =>
+    provider.cancelSession(created.providerSessionId).catch(() => {
       console.error(`[live-start] session ${row.id}: a losing provider session was not cancelled`);
     });
-    if (claimErr) await releaseClaim(deps.service, row.id, claim);
-    return claimErr ? fail(502, "unavailable", TRY_AGAIN_SHORTLY) : ALREADY_STARTED();
+
+  // The applicant's delete may have begun while the provider answered (#22).
+  const afterProvider = await deletionBegun(deps.service, row, now());
+  if (afterProvider !== "clear") {
+    console.warn(`[live-start] session ${row.id}: closed while the provider answered, not started`);
+    await giveBack();
+    await releaseClaim(deps.service, row.id, claim);
+    return afterProvider === "closed"
+      ? NOT_OPEN_YET()
+      : fail(503, "unavailable", TRY_AGAIN_SHORTLY);
+  }
+
+  // 5. One conversation per session: claimed as started by the start holding
+  // the claim, and only on a row the applicant's delete has not closed.
+  const { data: claimed, error: claimErr } = await stillOpen(
+    deps.service
+      .from("interview_sessions")
+      .update({
+        provider: provider.name,
+        provider_session_id: created.providerSessionId,
+        status: "started",
+        started_at: new Date(now()).toISOString(),
+      })
+      .eq("id", row.id)
+      .eq("kind", "live")
+      .is("provider_session_id", null)
+      .eq(`live_settings->>${CLAIM_KEY}`, claim.value),
+    now(),
+  ).select("id");
+  if (claimErr || ((claimed ?? []) as unknown[]).length === 0) {
+    await giveBack();
+    if (claimErr) {
+      await releaseClaim(deps.service, row.id, claim);
+      return fail(502, "unavailable", TRY_AGAIN_SHORTLY);
+    }
+    // Lost to another start, or closed by a delete that landed first.
+    if ((await deletionBegun(deps.service, row, now())) === "clear") return ALREADY_STARTED();
+    console.warn(`[live-start] session ${row.id}: closed at the final write, not started`);
+    await releaseClaim(deps.service, row.id, claim);
+    return NOT_OPEN_YET();
   }
   console.log(`[live-start] session ${row.id}: started (${provider.name})`);
   return { status: 200, body: { join: created.join } };

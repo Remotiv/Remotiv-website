@@ -826,6 +826,180 @@ test("the candidate's screens: a concurrent start is 'try again shortly', a free
   assert.doesNotMatch(BLOCKED.locked.body("Acme"), /too_few|reason|question/i);
 });
 
+/* ── #22: the applicant's delete never races a start ───────────── */
+
+const AT = new Date(T0).toISOString();
+
+/** 071's Close as its one transaction leaves the rows: marker, delete_after now, cancelled. */
+function close071(db) {
+  db.tables.job_applications[0].deletion_started_at = AT;
+  for (const s of db.tables.interview_sessions) {
+    if (s.application_id !== APP) continue;
+    if (s.delete_after === null || Date.parse(s.delete_after) > T0) s.delete_after = AT;
+    if (s.status === "invited" || s.status === "started") s.status = "cancelled";
+  }
+}
+
+/** The other ways a session closes under a start: each alone, so each condition is proved. */
+const CLOSERS = {
+  "the applicant's delete (071 Close)": close071,
+  "the session cancelled": (db) => {
+    db.tables.interview_sessions[0].status = "cancelled";
+  },
+  "delete_after set to now": (db) => {
+    db.tables.interview_sessions[0].delete_after = AT;
+  },
+  "the session deleted (Finish)": (db) => {
+    db.tables.interview_sessions.length = 0;
+  },
+};
+
+/**
+ * Runs `close` just before the start's `n`th query on `table` once `armed()`
+ * says so: the moment a delete lands, chosen query by query.
+ */
+function closeAt(db, close, { table, n = 1, armed = () => true }) {
+  const from = db.service.from.bind(db.service);
+  let seen = 0;
+  let done = false;
+  db.service.from = (t) => {
+    if (!done && t === table && armed() && ++seen === n) {
+      done = true;
+      close(db);
+    }
+    return from(t);
+  };
+  return () => done;
+}
+
+/** Nothing recorded and no join details: the provider session given back, the claim too. */
+function assertNotStarted(db, r, p, { created }) {
+  assert.equal(r.status, 409);
+  assert.equal(r.body.code, "not_ready");
+  assert.equal(r.body.join, undefined, "no join details");
+  assert.equal(screenFor(r), "blocked:locked");
+  assert.equal(BLOCKED.locked.heading, "This interview isn't open yet");
+  assert.equal(p.seen.length, created ? 1 : 0);
+  assert.deepEqual(p.cancelled, created ? ["mock-1"] : [], "every provider session given back");
+  const row = db.tables.interview_sessions[0];
+  if (!row) return;
+  assert.equal(row.provider_session_id, null);
+  assert.equal(row.provider, null);
+  assert.equal(row.started_at, null);
+  assert.notEqual(row.status, "started");
+  assert.equal(row.live_settings.start_claim, undefined, "the claim given back");
+}
+
+test("#22 the delete begins between the entitlement and the claim: refused, no provider call", async () => {
+  const db = world();
+  const p = recordingProvider();
+  // The entitlement's last read is the applicant; the delete lands right after it.
+  let entitled = false;
+  const from = db.service.from.bind(db.service);
+  db.service.from = (t) => {
+    if (entitled) {
+      db.service.from = from;
+      close071(db);
+    }
+    if (t === "job_applications") entitled = true;
+    return from(t);
+  };
+  const r = await run(() => start(db, p));
+  assertNotStarted(db, r, p, { created: false });
+  assert.equal(freezes(db), 0, "nothing frozen either");
+});
+
+test("#22 the delete lands on the claim write itself: the claim's own conditions refuse it", async () => {
+  for (const [name, close] of Object.entries(CLOSERS)) {
+    const db = world();
+    const p = recordingProvider();
+    // Queries on the session after the entitlement's: the pre-claim read, the
+    // claim's read, then the claim's write (3rd).
+    let entitled = false;
+    const landed = closeAt(db, close, {
+      table: "interview_sessions",
+      n: 3,
+      armed: () => entitled,
+    });
+    const from = db.service.from.bind(db.service);
+    db.service.from = (t) => {
+      const q = from(t);
+      if (t === "job_applications") entitled = true;
+      return q;
+    };
+    const r = await run(() => start(db, p));
+    assert.ok(landed(), name);
+    assertNotStarted(db, r, p, { created: false });
+    assert.equal(freezes(db), 0, name);
+  }
+});
+
+test("#22 the delete begins while the provider creates its session: cancelled, nothing recorded", async () => {
+  for (const [name, close] of Object.entries(CLOSERS)) {
+    const db = world();
+    const p = recordingProvider();
+    const create = p.provider.createSession;
+    p.provider.createSession = async (input) => {
+      const made = await create(input);
+      close(db);
+      return made;
+    };
+    const r = await run(() => start(db, p));
+    assertNotStarted(db, r, p, { created: true });
+    assert.ok(p.seen.length === 1, name);
+  }
+});
+
+test("#22 the delete lands at the final write itself (after every read): the write's conditions refuse it", async () => {
+  for (const [name, close] of Object.entries(CLOSERS)) {
+    const db = world();
+    const p = recordingProvider();
+    // After the provider answered: the post-provider read (1st), then the final write (2nd).
+    const landed = closeAt(db, close, {
+      table: "interview_sessions",
+      n: 2,
+      armed: () => p.seen.length === 1,
+    });
+    const r = await run(() => start(db, p));
+    assert.ok(landed(), name);
+    assertNotStarted(db, r, p, { created: true });
+  }
+});
+
+test("#22 the same harness with nothing closed: the start is unaffected", async () => {
+  const db = world();
+  const p = recordingProvider();
+  const landed = closeAt(db, () => {}, {
+    table: "interview_sessions",
+    n: 2,
+    armed: () => p.seen.length === 1,
+  });
+  const r = await run(() => start(db, p));
+  assert.ok(landed());
+  assert.equal(r.status, 200);
+  assert.ok(r.body.join);
+  assert.deepEqual(p.cancelled, []);
+  const row = db.tables.interview_sessions[0];
+  assert.deepEqual([row.status, row.provider_session_id], ["started", "mock-1"]);
+});
+
+test("#22 a rejoin whose applicant's delete began meanwhile gets no join details", async () => {
+  const db = world();
+  const p = recordingProvider();
+  assert.equal((await run(() => start(db, p))).status, 200);
+  const rejoin = p.provider.rejoinSession;
+  p.provider.rejoinSession = async (id) => {
+    const join = await rejoin(id);
+    close071(db);
+    return join;
+  };
+  const again = await run(() => start(db, p, TOKEN, { now: () => T0 + 5_000 }));
+  assert.equal(again.body.code, "not_ready");
+  assert.equal(again.body.join, undefined, "no join details");
+  assert.equal(screenFor(again), "blocked:locked");
+  assert.equal(p.seen.length, 1, "no new provider session");
+});
+
 /* ── #71: the fairness rules are Remotiv's scorer's, never the interviewer's ── */
 
 test("VoxAgent (Sarah) never receives the fairness rules or any rubric: payload and source", async () => {

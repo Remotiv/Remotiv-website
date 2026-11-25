@@ -349,9 +349,14 @@ test("start: the CV is not even read (#14): the applicant read asks for the firs
     const appReads = db.service.queries.filter(
       (q) => q.table === "job_applications" && q.calls[0]?.[0] === "select",
     );
-    assert.equal(appReads.length, 1, "one applicant read");
     // The first name, and whether the application is being deleted (#17): never the CV.
     assert.equal(appReads[0].calls[0][1], "first_name, deletion_started_at");
+    // Then the deletion marker alone, read again before the claim, before the
+    // provider and after it (#22).
+    assert.deepEqual(
+      appReads.slice(1).map((q) => q.calls[0][1]),
+      ["deletion_started_at", "deletion_started_at", "deletion_started_at"],
+    );
     for (const q of db.service.queries) {
       const select = q.calls.find((c) => c[0] === "select")?.[1] ?? "";
       assert.doesNotMatch(String(select), /cv_text|cv_path|last_name/, `${q.table} read`);
