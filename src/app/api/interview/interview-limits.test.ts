@@ -83,6 +83,7 @@ const ROUTES = {
   "live/event": "live-event",
   "live/video-upload-url": "live-video-upload",
   "live/video-confirm": "live-video-confirm",
+  "live/status": "live-status",
 };
 
 test("the decided limits, per interview token", () => {
@@ -97,10 +98,11 @@ test("the decided limits, per interview token", () => {
     "live-event": { max: 60, windowMs: 10 * MIN },
     "live-video-upload": { max: 120, windowMs: MIN },
     "live-video-confirm": { max: 120, windowMs: MIN },
+    "live-status": { max: 10, windowMs: MIN },
   });
 });
 
-test("all ten routes ask limitInterview for their own limit and answer 429 when refused", () => {
+test("all eleven routes ask limitInterview for their own limit and answer 429 when refused", () => {
   for (const [dir, route] of Object.entries(ROUTES)) {
     const src = readFileSync(new URL(`./${dir}/route.ts`, import.meta.url), "utf8");
     assert.match(

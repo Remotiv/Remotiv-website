@@ -19,7 +19,10 @@ import { test } from "node:test";
 
 register(new URL("../../../../test-support/node-resolve.mjs", import.meta.url));
 
-const { endClosedInterview } = await import("./closed.ts");
+const { endClosedInterview, ClosedWatch, watchedSink, CLOSED_CHECK_MS } = await import(
+  "./closed.ts"
+);
+const { statusAnswerFrom, httpLiveServer } = await import("./live-server.ts");
 const { INITIAL, liveReducer } = await import("./machine.ts");
 const { BLOCKED } = await import("./copy.ts");
 const { PieceRecorder, PieceHttpError, PIECE_MS, closedBy, INTERVIEW_CLOSED } = await import(
@@ -106,6 +109,11 @@ function fakeServer(clock) {
   const server = {
     calls,
     closed: null,
+    /** The status route (#55 part 2), answering as live-video.ts does. */
+    async status() {
+      calls.push(["status", null, clock.now]);
+      return server.closed ? "closed" : "open";
+    },
     sink: {
       async reserve(index) {
         calls.push(["reserve", index, clock.now]);
@@ -125,11 +133,21 @@ function fakeServer(clock) {
 }
 
 /**
- * A running interview, wired as live-flow.tsx wires it, closed under the
- * candidate at `closeAt` (or never). The provider's side never closes: its
- * transport keeps sending whatever it likes after this side closed it.
+ * A running interview, wired as live-flow.tsx wires it: the recorder's sink
+ * counted by a ClosedWatch, both ending the interview through one closeHere.
+ * Closed under the candidate at `closeAt` (or never); the recorder stopped at
+ * `stopAt` (the camera or recorder gone mid-call), or never started
+ * (`noRecorder`). The provider's side never closes: its transport keeps
+ * sending whatever it likes after this side closed it. Times are from the
+ * conversation's start.
  */
-async function interview({ closeAt = null, answer = [409, INTERVIEW_CLOSED], runMs = 5 * 60_000 }) {
+async function interview({
+  closeAt = null,
+  answer = [409, INTERVIEW_CLOSED],
+  stopAt = null,
+  noRecorder = false,
+  until = 5 * 60_000,
+}) {
   const clock = fakeClock();
   const rec = fakeRecorders(clock);
   const server = fakeServer(clock);
@@ -150,32 +168,57 @@ async function interview({ closeAt = null, answer = [409, INTERVIEW_CLOSED], run
   };
   const media = { stops: 0 };
   let shownAt = null;
-  const pr = new PieceRecorder({
-    mime: "video/webm",
-    sink: server.sink,
-    makeRecorder: rec.make,
-    now: () => clock.now,
-    pieceMs: PIECE_MS,
+  let closed = false;
+  let pr = null;
+  const watch = new ClosedWatch({
     clock,
-    onChange: () => {},
-    onClosed: () =>
-      endClosedInterview({
-        closeTransport: () => transport.close(),
-        stopMedia: () => {
-          media.stops += 1;
-        },
-        show: () => {
-          state = liveReducer(state, { t: "closed_under" });
-          shownAt = clock.now;
-        },
-      }),
+    now: () => clock.now,
+    check: () => server.status(),
+    onClosed: () => closeHere(),
   });
-  pr.start();
-  if (closeAt !== null) {
-    await clock.advance(closeAt);
-    server.closed = answer;
+  // live-flow.tsx's closeHere.
+  const closeHere = () => {
+    if (closed) return;
+    closed = true;
+    watch.stop();
+    endClosedInterview({
+      closeTransport: () => transport.close(),
+      stopRecording: () => pr?.abandon(),
+      stopMedia: () => {
+        media.stops += 1;
+      },
+      show: () => {
+        state = liveReducer(state, { t: "closed_under" });
+        shownAt = clock.now;
+      },
+    });
+  };
+  watch.start();
+  if (!noRecorder) {
+    pr = new PieceRecorder({
+      mime: "video/webm",
+      sink: watchedSink(server.sink, watch),
+      makeRecorder: rec.make,
+      now: () => clock.now,
+      pieceMs: PIECE_MS,
+      clock,
+      onChange: () => {},
+      onClosed: closeHere,
+    });
+    pr.start();
   }
-  await clock.advance(runMs);
+  const steps = [
+    [stopAt, () => pr?.stop()],
+    [closeAt, () => (server.closed = answer)],
+  ]
+    .filter(([at]) => at !== null)
+    .sort((a, b) => a[0] - b[0]);
+  for (const [at, act] of steps) {
+    await clock.advance(at - clock.now);
+    act();
+  }
+  await clock.advance(until - clock.now);
+  const statusCalls = server.calls.filter((c) => c[0] === "status");
   return {
     clock,
     rec,
@@ -183,6 +226,7 @@ async function interview({ closeAt = null, answer = [409, INTERVIEW_CLOSED], run
     pr,
     transport,
     media,
+    statusCalls,
     get state() {
       return state;
     },
@@ -196,6 +240,7 @@ test("#54 an active interview closed under the candidate ends on the screen with
     const closeAt = 40_000;
     const r = await interview({ closeAt, answer });
     assert.ok(r.shownAt !== null, `${label}: the screen learned`);
+    assert.deepEqual(r.statusCalls, [], `${label}: pieces were flowing, so no status check`);
     assert.ok(r.shownAt - closeAt <= PIECE_MS, `${label}: within ${PIECE_MS} ms`);
     assert.equal(r.transport.closes, 1, `${label}: the provider connection closed here`);
     assert.equal(r.media.stops, 1, `${label}: camera and microphone stopped`);
@@ -229,7 +274,7 @@ test("#54 the provider's side still open: Remotiv ends it anyway, and nothing it
 });
 
 test("#54 closed while the video is still being saved after the end: the uploads stop there too", async () => {
-  const r = await interview({ closeAt: null, runMs: 50_000 });
+  const r = await interview({ closeAt: null, until: 50_000 });
   r.pr.stop();
   r.server.closed = [409, INTERVIEW_CLOSED];
   await r.clock.advance(60_000);
@@ -245,6 +290,7 @@ test("#54 a normal interview is unaffected: pieces keep recording and saving, no
   assert.equal(r.media.stops, 0);
   assert.equal(r.pr.closedUnder, false);
   assert.equal(r.state.screen, "interview");
+  assert.deepEqual(r.statusCalls, [], "pieces flowing: the status route is never asked");
   const confirms = r.server.calls.filter((c) => c[0] === "confirm").map((c) => c[1]);
   assert.deepEqual(
     confirms,
@@ -285,7 +331,106 @@ test("#54 the screen wires it: the recorder's onClosed ends the interview here, 
   assert.match(flow, /onClosed: closeHere,/);
   assert.match(
     flow,
-    /endClosedInterview\(\{\s*closeTransport: \(\) => transportRef\.current\?\.close\(\),\s*stopMedia,\s*show: \(\) => dispatch\(\{ t: "closed_under" \}\),\s*\}\)/,
+    /watchRef\.current\?\.stop\(\);\s*endClosedInterview\(\{\s*closeTransport: \(\) => transportRef\.current\?\.close\(\),\s*stopRecording: \(\) => recorderRef\.current\?\.abandon\(\),\s*stopMedia,\s*show: \(\) => dispatch\(\{ t: "closed_under" \}\),\s*\}\)/,
   );
+  // #55 part 2: the watch starts with the conversation, counts the recorder's requests, and closes the same way.
+  assert.match(
+    flow,
+    /new ClosedWatch\(\{\s*clock: realClock,\s*now: \(\) => performance\.now\(\),\s*check: \(\) => server\.status\(\),\s*onClosed: closeHere,\s*\}\);\s*watchRef\.current = watch;\s*watch\.start\(\);/,
+  );
+  assert.match(flow, /sink: watchedSink\(server\.pieces, watch\),/);
   assert.match(flow, /if \(limitHitRef\.current \|\| closedRef\.current\) return;/);
+});
+
+/* ── #55 part 2: closed with no video pieces going out ─────────── */
+
+test("#55 the recorder stopped mid-call: the status check notices a close within 30 s, and ends it the same way", async () => {
+  for (const [label, answer] of Object.entries(CLOSED_ANSWERS)) {
+    // The recorder stops 45 s in (its last piece uploads then); the close comes later.
+    const r = await interview({ stopAt: 45_000, closeAt: 100_000, answer });
+    const lastPiece = Math.max(
+      ...r.server.calls.filter((c) => c[0] !== "status" && c[2] < 100_000).map((c) => c[2]),
+    );
+    assert.ok(r.shownAt !== null, `${label}: the screen learned`);
+    assert.ok(r.shownAt - 100_000 <= CLOSED_CHECK_MS, `${label}: within 30 s of the close`);
+    assert.ok(r.statusCalls.length >= 1, `${label}: by the status route`);
+    assert.ok(
+      r.statusCalls[0][2] - lastPiece <= CLOSED_CHECK_MS,
+      `${label}: first check 30 s after the last request`,
+    );
+    assert.equal(r.transport.closes, 1, label);
+    assert.equal(r.media.stops, 1, label);
+    assert.deepEqual([r.state.screen, r.state.blocked], ["blocked", "interview_closed"], label);
+    assert.deepEqual(
+      r.server.calls.filter((c) => c[2] > r.shownAt),
+      [],
+      `${label}: nothing more asked after it`,
+    );
+  }
+});
+
+test("#55 worst case: the recorder stops right after a successful piece request, the close a moment later: still within 30 s", async () => {
+  // The rotation at 60 s reserves piece 2; the recorder stops at once (its
+  // last piece uploads at 60 s too); the delete lands 1 ms later.
+  const r = await interview({ stopAt: 60_000, closeAt: 60_001 });
+  const before = r.server.calls.filter((c) => c[2] <= 60_001 && c[0] !== "status");
+  assert.equal(Math.max(...before.map((c) => c[2])), 60_000, "the last piece request at 60 s");
+  assert.ok(r.shownAt !== null);
+  assert.ok(
+    r.shownAt - 60_000 <= CLOSED_CHECK_MS,
+    `shown ${r.shownAt - 60_000} ms after the last request`,
+  );
+  assert.ok(r.shownAt - 60_001 < CLOSED_CHECK_MS, "under 30 s after the close");
+  assert.equal(r.state.blocked, "interview_closed");
+});
+
+test("#55 no recorder at all (no camera recording): the status check alone notices, within 30 s", async () => {
+  const r = await interview({ noRecorder: true, closeAt: 10_000 });
+  assert.ok(r.shownAt !== null && r.shownAt - 10_000 <= CLOSED_CHECK_MS);
+  assert.deepEqual([r.state.screen, r.state.blocked], ["blocked", "interview_closed"]);
+  assert.equal(r.transport.closes, 1);
+});
+
+test("#55 the recorder stopped and the interview still open: one check every 30 s, nothing ended", async () => {
+  const r = await interview({ stopAt: 45_000, until: 5 * 60_000 });
+  assert.equal(r.shownAt, null);
+  assert.equal(r.transport.closes, 0);
+  const gaps = r.statusCalls.map((c, i) => c[2] - (i === 0 ? 45_000 : r.statusCalls[i - 1][2]));
+  assert.ok(
+    r.statusCalls.length >= 8 && r.statusCalls.length <= 9,
+    `${r.statusCalls.length} checks in 255 s`,
+  );
+  assert.ok(
+    gaps.every((g) => g <= CLOSED_CHECK_MS),
+    "never more than 30 s apart",
+  );
+  assert.equal(r.state.screen, "interview");
+});
+
+test("#55 the status answers: open, closed for interview_closed and not_found, anything else unknown", async () => {
+  assert.equal(statusAnswerFrom({ status: 200, body: { open: true } }), "open");
+  assert.equal(statusAnswerFrom({ status: 409, body: { code: INTERVIEW_CLOSED } }), "closed");
+  assert.equal(statusAnswerFrom({ status: 404, body: { code: "not_found" } }), "closed");
+  for (const res of [
+    { status: 429, body: { code: "rate_limited" } },
+    { status: 502, body: {} },
+    { status: 200, body: {} },
+    { status: 409, body: { code: "not_open" } },
+  ]) {
+    assert.equal(statusAnswerFrom(res), "unknown", JSON.stringify(res));
+  }
+  // The token in the body, never in the URL.
+  const asked = [];
+  const s = httpLiveServer("candidate-token-0123456789abcdef", async (url, init) => {
+    asked.push([url, JSON.parse(init.body)]);
+    return new Response(JSON.stringify({ open: true }), { status: 200 });
+  });
+  assert.equal(await s.status(), "open");
+  assert.deepEqual(asked, [
+    ["/api/interview/live/status", { token: "candidate-token-0123456789abcdef" }],
+  ]);
+  const down = httpLiveServer("candidate-token-0123456789abcdef", async () => {
+    throw new Error("network");
+  });
+  assert.equal(await down.status(), "unknown");
 });

@@ -68,6 +68,9 @@ import type { createServiceClient } from "@/lib/supabase/server";
  * so it learns within about that long, and ends the interview on its side
  * (_live/closed.ts): the call, the recorder and every upload stop. A session
  * whose row is gone answers not_found, which the screen reads the same way.
+ * When no piece request has gone out for 30 seconds (the camera or the
+ * recorder stopped mid-call), the screen asks liveInterviewStatus instead
+ * (api/interview/live/status, #55 part 2): the same answer, read-only.
  *
  * ── Never logged ─────────────────────────────────────────────
  *
@@ -160,6 +163,25 @@ type PieceRow = {
 /** Closed under the candidate (#54): cancelled, or its delete_after due (an applicant's delete sets both). */
 export function closedUnder(s: Pick<SessionRow, "status" | "delete_after">, now: number): boolean {
   return s.status === "cancelled" || retentionPassed(s.delete_after, now);
+}
+
+/**
+ * Whether this live interview is still open, from its token alone (#55 part
+ * 2): 200 { open: true }, INTERVIEW_CLOSED (409) once it was closed under the
+ * candidate, not_found (404) for a token that finds no live session. Read-only:
+ * nothing is written, not even the backstop, and nothing about the candidate,
+ * the job or the session is answered; consent is not needed to be told no.
+ */
+export async function liveInterviewStatus(
+  body: { token?: unknown },
+  deps: Pick<LiveVideoDeps, "service" | "now">,
+): Promise<VideoResult> {
+  const session = await sessionFor(deps.service, String(body.token ?? ""));
+  if (!session) return fail(404, "not_found", "This interview link isn't valid.");
+  if (closedUnder(session, (deps.now ?? Date.now)())) {
+    return fail(409, INTERVIEW_CLOSED, "This interview has been closed.");
+  }
+  return { status: 200, body: { open: true } };
 }
 
 /** Where in its life the session is, for video. */

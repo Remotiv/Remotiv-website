@@ -20,6 +20,8 @@ import { type RateLimitResult, rateLimitByKey } from "@/app/api/_lib/rate-limit"
  * second), at most 200 video pieces (PIECE_MAX_INDEX), retried at worst every
  * 2 seconds on a flapping network. 120 a minute covers that plus draining a
  * backlog. live/event is a record only, so it keeps 60 per 10 minutes.
+ * live/status is asked at most once per 30 seconds, and only while no piece
+ * request went out (#55 part 2), so 10 a minute is five times what it needs.
  *
  * On a Redis error these FAIL OPEN: the decision comes from this instance's
  * memory, and each error is one `[rate-limit] redis-error ... group=interview
@@ -36,6 +38,7 @@ export const INTERVIEW_LIMITS = {
   "live-event": { max: 60, windowMs: 10 * 60_000 },
   "live-video-upload": { max: 120, windowMs: 60_000 },
   "live-video-confirm": { max: 120, windowMs: 60_000 },
+  "live-status": { max: 10, windowMs: 60_000 },
 } as const satisfies Record<string, { max: number; windowMs: number }>;
 
 export type InterviewLimitRoute = keyof typeof INTERVIEW_LIMITS;

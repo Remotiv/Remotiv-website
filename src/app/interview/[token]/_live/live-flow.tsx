@@ -11,7 +11,8 @@ import {
 import { useTabLock } from "../_tab-lock";
 import { InterviewShell } from "../_terminal";
 import { createWebAudioOut } from "./audio-out";
-import { endClosedInterview } from "./closed";
+import { realClock } from "./clock";
+import { ClosedWatch, endClosedInterview, watchedSink } from "./closed";
 import { INTERVIEW, SAVING } from "./copy";
 import { httpLiveServer, type LiveServer } from "./live-server";
 import { INITIAL, liveReducer } from "./machine";
@@ -49,6 +50,8 @@ import { baseMime, PieceRecorder, type PieceView, type RecorderLike } from "./vi
  * (endClosedInterview): the provider connection is closed here, the camera and
  * microphone stop, nothing more is uploaded, and "This interview has been
  * closed" shows. Nothing the provider sends after that is heard or reported.
+ * If no piece request goes out for 30 seconds (the camera or the recorder
+ * stopped), ClosedWatch asks the status route instead (#55 part 2).
  *
  * ── The video is protected ───────────────────────────────────
  *
@@ -164,6 +167,7 @@ export function LiveFlowCore({
   const endTimer = useRef<number | null>(null);
   /** Closed under the candidate (#54): nothing from the provider is heard or reported after this. */
   const closedRef = useRef(false);
+  const watchRef = useRef<ClosedWatch | null>(null);
 
   const tab = useTabLock(tabKey);
 
@@ -268,6 +272,7 @@ export function LiveFlowCore({
     const recorder = recorderRef.current;
     if (!recorder) {
       // Over before any video was recorded: nothing to save.
+      watchRef.current?.stop();
       stopMedia();
       dispatch({ t: "video_saved" });
       return;
@@ -280,8 +285,10 @@ export function LiveFlowCore({
     closedRef.current = true;
     if (endTimer.current !== null) window.clearTimeout(endTimer.current);
     endTimer.current = null;
+    watchRef.current?.stop();
     endClosedInterview({
       closeTransport: () => transportRef.current?.close(),
+      stopRecording: () => recorderRef.current?.abandon(),
       stopMedia,
       show: () => dispatch({ t: "closed_under" }),
     });
@@ -297,13 +304,21 @@ export function LiveFlowCore({
       if (event.type === "started") {
         startedAtRef.current = performance.now();
         server.event("conversation_started");
+        const watch = new ClosedWatch({
+          clock: realClock,
+          now: () => performance.now(),
+          check: () => server.status(),
+          onClosed: closeHere,
+        });
+        watchRef.current = watch;
+        watch.start();
         const stream = streamRef.current;
         const recorderMime = pickRecorderMime();
         const mime = recorderMime ? baseMime(recorderMime) : null;
         if (stream && recorderMime && mime) {
           const recorder = new PieceRecorder({
             mime,
-            sink: server.pieces,
+            sink: watchedSink(server.pieces, watch),
             makeRecorder: () => {
               const r = new MediaRecorder(stream, {
                 mimeType: recorderMime,
@@ -418,6 +433,7 @@ export function LiveFlowCore({
     if (!pieces.some((x) => x.state === "recording")) stopMedia();
     if (recorder.finished && !reportedSaved.current) {
       reportedSaved.current = true;
+      watchRef.current?.stop();
       if (recorder.drained) server.event("video_saved");
       dispatch({ t: "video_saved" });
     }
@@ -447,6 +463,7 @@ export function LiveFlowCore({
 
   useEffect(
     () => () => {
+      watchRef.current?.stop();
       transportRef.current?.close();
       stopMedia();
       void ctxRef.current?.close().catch(() => {});

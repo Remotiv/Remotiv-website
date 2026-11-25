@@ -11,6 +11,7 @@
  */
 // @ts-nocheck - same reason as paging.test.ts: Node's `.ts` specifier vs this tsconfig.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { register } from "node:module";
 import { test } from "node:test";
 
@@ -42,8 +43,14 @@ const { createElement } = await import("react");
 const { renderToStaticMarkup } = await import("react-dom/server");
 globalThis.__h = createElement;
 
-const { reservePieceUpload, confirmPiece, piecePath, PIECE_MAX_BYTES, INTERVIEW_CLOSED } =
-  await import("./live-video.ts");
+const {
+  reservePieceUpload,
+  confirmPiece,
+  piecePath,
+  PIECE_MAX_BYTES,
+  INTERVIEW_CLOSED,
+  liveInterviewStatus,
+} = await import("./live-video.ts");
 const { videoTimeline, videoPositionAt, GAP_TOLERANCE_MS } = await import(
   "./live-video-timeline.ts"
 );
@@ -616,6 +623,59 @@ test("#55 a file that lands after the delete's cleanup (a link signed before it)
   await quiet(() => runInterviewOrphanSweep({ id: "sweep-55b", payload: {} }));
   for (const path of late) assert.equal(w.db.objects.has(path), false, `${path}: swept`);
   assert.ok(w.db.objects.has(`${SESSION}/v0.webm`), "the live session's confirmed piece is kept");
+});
+
+/* ── #55 part 2: the status check ──────────────────────────────── */
+
+test("#55 status: token only, read-only, and nothing about the candidate in the answer", async () => {
+  const status = (w, token = TOKEN) => liveInterviewStatus({ token }, w.deps);
+  const open = world({ consent_at: null, consent_version: null });
+  const writes = () =>
+    open.db.service.queries.filter((q) =>
+      q.calls.some((c) => ["insert", "update", "upsert", "delete"].includes(c[0])),
+    ).length;
+  const r = await status(open);
+  assert.deepEqual(r, { status: 200, body: { open: true } }, "exactly this, and nothing else");
+  assert.equal(writes(), 0, "nothing written");
+  for (const [label, over] of [
+    [
+      "the applicant's delete (071 Close)",
+      { status: "cancelled", delete_after: new Date(Date.now() - 1).toISOString() },
+    ],
+    ["the session cancelled", { status: "cancelled" }],
+    ["delete_after due", { delete_after: new Date(Date.now() - 1).toISOString() }],
+  ]) {
+    const c = await status(world(over));
+    assert.deepEqual(
+      [c.status, Object.keys(c.body).sort(), c.body.code],
+      [409, ["code", "error"], INTERVIEW_CLOSED],
+      label,
+    );
+  }
+  for (const [label, w, token] of [
+    ["a wrong token", world(), "an-unknown-token-0123456789abcdef"],
+    ["too short", world(), "short"],
+    ["an async session's token", world({ kind: "async" }), TOKEN],
+  ]) {
+    const n = await status(w, token);
+    assert.deepEqual([n.status, n.body.code], [404, "not_found"], label);
+  }
+  const gone = world();
+  gone.db.tables.interview_sessions.length = 0;
+  assert.deepEqual((await status(gone)).body.code, "not_found", "the row gone");
+  // The answers carry no id, name, job, company, time or path.
+  const all = JSON.stringify([r, await status(world({ status: "cancelled" }))]);
+  assert.doesNotMatch(all, new RegExp(`${SESSION}|${CO}|${JOB}|token|path|_at`));
+});
+
+test("#55 the status route: the interview limiter, then liveInterviewStatus, and nothing else", () => {
+  const src = readFileSync(
+    new URL("../../app/api/interview/live/status/route.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(src, /const rl = limitInterview\("live-status", token\);/);
+  assert.match(src, /liveInterviewStatus\(body, \{ service: createServiceClient\(\) \}\)/);
+  assert.doesNotMatch(src, /\.from\(|storage|select/);
 });
 
 /* ── the review page ──────────────────────────────────────────── */

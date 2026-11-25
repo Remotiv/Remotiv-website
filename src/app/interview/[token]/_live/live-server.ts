@@ -1,5 +1,6 @@
 import type { LiveEventKind } from "@/lib/interviews/live-event-codes";
 import type { JoinTicket } from "@/lib/interviews/live-provider/types";
+import type { StatusAnswer } from "./closed";
 import { PieceHttpError, type PieceMime, type PieceSink } from "./video-pieces";
 
 /**
@@ -10,6 +11,8 @@ import { PieceHttpError, type PieceMime, type PieceSink } from "./video-pieces";
  *   start     api/interview/live/start         the join ticket, nothing else
  *   event     api/interview/live/event         what happened, as a record
  *   pieces    api/interview/live/video-*       the camera video (10a)
+ *   status    api/interview/live/status        still open? (#55 part 2: only
+ *                                              when no piece request went out)
  *
  * The token goes in the body, never in a URL.
  */
@@ -32,6 +35,18 @@ export interface LiveServer {
   /** A report that must survive the page closing (navigator.sendBeacon). */
   beacon(kind: LiveEventKind, detail?: string | null): void;
   pieces: PieceSink;
+  /** Whether the interview is still open: asked only when no piece request went out (ClosedWatch). */
+  status(): Promise<StatusAnswer>;
+}
+
+export function statusAnswerFrom(res: {
+  status: number;
+  body: Record<string, unknown>;
+}): StatusAnswer {
+  if (res.status === 200 && res.body.open === true) return "open";
+  if (res.body.code === "interview_closed" || (res.status === 404 && res.body.code === "not_found"))
+    return "closed";
+  return "unknown";
 }
 
 const codeOf = (body: Record<string, unknown>) =>
@@ -114,6 +129,13 @@ export function httpLiveServer(token: string, fetchImpl: typeof fetch = fetch): 
     },
     event(kind, detail) {
       report(kind, detail, 2);
+    },
+    async status() {
+      try {
+        return statusAnswerFrom(await post(fetchImpl, "/api/interview/live/status", { token }));
+      } catch {
+        return "unknown";
+      }
     },
     beacon(kind, detail) {
       const body = JSON.stringify({ token, kind, detail: detail ?? null });

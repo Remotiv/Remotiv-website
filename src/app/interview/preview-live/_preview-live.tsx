@@ -273,6 +273,10 @@ export function PreviewLive({
       event(kind, detail) {
         report(kind, detail, "POST event");
       },
+      async status() {
+        add("POST status: 200 open");
+        return "open";
+      },
       beacon(kind, detail) {
         report(kind, detail, "beacon");
         try {
