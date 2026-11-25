@@ -28,6 +28,15 @@
 -- (future, before the start, no started_at) still becomes now(), as in 044.
 -- Only server code writes interview_sessions (service role; RLS has no
 -- policies for it), and the only writers are stampLiveEnded's callers.
+--
+-- ── Still safe on 26 Nov 2026 (#23 audit) ────────────────────
+--
+-- Written before 070-081 were applied. None of them creates, replaces or
+-- drops this function or its trigger: 071 adds an insert-only trigger on
+-- interview_sessions and cancels sessions through this one (unchanged here),
+-- 080 replaces interview_upload_open_session_only (which only reads
+-- live_ended_at), and 074, 076, 078, 079 and 081 change constraints on other
+-- tables. So this file reverts nothing, and it can run after 081 as written.
 -- ============================================================================
 
 create or replace function public.interview_sessions_live_ended()
@@ -55,3 +64,27 @@ begin
   return new;
 end;
 $$;
+
+-- ── CHECK (read-only), after applying ────────────────────────
+--
+-- select
+--   pg_catalog.strpos(d, 'and new.live_ended_at >= new.started_at') > 0 as v_not_before_start,
+--   pg_catalog.strpos(d, 'and new.live_ended_at <= now()') > 0 as v_not_in_future,
+--   pg_catalog.strpos(d, 'set once and never changed or cleared') > 0 as v_set_once,
+--   pg_catalog.strpos(d, '''submitted'', ''expired'', ''cancelled'', ''abandoned''') > 0 as v_terminal_stamp
+--   from (select pg_catalog.pg_get_functiondef(
+--           'public.interview_sessions_live_ended()'::regprocedure) as d) f;
+--   -- expect: t, t, t, t
+--
+-- select t.tgenabled, pg_catalog.pg_get_triggerdef(t.oid)
+--   from pg_catalog.pg_trigger t
+--  where t.tgrelid = 'public.interview_sessions'::regclass
+--    and t.tgname = 'interview_sessions_live_ended';
+--   -- expect one row: O, BEFORE INSERT OR UPDATE ... FOR EACH ROW
+--   -- WHEN ((new.kind = 'live'::text)) EXECUTE FUNCTION public.interview_sessions_live_ended()
+--
+-- select pg_catalog.strpos(pg_catalog.pg_get_functiondef(
+--          'public.interview_upload_open_session_only()'::regprocedure),
+--          'and (ses.delete_after is null or ses.delete_after > pg_catalog.now())) then') > 0
+--          as v_080_kept;
+--   -- expect: t (080's turn-audio rule, untouched by this file)

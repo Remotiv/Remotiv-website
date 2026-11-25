@@ -245,8 +245,11 @@ const TERMINAL = ["submitted", "expired", "cancelled", "abandoned"];
 /**
  * Migration 044 on interview_sessions: a live session's end is the database's
  * time, stamped at the first terminal status or first write, then set once.
+ * With `rule` "069" (migration 069, #23), a written end that is not in the
+ * future and not before started_at is kept as written; anything else is still
+ * now().
  */
-export function stampLiveEnded(row, old, nowMs = Date.now()) {
+export function stampLiveEnded(row, old, nowMs = Date.now(), rule = "044") {
   if (row.kind !== "live") return row;
   if (old?.live_ended_at) {
     if (row.live_ended_at !== old.live_ended_at) {
@@ -254,7 +257,12 @@ export function stampLiveEnded(row, old, nowMs = Date.now()) {
     }
     return row;
   }
-  if (row.live_ended_at || TERMINAL.includes(row.status)) {
+  if (row.live_ended_at) {
+    const written = Date.parse(row.live_ended_at);
+    const started = row.started_at ? Date.parse(row.started_at) : null;
+    const kept = rule === "069" && started !== null && written >= started && written <= nowMs;
+    if (!kept) row.live_ended_at = new Date(nowMs).toISOString();
+  } else if (TERMINAL.includes(row.status)) {
     row.live_ended_at = new Date(nowMs).toISOString();
   }
   return row;
@@ -546,9 +554,13 @@ const TURN_DEFAULTS = {
   kind: null,
 };
 
-/** `options.now`: the database's clock (now()), for live_ended_at and stamped times. Default the real clock. */
+/**
+ * `options.now`: the database's clock (now()), for live_ended_at and stamped times. Default the real clock.
+ * `options.endRule`: "069" applies migration 069's rule for a written end; default 044's.
+ */
 export function fakeLiveDb(initial = {}, options = {}) {
   const clock = options.now ?? Date.now;
+  const endRule = options.endRule ?? "044";
   const tables = {
     interview_sessions: [],
     interview_turns: [],
@@ -680,7 +692,7 @@ export function fakeLiveDb(initial = {}, options = {}) {
             row.id = row.id ?? crypto.randomUUID();
             row.reserved_at = row.reserved_at ?? new Date().toISOString();
           }
-          if (table === "interview_sessions") stampLiveEnded(row, null, clock());
+          if (table === "interview_sessions") stampLiveEnded(row, null, clock(), endRule);
           return row;
         });
         const ignore = upsert[0] === "upsert" && upsert[2]?.ignoreDuplicates;
@@ -728,7 +740,7 @@ export function fakeLiveDb(initial = {}, options = {}) {
         }
         const next = hit.map((r) => ({ ...r, ...structuredClone(update[1]) }));
         for (const [i, r] of next.entries()) {
-          if (table === "interview_sessions") stampLiveEnded(r, hit[i], clock());
+          if (table === "interview_sessions") stampLiveEnded(r, hit[i], clock(), endRule);
           if (table === "live_video_pieces") checkVideoPiece(r, hit[i], rows, tables);
         }
         const after = rows.map((r) => next[hit.indexOf(r)] ?? r);
