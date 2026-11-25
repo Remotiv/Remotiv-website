@@ -33,6 +33,13 @@ export interface LiveJoinProvider {
   ): Promise<{ providerSessionId: string; join: JoinTicket }>;
   /** Give back a session that lost the claim (two starts at once), so it holds no slot. */
   cancelSession(providerSessionId: string): Promise<void>;
+  /**
+   * The join details for a session this provider already created: a start
+   * retried just after it succeeded (a lost answer, a second click) joins the
+   * same conversation, never a new one. A provider without it answers
+   * already_started instead.
+   */
+  rejoinSession?(providerSessionId: string, maxFollowUps: number): Promise<JoinTicket>;
 }
 
 const INPUT_KEYS = new Set([
@@ -86,6 +93,10 @@ export function createMockJoinProvider(
     },
     async cancelSession() {
       // Nothing is held: the mock runs in the browser.
+    },
+    async rejoinSession(_providerSessionId, maxFollowUps) {
+      if (script === "busy") throw new ProviderBusyError(30);
+      return { mode: "mock", script, turnDetection: "server", maxFollowUps };
     },
   };
 }

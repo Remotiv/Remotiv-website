@@ -1,6 +1,9 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
+import { getAnthropic } from "@/lib/anthropic";
 import { CONSENT_NOT_SAVED, CONSENT_NOT_SAVED_MESSAGE } from "@/lib/interviews/consent";
-import { readFrozenQuestionSet } from "@/lib/interviews/frozen-questions";
+import type { FrozenLiveQuestionSet } from "@/lib/interviews/frozen-questions";
+import { liveInterviewsAvailableFor } from "@/lib/interviews/live-availability";
 import {
   LiveConsentError,
   recordLiveConsent,
@@ -17,6 +20,12 @@ import {
   ProviderBusyError,
 } from "@/lib/interviews/live-provider/join";
 import type { CreateSessionInput, JoinTicket } from "@/lib/interviews/live-provider/types";
+import {
+  type PrepareErrorCode,
+  PrepareLiveQuestionsError,
+  prepareLiveQuestions,
+} from "@/lib/interviews/live-question-freeze";
+import type { LiveQuestionsClient } from "@/lib/interviews/live-questions";
 import {
   type LiveProviderMode,
   liveProviderMode,
@@ -40,13 +49,53 @@ import type { createServiceClient } from "@/lib/supabase/server";
  * VoxAgent, the short-lived ws_url and ws_token. No provider session id, no
  * key, no question text. The ticket is never stored and never logged.
  *
- * ── Once ─────────────────────────────────────────────────────
+ * ── In order (#17, 25 Nov) ───────────────────────────────────
  *
- * The provider session is claimed on the row (provider, provider_session_id,
- * status started, started_at) only while none exists, so two tabs or two
- * clicks start one conversation; the losing start's provider session is
- * cancelled, so it holds no slot. A session that has started can never be
- * started again from its link (no automatic restart, decision 26 Oct 2026).
+ *   1. Entitlement, from the token alone (proveLiveStartEntitlement): the
+ *      hashed token finds the session; it must be live, open, not expired,
+ *      cancelled or past retention, its company on the AI Video Interview
+ *      allowlist, the live screen switched on, its live-v1 consent saved, and
+ *      its application still there and not being deleted. No id from the
+ *      browser is ever read: the body carries the token and nothing else used.
+ *   2. One start at a time (claimStart), BEFORE anything costly: the claim is
+ *      a key in live_settings (start_claim), so expiry, re-send and the
+ *      backstop never mistake it for a started call. Every other start is
+ *      answered busy ("Please try again shortly") and makes no model call and
+ *      no provider call.
+ *   3. The questions, frozen once (prepareLiveQuestions), by the claim holder
+ *      only, and only while its claim is still on the row: from the session's
+ *      own invitation snapshot, never the job's current questions. A set
+ *      already frozen (a start tried again, a restarted attempt's copy) is
+ *      returned as it is. If it refuses, the claim is given back with the
+ *      reason code kept on the session (live_settings.questions_freeze_failed)
+ *      for the recruiter's review page, and the candidate sees "This interview
+ *      isn't open yet", never the reason.
+ *   4. The provider session, created with ONLY the frozen questions in order,
+ *      the length, the follow-up limit and the first name (cv_text ""), and
+ *      only while the claim has at least PROVIDER_TIMEOUT_MS + CLAIM_MARGIN_MS
+ *      of its life left.
+ *   5. The row claimed as started, by the start that holds the claim. A start
+ *      retried within REJOIN_WINDOW_MS (15 seconds: a double click or a lost
+ *      answer) gets the same conversation's join details again
+ *      (provider.rejoinSession), never a new one; after that, a started
+ *      session can never be started again from its link (no automatic
+ *      restart, decisions 26 Oct and 30 Oct 2026: a dropped connection ends
+ *      the attempt, a restart is the Owner's or Admin's call, F10). Nothing here
+ *      uses the allowance: that was used once, at invite.
+ *
+ * ── A claim never sticks (CLAIM_STALE_MS, 2 minutes) ─────────
+ *
+ * A start that fails (the provider refuses, times out after
+ * PROVIDER_TIMEOUT_MS, or the freeze refuses) gives its claim back at once,
+ * so the candidate's next press starts. A start that dies holding it (the
+ * server stopped) leaves it for two minutes, then the next press takes it
+ * over. Two minutes because a start never asks the provider unless 45
+ * seconds of its claim are left (30 for the provider, 15 for the final
+ * write), so a start still running can never be overtaken while a provider
+ * session it created is unrecorded; and a slow freeze (one scoring guide is
+ * up to 30 seconds) gives up before the provider rather than run on. A
+ * provider session created by a start that died is never joined: its join
+ * details only ever reach the browser after the final write lands.
  *
  * ── Busy is normal ───────────────────────────────────────────
  *
@@ -75,6 +124,23 @@ export const TRY_AGAIN_SHORTLY = "Please try again shortly. Your interview is st
 
 const OPEN_STATUSES = ["invited", "started"];
 
+/** A start that claimed the session and then died: after this, another start may take over. */
+export const CLAIM_STALE_MS = 120_000;
+/** The longest a start waits for the provider to create its session. */
+export const PROVIDER_TIMEOUT_MS = 30_000;
+/** Kept back from a claim's life for the final write, after the provider answered. */
+const CLAIM_MARGIN_MS = 15_000;
+/**
+ * A start retried this soon after it succeeded (a double click, an answer lost
+ * on the way) gets the same conversation again. Kept short on purpose: it is
+ * not a way back into an interview. A dropped connection ends the attempt,
+ * and a restart is the Owner's or Admin's decision (30 Oct 2026, F10).
+ */
+export const REJOIN_WINDOW_MS = 15_000;
+const CLAIM_KEY = "start_claim";
+/** Where the freeze's refusal is kept for the recruiter (reason code and time, never more). */
+export const FREEZE_FAILED_KEY = "questions_freeze_failed";
+
 type SessionRow = {
   id: string;
   company_id: string;
@@ -85,6 +151,8 @@ type SessionRow = {
   expires_at: string;
   live_settings: unknown;
   live_ended_at: string | null;
+  started_at: string | null;
+  provider: string | null;
   provider_session_id: string | null;
   delete_after: string | null;
   purged_at: string | null;
@@ -93,7 +161,19 @@ type SessionRow = {
 };
 
 const SESSION_COLUMNS =
-  "id, company_id, application_id, job_id, kind, status, expires_at, live_settings, live_ended_at, provider_session_id, delete_after, purged_at, questions_snapshot, scoring_snapshot";
+  "id, company_id, application_id, job_id, kind, status, expires_at, live_settings, live_ended_at, started_at, provider, provider_session_id, delete_after, purged_at, questions_snapshot, scoring_snapshot";
+
+const NOT_FOUND = (): StartResult => fail(404, "not_found", "This interview link isn't valid.");
+const NOT_READY = (): StartResult => fail(409, "not_ready", "This interview isn't ready yet.");
+const ALREADY_STARTED = (): StartResult =>
+  fail(409, "already_started", "This interview has already started, so it can't start again.");
+
+/** The freeze refusals worth trying again in a moment (not the interview's set-up). */
+const TRANSIENT_FREEZE: ReadonlySet<PrepareErrorCode> = new Set<PrepareErrorCode>([
+  "db_error",
+  "guide_failed",
+  "freeze_lost",
+]);
 
 /**
  * Past retention, this session's first transcript write would fail (RT063), so
@@ -116,73 +196,299 @@ export type StartDeps = {
   mode?: LiveProviderMode | null;
   /** The provider itself; default the mock, playing the requested script. */
   provider?: LiveJoinProvider;
+  /** The model for the freeze's job-level scoring guides; default the app's, made only if used. */
+  questionsClient?: LiveQuestionsClient;
+  newId?: () => string;
+  /** Default PROVIDER_TIMEOUT_MS. */
+  providerTimeoutMs?: number;
 };
 
-export async function startLiveInterview(
-  body: { token?: unknown; mockScript?: unknown },
-  deps: StartDeps,
-): Promise<StartResult> {
+/** The app's model client, created only when the freeze needs a guide written. */
+const lazyQuestionsClient: LiveQuestionsClient = {
+  messages: {
+    create: (request, options) =>
+      (getAnthropic() as unknown as LiveQuestionsClient).messages.create(request, options),
+  },
+};
+
+/** What the token proved: the session, its saved consent and the candidate's first name. */
+export type LiveStartEntitlement = {
+  row: SessionRow;
+  consent: Awaited<ReturnType<typeof requireLiveConsent>>;
+  firstName: string | null;
+  /** Started moments ago (REJOIN_WINDOW_MS): the same conversation is joined again. */
+  rejoin: boolean;
+};
+
+/** A claim this start holds on the session: its value and when it was taken. */
+type Claim = { value: string; atMs: number };
+
+/** Started, not ended, and within REJOIN_WINDOW_MS of starting. */
+function rejoinable(row: SessionRow, nowMs: number): boolean {
+  if (!row.provider_session_id || row.live_ended_at || row.status !== "started") return false;
+  const at = row.started_at ? Date.parse(row.started_at) : Number.NaN;
+  return Number.isFinite(at) && nowMs - at >= 0 && nowMs - at < REJOIN_WINDOW_MS;
+}
+
+/** This session's claim, if any and if it is its own (a restarted attempt copies its predecessor's). */
+function claimOf(settings: unknown, sessionId: string): { value: string; atMs: number } | null {
+  const raw = (settings as Record<string, unknown> | null)?.[CLAIM_KEY];
+  if (typeof raw !== "string") return null;
+  const [id, at] = raw.split("|");
+  const atMs = Number(at);
+  return id === sessionId && Number.isFinite(atMs) ? { value: raw, atMs } : null;
+}
+
+/**
+ * Proves, from the candidate's token alone, that this start may go ahead.
+ * Every refusal is decided here, before any question is frozen or any
+ * provider is asked for anything. Read-only.
+ */
+export async function proveLiveStartEntitlement(
+  token: string,
+  deps: Pick<StartDeps, "service" | "now">,
+): Promise<{ ok: true; entitlement: LiveStartEntitlement } | { ok: false; result: StartResult }> {
   const now = deps.now ?? Date.now;
-  const token = String(body.token ?? "");
-  if (!token || token.length < 20 || token.length > 200) {
-    return fail(404, "not_found", "This interview link isn't valid.");
-  }
+  const no = (result: StartResult) => ({ ok: false as const, result });
+  if (!token || token.length < 20 || token.length > 200) return no(NOT_FOUND());
   const { data, error: readErr } = await deps.service
     .from("interview_sessions")
     .select(SESSION_COLUMNS)
     .eq("token_hash", hashSessionToken(token))
     .maybeSingle();
-  if (readErr) return fail(502, "unavailable", TRY_AGAIN_SHORTLY);
+  if (readErr) return no(fail(502, "unavailable", TRY_AGAIN_SHORTLY));
   const row = data as SessionRow | null;
-  if (row?.kind !== "live") return fail(404, "not_found", "This interview link isn't valid.");
-  if (!liveScreenEnabled()) return fail(409, "not_open", "This interview isn't open yet.");
-  if (row.provider_session_id || row.live_ended_at) {
-    return fail(
-      409,
-      "already_started",
-      "This interview has already started, so it can't start again.",
-    );
-  }
+  if (row?.kind !== "live") return no(NOT_FOUND());
+  if (!liveScreenEnabled()) return no(fail(409, "not_open", "This interview isn't open yet."));
+  const rejoin = rejoinable(row, now());
+  if (!rejoin && (row.provider_session_id || row.live_ended_at)) return no(ALREADY_STARTED());
   if (!OPEN_STATUSES.includes(row.status) || Date.parse(row.expires_at) <= now()) {
-    return fail(409, "not_open", "This interview is closed.");
+    return no(fail(409, "not_open", "This interview is closed."));
   }
   const pastRetention = refusedForRetention(row, now());
-  if (pastRetention) return pastRetention;
+  if (pastRetention) return no(pastRetention);
 
   let consent: Awaited<ReturnType<typeof requireLiveConsent>>;
   try {
     consent = await requireLiveConsent(deps.service, row.id);
   } catch (err) {
     if (err instanceof LiveConsentError && err.code === "not_ready") {
-      return fail(409, "consent_locked", "This interview isn't open yet.");
+      return no(fail(409, "consent_locked", "This interview isn't open yet."));
     }
     if (err instanceof LiveConsentError && err.code !== "db_error") {
-      return fail(403, "consent_required", "Please agree to the interview terms first.");
+      return no(fail(403, "consent_required", "Please agree to the interview terms first."));
     }
-    return fail(502, "unavailable", TRY_AGAIN_SHORTLY);
+    return no(fail(502, "unavailable", TRY_AGAIN_SHORTLY));
   }
+  // The session's own company must be allowed AI Video Interviews now, not only at invite.
+  if (!liveInterviewsAvailableFor(row.company_id)) {
+    return no(fail(409, "not_open", "This interview isn't open yet."));
+  }
+
+  // The application, within the session's own company and job: the first name
+  // only (#14: VoxAgent gets no CV, so the CV is not read), and never one being deleted.
+  const { data: app, error: appErr } = await deps.service
+    .from("job_applications")
+    .select("first_name, deletion_started_at")
+    .eq("id", row.application_id ?? "")
+    .eq("job_id", row.job_id ?? "")
+    .eq("company_id_snapshot", row.company_id)
+    .maybeSingle();
+  if (appErr) return no(fail(502, "unavailable", TRY_AGAIN_SHORTLY));
+  const a = app as { first_name: string | null; deletion_started_at?: string | null } | null;
+  if (!a) return no(NOT_READY());
+  if (a.deletion_started_at) return no(fail(409, "not_open", "This interview is closed."));
+  return { ok: true, entitlement: { row, consent, firstName: a.first_name, rejoin } };
+}
+
+/**
+ * Claims the session for this start before anything costly: one claim lands,
+ * every other start is told to try again shortly. Written over no claim, or
+ * over exactly a stale one (CLAIM_STALE_MS).
+ */
+async function claimStart(
+  service: Service,
+  sessionId: string,
+  nowMs: number,
+): Promise<Claim | "taken" | "failed"> {
+  const { data, error } = await service
+    .from("interview_sessions")
+    .select("live_settings, provider_session_id")
+    .eq("id", sessionId)
+    .maybeSingle();
+  if (error || !data) return "failed";
+  const row = data as { live_settings: unknown; provider_session_id: string | null };
+  if (row.provider_session_id) return "taken";
+  const current = claimOf(row.live_settings, sessionId);
+  if (current && nowMs - current.atMs < CLAIM_STALE_MS) return "taken";
+  const raw = (row.live_settings as Record<string, unknown>)[CLAIM_KEY];
+  const value = `${sessionId}|${nowMs}|${randomUUID()}`;
+  const settings = { ...(row.live_settings as Record<string, unknown>), [CLAIM_KEY]: value };
+  const write = service
+    .from("interview_sessions")
+    .update({ live_settings: settings })
+    .eq("id", sessionId)
+    .eq("kind", "live")
+    .is("provider_session_id", null);
+  const { data: landed, error: wErr } = await (typeof raw === "string"
+    ? write.eq(`live_settings->>${CLAIM_KEY}`, raw)
+    : write.is(`live_settings->>${CLAIM_KEY}`, null)
+  ).select("id");
+  if (wErr) return "failed";
+  return ((landed ?? []) as unknown[]).length === 1 ? { value, atMs: nowMs } : "taken";
+}
+
+/**
+ * Gives the claim back, so the candidate's next press can start, keeping
+ * whatever else is on the row now (a set frozen under this claim stays). With
+ * `extra`, those keys are written in the same update: the freeze's refusal
+ * code, for the recruiter. Only while this start still holds the claim.
+ */
+async function releaseClaim(
+  service: Service,
+  sessionId: string,
+  claim: Claim,
+  extra: Record<string, unknown> = {},
+): Promise<void> {
+  const { data, error: readErr } = await service
+    .from("interview_sessions")
+    .select("live_settings")
+    .eq("id", sessionId)
+    .maybeSingle();
+  const now = (data as { live_settings: unknown } | null)?.live_settings as Record<
+    string,
+    unknown
+  > | null;
+  if (readErr || !now || now[CLAIM_KEY] !== claim.value) {
+    if (readErr) console.error(`[live-start] session ${sessionId}: start claim not released`);
+    return;
+  }
+  const { [CLAIM_KEY]: _released, ...settings } = now;
+  const { error } = await service
+    .from("interview_sessions")
+    .update({ live_settings: { ...settings, ...extra } })
+    .eq("id", sessionId)
+    .eq(`live_settings->>${CLAIM_KEY}`, claim.value)
+    .is("provider_session_id", null)
+    .select("id");
+  if (error) console.error(`[live-start] session ${sessionId}: start claim not released`);
+}
+
+class ProviderTimeoutError extends Error {}
+
+/**
+ * The provider's answer, or a timeout after `ms`. A session the provider
+ * creates after the timeout is cancelled as soon as it arrives: nobody holds
+ * its join details, so it is never joined.
+ */
+async function createWithin(
+  provider: LiveJoinProvider,
+  input: CreateSessionInput,
+  ms: number,
+  sessionId: string,
+): Promise<{ providerSessionId: string; join: JoinTicket }> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
+  const call = provider.createSession(input);
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      reject(new ProviderTimeoutError());
+    }, ms);
+  });
+  call
+    .then((late) => {
+      if (!timedOut) return;
+      provider.cancelSession(late.providerSessionId).catch(() => {
+        console.error(
+          `[live-start] session ${sessionId}: a late provider session was not cancelled`,
+        );
+      });
+    })
+    .catch(() => {});
+  try {
+    return await Promise.race([call, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** A start retried just after it succeeded: the same conversation, never a new one. */
+async function rejoinStarted(
+  row: SessionRow,
+  provider: LiveJoinProvider,
+  maxFollowUps: number,
+): Promise<StartResult> {
+  if (!provider.rejoinSession || provider.name !== row.provider || !row.provider_session_id) {
+    return ALREADY_STARTED();
+  }
+  try {
+    const join = await provider.rejoinSession(row.provider_session_id, maxFollowUps);
+    console.log(`[live-start] session ${row.id}: joined again (${provider.name})`);
+    return { status: 200, body: { join } };
+  } catch {
+    console.error(`[live-start] session ${row.id}: provider session not joined again`);
+    return fail(503, "unavailable", TRY_AGAIN_SHORTLY);
+  }
+}
+
+export async function startLiveInterview(
+  body: { token?: unknown; mockScript?: unknown },
+  deps: StartDeps,
+): Promise<StartResult> {
+  const now = deps.now ?? Date.now;
+
+  // 1. Entitlement, from the token alone.
+  const proof = await proveLiveStartEntitlement(String(body.token ?? ""), deps);
+  if (!proof.ok) return proof.result;
+  const { row, consent, firstName, rejoin } = proof.entitlement;
 
   const mode = deps.mode === undefined ? liveProviderMode() : deps.mode;
   if (mode === null) {
     console.error(`[live-start] session ${row.id}: no provider available`);
     return fail(503, "unavailable", TRY_AGAIN_SHORTLY);
   }
-
   const settings = readLiveSettings(row.live_settings, row.id);
-  const frozen = readFrozenQuestionSet(row);
-  if (!settings || !frozen) return fail(409, "not_ready", "This interview isn't ready yet.");
+  if (!settings) return NOT_READY();
+  const script =
+    isMockScriptId(body.mockScript) || body.mockScript === "busy" ? body.mockScript : "completed";
+  const provider = deps.provider ?? createMockJoinProvider(script);
+  if (rejoin) return rejoinStarted(row, provider, settings.max_follow_ups_per_base_question);
 
-  // The first name only (#14): VoxAgent gets no CV, so the CV is not read.
-  const { data: app, error: appErr } = await deps.service
-    .from("job_applications")
-    .select("first_name")
-    .eq("id", row.application_id ?? "")
-    .eq("job_id", row.job_id ?? "")
-    .eq("company_id_snapshot", row.company_id)
-    .maybeSingle();
-  if (appErr) return fail(502, "unavailable", TRY_AGAIN_SHORTLY);
-  if (!app) return fail(409, "not_ready", "This interview isn't ready yet.");
-  const a = app as { first_name: string | null };
+  // 2. One start at a time, claimed before anything costly.
+  const claim = await claimStart(deps.service, row.id, now());
+  if (claim === "failed") return fail(502, "unavailable", TRY_AGAIN_SHORTLY);
+  if (claim === "taken") return fail(503, "busy", TRY_AGAIN_SHORTLY, { retryAfterSeconds: 5 });
+
+  // 3. The questions, frozen once, from the session's own invitation snapshot.
+  let frozen: FrozenLiveQuestionSet;
+  try {
+    frozen = (
+      await prepareLiveQuestions(row.id, {
+        service: deps.service,
+        client: deps.questionsClient ?? lazyQuestionsClient,
+        now,
+        newId: deps.newId ?? (() => randomUUID()),
+        claim: { key: CLAIM_KEY, value: claim.value },
+      })
+    ).set;
+  } catch (err) {
+    if (!(err instanceof PrepareLiveQuestionsError)) {
+      await releaseClaim(deps.service, row.id, claim);
+      throw err;
+    }
+    console.error(`[live-start] session ${row.id}: questions not frozen (${err.code})`);
+    if (TRANSIENT_FREEZE.has(err.code) || err.code === "already_started") {
+      await releaseClaim(deps.service, row.id, claim);
+      return err.code === "already_started"
+        ? ALREADY_STARTED()
+        : fail(503, "unavailable", TRY_AGAIN_SHORTLY);
+    }
+    await releaseClaim(deps.service, row.id, claim, {
+      [FREEZE_FAILED_KEY]: { code: err.code, at: new Date(now()).toISOString() },
+    });
+    return NOT_READY();
+  }
 
   let input: CreateSessionInput;
   try {
@@ -192,31 +498,39 @@ export async function startLiveInterview(
       interviewMinutes: Math.max(1, Math.round(settings.max_session_seconds / 60)),
       maxFollowUps: settings.max_follow_ups_per_base_question,
       questions: frozen,
-      candidateFirstName: a.first_name,
+      candidateFirstName: firstName,
       consent,
     });
   } catch (err) {
+    await releaseClaim(deps.service, row.id, claim);
     if (!(err instanceof CreateSessionInputError)) throw err;
     console.error(`[live-start] session ${row.id}: provider input refused`);
-    return fail(409, "not_ready", "This interview isn't ready yet.");
+    return NOT_READY();
   }
 
-  const script =
-    isMockScriptId(body.mockScript) || body.mockScript === "busy" ? body.mockScript : "completed";
-  const provider = deps.provider ?? createMockJoinProvider(script);
+  // 4. The provider session, only with time left on the claim for it and the final write.
+  const timeoutMs = deps.providerTimeoutMs ?? PROVIDER_TIMEOUT_MS;
+  if (now() - claim.atMs > CLAIM_STALE_MS - timeoutMs - CLAIM_MARGIN_MS) {
+    console.warn(`[live-start] session ${row.id}: preparation ran long, provider not asked`);
+    await releaseClaim(deps.service, row.id, claim);
+    return fail(503, "busy", TRY_AGAIN_SHORTLY, { retryAfterSeconds: 5 });
+  }
   let created: { providerSessionId: string; join: JoinTicket };
   try {
-    created = await provider.createSession(input);
+    created = await createWithin(provider, input, timeoutMs, row.id);
   } catch (err) {
+    await releaseClaim(deps.service, row.id, claim);
     if (err instanceof ProviderBusyError) {
       console.log(`[live-start] session ${row.id}: provider at capacity`);
       return fail(503, "busy", TRY_AGAIN_SHORTLY, { retryAfterSeconds: err.retryAfterSeconds });
     }
-    console.error(`[live-start] session ${row.id}: provider session not created`);
+    console.error(
+      `[live-start] session ${row.id}: provider session not created${err instanceof ProviderTimeoutError ? " (timed out)" : ""}`,
+    );
     return fail(503, "unavailable", TRY_AGAIN_SHORTLY);
   }
 
-  // One conversation per session: claimed only while none exists.
+  // 5. One conversation per session: claimed as started by the start holding the claim.
   const { data: claimed, error: claimErr } = await deps.service
     .from("interview_sessions")
     .update({
@@ -228,19 +542,16 @@ export async function startLiveInterview(
     .eq("id", row.id)
     .eq("kind", "live")
     .is("provider_session_id", null)
+    .eq(`live_settings->>${CLAIM_KEY}`, claim.value)
     .in("status", OPEN_STATUSES)
     .select("id");
-  if (claimErr) return fail(502, "unavailable", TRY_AGAIN_SHORTLY);
-  if (((claimed ?? []) as unknown[]).length === 0) {
-    // Another start won: this provider session is never joined, so give it back.
+  if (claimErr || ((claimed ?? []) as unknown[]).length === 0) {
+    // Never joined: give the provider session back, so it holds no slot.
     await provider.cancelSession(created.providerSessionId).catch(() => {
       console.error(`[live-start] session ${row.id}: a losing provider session was not cancelled`);
     });
-    return fail(
-      409,
-      "already_started",
-      "This interview has already started, so it can't start again.",
-    );
+    if (claimErr) await releaseClaim(deps.service, row.id, claim);
+    return claimErr ? fail(502, "unavailable", TRY_AGAIN_SHORTLY) : ALREADY_STARTED();
   }
   console.log(`[live-start] session ${row.id}: started (${provider.name})`);
   return { status: 200, body: { join: created.join } };

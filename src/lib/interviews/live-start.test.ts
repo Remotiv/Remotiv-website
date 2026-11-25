@@ -147,7 +147,8 @@ async function withEnv(vars, fn) {
     }
   }
 }
-const ON = { LIVE_INTERVIEW_SCREEN_ENABLED: "1" };
+// The live screen on, and this company on the AI Video Interview allowlist (#17: checked at start too).
+const ON = { LIVE_INTERVIEW_SCREEN_ENABLED: "1", AI_VIDEO_INTERVIEW_COMPANY_IDS: CO };
 
 /** Captures every log line, to prove the ticket and the token are never in one. */
 async function logged(fn) {
@@ -349,7 +350,8 @@ test("start: the CV is not even read (#14): the applicant read asks for the firs
       (q) => q.table === "job_applications" && q.calls[0]?.[0] === "select",
     );
     assert.equal(appReads.length, 1, "one applicant read");
-    assert.equal(appReads[0].calls[0][1], "first_name");
+    // The first name, and whether the application is being deleted (#17): never the CV.
+    assert.equal(appReads[0].calls[0][1], "first_name, deletion_started_at");
     for (const q of db.service.queries) {
       const select = q.calls.find((c) => c[0] === "select")?.[1] ?? "";
       assert.doesNotMatch(String(select), /cv_text|cv_path|last_name/, `${q.table} read`);
@@ -369,17 +371,22 @@ test("start: never twice. A second start, from another tab or a reload, is refus
   });
 });
 
-test("start: two at once (two tabs, a double click) start one conversation; the other is refused", async () => {
+test("start: two at once (two tabs, a double click) create ONE provider session; the other is told to try shortly", async () => {
   await withEnv(ON, async () => {
     const db = world();
     const p = recordingProvider();
     const { result } = await logged(() =>
       Promise.all([start(db, { provider: p.provider }), start(db, { provider: p.provider })]),
     );
-    assert.deepEqual(result.map((r) => r.status).sort(), [200, 409]);
-    assert.equal(result.find((r) => r.status === 409).body.code, "already_started");
+    // #17: the session is claimed before the provider is asked, so only one start asks.
+    assert.deepEqual(result.map((r) => r.status).sort(), [200, 503]);
+    assert.equal(result.find((r) => r.status === 503).body.code, "busy");
+    assert.equal(p.seen.length, 1, "one provider session created");
+    assert.deepEqual(p.cancelled, [], "none created only to be given back");
     assert.equal(db.tables.interview_sessions[0].provider_session_id, "mock-abc");
-    assert.deepEqual(p.cancelled, ["mock-2"], "the losing provider session is given back");
+    // Once it has started, a later start is refused as before.
+    const later = await logged(() => start(db, { provider: p.provider }));
+    assert.equal(later.result.body.code, "already_started");
   });
 });
 

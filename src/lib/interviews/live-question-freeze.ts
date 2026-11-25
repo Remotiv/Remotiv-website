@@ -98,6 +98,14 @@ export type PrepareDeps = {
   client: LiveQuestionsClient;
   now: () => number;
   newId: () => string;
+  /**
+   * The start claim the caller holds (live-start.ts), as a key in
+   * live_settings and its value. Given, the freeze lands only while that
+   * claim is still on the row: a start whose claim was taken over after it
+   * went stale can never write the questions, or its old claim, over the
+   * start that took over.
+   */
+  claim?: { key: string; value: string };
 };
 
 export type PrepareErrorCode =
@@ -367,7 +375,7 @@ export async function prepareLiveQuestions(
 
   // THE freeze: one conditional update. It lands only on a live session that
   // is still invited, not started and not frozen.
-  const { data: landed, error: updErr } = await deps.service
+  const freeze = deps.service
     .from("interview_sessions")
     .update({ ...snapshots, live_settings: liveSettings })
     .eq("id", row.id)
@@ -375,8 +383,11 @@ export async function prepareLiveQuestions(
     .eq("kind", "live")
     .eq("status", "invited")
     .is("started_at", null)
-    .is(`live_settings->${QUESTIONS_FROZEN_KEY}`, null)
-    .select(SESSION_COLUMNS);
+    .is(`live_settings->${QUESTIONS_FROZEN_KEY}`, null);
+  const { data: landed, error: updErr } = await (deps.claim
+    ? freeze.eq(`live_settings->>${deps.claim.key}`, deps.claim.value)
+    : freeze
+  ).select(SESSION_COLUMNS);
   if (updErr) throw new PrepareLiveQuestionsError("db_error", sessionId);
 
   const mine = ((landed ?? []) as SessionRow[])[0];

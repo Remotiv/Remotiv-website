@@ -148,8 +148,11 @@ function world(over = {}) {
 
 async function run(screen, fn) {
   const before = process.env.LIVE_INTERVIEW_SCREEN_ENABLED;
+  const allowBefore = process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS;
   if (screen) process.env.LIVE_INTERVIEW_SCREEN_ENABLED = "1";
   else delete process.env.LIVE_INTERVIEW_SCREEN_ENABLED;
+  // The company on the allowlist, which the start now checks too (#17).
+  process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS = CO;
   const lines = [];
   const saved = { log: console.log, warn: console.warn, error: console.error };
   console.log = console.warn = console.error = (...a) => lines.push(a.join(" "));
@@ -159,6 +162,8 @@ async function run(screen, fn) {
     Object.assign(console, saved);
     if (before === undefined) delete process.env.LIVE_INTERVIEW_SCREEN_ENABLED;
     else process.env.LIVE_INTERVIEW_SCREEN_ENABLED = before;
+    if (allowBefore === undefined) delete process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS;
+    else process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS = allowBefore;
   }
 }
 

@@ -68,7 +68,9 @@ export function startAnswerFrom(res: {
   }
   if (code === "already_started") return { ok: false, reason: "already_started" };
   if (code === "consent_required") return { ok: false, reason: "consent_required" };
-  if (code === "consent_locked") return { ok: false, reason: "locked" };
+  // Not set up to start (#17: the questions could not be frozen): the "isn't
+  // open yet" screen, never "try again", and never the reason.
+  if (code === "consent_locked" || code === "not_ready") return { ok: false, reason: "locked" };
   if (code === "not_open" || code === "not_found") return { ok: false, reason: "closed" };
   return { ok: false, reason: "unavailable" };
 }

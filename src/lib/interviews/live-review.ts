@@ -267,6 +267,23 @@ export function importFailureReason(code: string, notRetained: string | null = n
     : `${read} It was NOT kept (reason: ${safe(notRetained)}). A restart can be offered.`;
 }
 
+/**
+ * Why the candidate could not start (#17): the start's freeze refused the
+ * invitation's questions (live-start.ts, live_settings.questions_freeze_failed).
+ * The reason code only. Shown until the questions are frozen.
+ */
+export function freezeFailureReason(code: string): string {
+  const safe = /^[a-z_]{1,40}$/.test(code) ? code : "unknown";
+  return `The candidate could not start: this interview's questions could not be prepared (reason: ${safe}). Send a new invitation once the job's questions are fixed.`;
+}
+
+function freezeFailureReasons(settings: unknown): string[] {
+  const s = settings as Record<string, unknown> | null;
+  if (!s || s.questions_frozen) return [];
+  const failed = s.questions_freeze_failed as { code?: unknown } | undefined;
+  return typeof failed?.code === "string" ? [freezeFailureReason(failed.code)] : [];
+}
+
 /** Why a question is held because of the time limit (live-ingest.ts TimeLimitCheck). */
 const TIME_LIMIT_REASON: Record<TimeLimitCheck, (position: number) => string> = {
   after_limit: (n) =>
@@ -729,7 +746,13 @@ export function buildLiveReviewView(input: {
     sessionId: input.session.id,
     interviewerName: interviewer,
     attempt: input.attempt,
-    header: { ...header, reviewReasons: reviewReasonsFor(outcome, questions) },
+    header: {
+      ...header,
+      reviewReasons: [
+        ...freezeFailureReasons(input.session.live_settings),
+        ...reviewReasonsFor(outcome, questions),
+      ],
+    },
     questions,
     video: videoTimeline(input.videoPieces ?? []),
   };
