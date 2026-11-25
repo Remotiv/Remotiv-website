@@ -17,7 +17,12 @@ import {
 } from "@/lib/interviews/live-provider/types";
 import type { TranscriptionRequest } from "@/lib/interviews/live-transcribe";
 import { INTERVIEW_BUCKET } from "@/lib/interviews/session";
-import { MAX_FOLLOW_UPS_PER_BASE_QUESTION, readLiveSettings } from "@/lib/interviews/types";
+import {
+  DEFAULT_SESSION_SECONDS,
+  MAX_FOLLOW_UPS_PER_BASE_QUESTION,
+  MAX_SESSION_SECONDS,
+  readLiveSettings,
+} from "@/lib/interviews/types";
 import type { createServiceClient } from "@/lib/supabase/server";
 
 /**
@@ -142,8 +147,11 @@ import type { createServiceClient } from "@/lib/supabase/server";
 
 type Service = ReturnType<typeof createServiceClient>;
 
-/** 7: follow_up_check and follow_up_check_turns (#48, 25 Nov). */
-export const LIVE_OUTCOME_VERSION = 7;
+/**
+ * 7: follow_up_check and follow_up_check_turns (#48, 25 Nov).
+ * 8: time_limit_check and time_limit_check_turns (#50); import_failure (#51).
+ */
+export const LIVE_OUTCOME_VERSION = 8;
 /** One turn's audio, at most: Whisper's limit, and far above a spoken turn. */
 export const MAX_TURN_AUDIO_BYTES = 25 * 1024 * 1024;
 
@@ -231,6 +239,37 @@ export type WordingCheck =
 export type FollowUpCheck = "over_limit";
 
 /**
+ * Why a question needs a person because of the time limit (#50, 25 Nov):
+ *
+ *   after_limit       a turn of it starts after the session's frozen length
+ *                     (max_session_seconds), or starts before it and ends
+ *                     after it (spans the deadline), measured from the conversation's
+ *                     start on Remotiv's own server-recorded clock
+ *                     (interview_sessions.started_at) where there is one, the
+ *                     provider's otherwise.
+ *   clocks_disagree   the provider's start and Remotiv's are more than
+ *                     CLOCK_TOLERANCE_MS apart, and on either clock a turn of
+ *                     the question would be after the limit: neither is
+ *                     trusted, a person decides.
+ *
+ * Every turn is kept, audio included; the question is held from scoring until
+ * a person resolves it (resolve_time_limit_check, migration 078),
+ * independently of every other check.
+ */
+export type TimeLimitCheck = "after_limit" | "clocks_disagree";
+
+/** How far apart the provider's conversation start and Remotiv's may be before neither is trusted. */
+export const CLOCK_TOLERANCE_MS = 10_000;
+
+/** The session's frozen length and Remotiv's own start, for the time-limit check. */
+export type ExportTiming = {
+  /** live_settings.max_session_seconds, in milliseconds. */
+  limitMs: number;
+  /** interview_sessions.started_at, written by the start route with the server's clock. */
+  ourStartedAtMs: number | null;
+};
+
+/**
  * Why an interruption on a question needs a person (F15, 26 Oct 2026).
  * Flagged for review; it does not hold the question from scoring.
  */
@@ -285,6 +324,11 @@ export type LiveQuestionFacts = {
    * until resolved (resolve_follow_up_check). Absent before outcome v7: null.
    */
   follow_up_check?: FollowUpCheck | null;
+  /**
+   * A turn after the time limit, or clocks that disagree near it. Holds the
+   * question until resolved (resolve_time_limit_check). Absent before v8: null.
+   */
+  time_limit_check?: TimeLimitCheck | null;
 };
 
 export type LiveOutcome = {
@@ -315,6 +359,8 @@ export type LiveOutcome = {
   wording_check_turns: number[];
   /** Sequences of follow-ups past the session's limit. Absent before outcome v7. */
   follow_up_check_turns?: number[];
+  /** Sequences of turns placed after the limit, or near it on disagreeing clocks. Absent before v8. */
+  time_limit_check_turns?: number[];
   /** Sequences of marked repeats that did not ask their question as agreed. */
   repeat_check_turns: number[];
   /** Every interruption line, placed (parse-export.ts). Absent before version 5. */
@@ -359,7 +405,44 @@ export type LiveOutcome = {
   not_reached_count: number;
   total: number;
   completion_percent: number;
+  /**
+   * Set only on the technical failure recorded for an export refused as
+   * broken (#51, live-import.ts): why (a reason code, never the provider's
+   * text) and where the raw export is kept as evidence. A later good export of
+   * the same session replaces this outcome; nothing else ever does.
+   */
+  import_failure?: ImportFailure;
+  /** The failure's time, top level so the replacing write can match it exactly. */
+  import_failed_at?: string;
 };
+
+/** Why an export was refused as broken, and its evidence (#51). */
+export type ImportFailure = {
+  code: string;
+  /** The COMPLETE raw export, in the session's private folder; null when it was not kept. */
+  evidence_path: string | null;
+  /**
+   * Why no evidence was kept, as a reason code; null when it was. Never a
+   * partial copy: an export is kept whole or not at all.
+   */
+  evidence_not_retained: EvidenceNotRetained | null;
+  at: string;
+};
+
+/**
+ * Why a refused export's evidence was not kept (#51): too large for the cap,
+ * the upload failed, or the export could not even be turned into text.
+ */
+export type EvidenceNotRetained = "too_large" | "storage_failed" | "unserialisable";
+
+/** Whether a stored outcome is the record of a refused export, not of an interview. */
+export function isImportFailure(outcome: unknown): outcome is LiveOutcome & {
+  import_failure: ImportFailure;
+  import_failed_at: string;
+} {
+  const o = outcome as Partial<LiveOutcome> | null;
+  return Boolean(o?.import_failure) && typeof o?.import_failed_at === "string";
+}
 
 type OutcomeFields = Pick<
   LiveOutcome,
@@ -380,7 +463,10 @@ type OutcomeFields = Pick<
  * The outcome of how the interview ended and the questions' statuses
  * (decision D2, revised): see the table at the top. `final` says whether every
  * answer is settled; until it is, restart eligibility is null. `answersUsable`
- * is only ever true for a final outcome. Pure.
+ * is only ever true for a final outcome. `completedGracefully` is the
+ * provider's completed_gracefully: a "completed" status with questions never
+ * asked is Completed only when Sarah closed the interview normally (true);
+ * otherwise a person confirms the ending (#50, 25 Nov). Pure.
  */
 export function outcomeFrom(
   questions: readonly Pick<LiveQuestionFacts, "status">[],
@@ -389,6 +475,7 @@ export function outcomeFrom(
   final: boolean,
   answersUsable: boolean,
   exitCodes: ReadonlySet<ExportStatusCode> = CONFIRMED_EXIT_CODES,
+  completedGracefully: boolean | null = true,
 ): OutcomeFields {
   const total = questions.length;
   const answered = questions.filter((q) => q.status === "answered").length;
@@ -401,6 +488,7 @@ export function outcomeFrom(
     notReached,
     final && answersUsable,
     exitCodes,
+    completedGracefully,
   );
   return {
     outcome,
@@ -424,9 +512,15 @@ function endingOf(
   notReached: number,
   usable: boolean,
   exitCodes: ReadonlySet<ExportStatusCode>,
+  completedGracefully: boolean | null,
 ): { outcome: LiveOutcomeCode; endCheck: EndCheck | null } {
   const check = (reason: EndCheckReason) => ({ reason, never_asked: notReached });
   if (status === "completed") {
+    // Questions never asked and no normal close (a hard stop at the limit, a
+    // time-out): never Completed. A person confirms how it ended.
+    if (notReached > 0 && completedGracefully !== true) {
+      return { outcome: "ending_unconfirmed", endCheck: check("closed_early") };
+    }
     return { outcome: "completed", endCheck: notReached > 0 ? check("closed_early") : null };
   }
   if (status === "provider_error") {
@@ -466,7 +560,12 @@ function restartAllowed(outcome: LiveOutcomeCode, final: boolean, attempt: numbe
  */
 export function needsReview(
   questions: readonly (Pick<LiveQuestionFacts, "needs_check"> &
-    Partial<Pick<LiveQuestionFacts, "repeat_check" | "wording_check" | "follow_up_check">>)[],
+    Partial<
+      Pick<
+        LiveQuestionFacts,
+        "repeat_check" | "wording_check" | "follow_up_check" | "time_limit_check"
+      >
+    >)[],
   failedTurns: readonly number[],
   endCheck: EndCheck | null,
   interruptionCheckTurns: readonly number[] = [],
@@ -480,7 +579,8 @@ export function needsReview(
         q.needs_check ||
         (q.repeat_check ?? null) !== null ||
         (q.wording_check ?? null) !== null ||
-        (q.follow_up_check ?? null) !== null,
+        (q.follow_up_check ?? null) !== null ||
+        (q.time_limit_check ?? null) !== null,
     )
   );
 }
@@ -514,6 +614,8 @@ export function confirmAnswer(
     attempt,
     outcome.final,
     outcome.answers_usable,
+    CONFIRMED_EXIT_CODES,
+    outcome.completed_gracefully,
   );
   return {
     ...outcome,
@@ -813,6 +915,7 @@ export function assessLiveExport(
   attempt: number,
   candidateFirstName: string | null = null,
   followUpLimit: number = MAX_FOLLOW_UPS_PER_BASE_QUESTION,
+  timing: ExportTiming | null = null,
 ): Omit<LiveOutcome, "saved_at" | "export_hash"> {
   const byPosition = new Map(frozen.questions.map((q) => [q.position, q]));
   const turns = [...parsed.turns].sort((a, b) => a.sequence - b.sequence);
@@ -866,6 +969,39 @@ export function assessLiveExport(
     // Ambiguous outranks speech missing: an ambiguous one cannot say what was lost.
     if (interruptionByPosition.get(i.position) !== "ambiguous") {
       interruptionByPosition.set(i.position, check);
+    }
+  }
+
+  // The time limit (#50): which questions have a turn after it, on which clock.
+  const timeLimitByPosition = new Map<number, TimeLimitCheck>();
+  const timeLimitTurns: number[] = [];
+  if (timing) {
+    const providerStart = Date.parse(parsed.started_at);
+    const ours = timing.ourStartedAtMs;
+    const disagree =
+      ours !== null &&
+      Number.isFinite(providerStart) &&
+      Math.abs(providerStart - ours) > CLOCK_TOLERANCE_MS;
+    for (const t of turns) {
+      const position = positionOf(t);
+      if (position === null) continue;
+      // Late on a clock when the turn starts after the limit, or starts before
+      // it and is still going when it is reached (spans the deadline).
+      const late = (startMs: number) =>
+        startMs > timing.limitMs || startMs + t.duration_ms > timing.limitMs;
+      const onProvider = late(t.offset_ms);
+      const onOurs =
+        ours !== null && Number.isFinite(providerStart)
+          ? late(providerStart + t.offset_ms - ours)
+          : null;
+      let check: TimeLimitCheck | null = null;
+      if (disagree) check = onProvider || onOurs ? "clocks_disagree" : null;
+      else check = (onOurs ?? onProvider) ? "after_limit" : null;
+      if (check === null) continue;
+      timeLimitTurns.push(t.sequence);
+      // A turn that is after the limit outranks one only near it.
+      if (timeLimitByPosition.get(position) !== "after_limit")
+        timeLimitByPosition.set(position, check);
     }
   }
 
@@ -944,6 +1080,7 @@ export function assessLiveExport(
       wording_check: wordingCheck,
       interruption_check: interruptionByPosition.get(q.position) ?? null,
       follow_up_check: followUpCheck,
+      time_limit_check: timeLimitByPosition.get(q.position) ?? null,
     });
   }
 
@@ -952,7 +1089,15 @@ export function assessLiveExport(
   // is no answer to lose, and every turn's audio is stored by the save.
   const final = !turns.some((t) => t.speaker === "candidate");
   const usable = final && !interruptionSpeechMissing(interruptions);
-  const fields = outcomeFrom(questions, parsed.status.code, attempt, final, usable);
+  const fields = outcomeFrom(
+    questions,
+    parsed.status.code,
+    attempt,
+    final,
+    usable,
+    CONFIRMED_EXIT_CODES,
+    parsed.status.completed_gracefully,
+  );
 
   return {
     v: LIVE_OUTCOME_VERSION,
@@ -968,6 +1113,7 @@ export function assessLiveExport(
     timing_suspect_turns: suspect,
     wording_check_turns: wordingCheckTurns.sort((a, b) => a - b),
     follow_up_check_turns: followUpCheckTurns.sort((a, b) => a - b),
+    time_limit_check_turns: timeLimitTurns.sort((a, b) => a - b),
     repeat_check_turns: repeatCheckTurns.sort((a, b) => a - b),
     interruptions,
     interruption_check_turns: interruptionCheckTurns.sort((a, b) => a - b),
@@ -1072,7 +1218,7 @@ export function isNotFinalExport(status: ParsedExport["status"]): boolean {
   );
 }
 
-type SessionRow = {
+export type SessionRow = {
   id: string;
   kind: string;
   status: string;
@@ -1085,10 +1231,27 @@ type SessionRow = {
   scoring_snapshot: unknown;
   live_outcome: unknown;
   delete_after: string | null;
+  /** Written by the start route with the server's clock: Remotiv's own start. */
+  started_at: string | null;
 };
 
 const SESSION_COLUMNS =
-  "id, kind, status, company_id, application_id, attempt, provider_session_id, live_settings, questions_snapshot, scoring_snapshot, live_outcome, delete_after";
+  "id, kind, status, company_id, application_id, attempt, provider_session_id, live_settings, questions_snapshot, scoring_snapshot, live_outcome, delete_after, started_at";
+
+/**
+ * The session's frozen length and Remotiv's own start, for the time-limit
+ * check (#50). A row whose settings cannot be read is checked against the
+ * default 30 minutes, the only length before settings v4.
+ */
+function exportTiming(row: SessionRow): ExportTiming {
+  const seconds =
+    readLiveSettings(row.live_settings, row.id)?.max_session_seconds ?? DEFAULT_SESSION_SECONDS;
+  const started = row.started_at ? Date.parse(row.started_at) : Number.NaN;
+  return {
+    limitMs: Math.min(seconds, MAX_SESSION_SECONDS) * 1000,
+    ourStartedAtMs: Number.isFinite(started) ? started : null,
+  };
+}
 
 /** A stable uuid for one provider turn of one session, so a re-save finds the same row. */
 export function turnRowId(sessionId: string, providerTurnId: string): string {
@@ -1206,7 +1369,7 @@ function turnRow(sessionId: string, turn: LiveTurn, audio: StoredAudio) {
   };
 }
 
-async function readSession(service: Service, sessionId: string): Promise<SessionRow | null> {
+export async function readSession(service: Service, sessionId: string): Promise<SessionRow | null> {
   const { data, error } = await service
     .from("interview_sessions")
     .select(SESSION_COLUMNS)
@@ -1240,7 +1403,8 @@ async function candidateFirstName(service: Service, row: SessionRow): Promise<st
 /** The stored outcome when it is this export's; refuses another export's. */
 function storedFor(row: SessionRow, hash: string): LiveOutcome | null {
   const stored = row.live_outcome as LiveOutcome | null;
-  if (!stored) return null;
+  // A refused export's technical failure is not an interview: a good export replaces it.
+  if (!stored || isImportFailure(stored)) return null;
   if (stored.export_hash !== hash) {
     throw new LiveIngestError("already_saved", "the session holds another export");
   }
@@ -1327,6 +1491,7 @@ export async function saveLiveExport(
     // The frozen limit; a row whose settings cannot be read keeps the old 2.
     readLiveSettings(row.live_settings, row.id)?.max_follow_ups_per_base_question ??
       MAX_FOLLOW_UPS_PER_BASE_QUESTION,
+    exportTiming(row),
   );
   const turns = [...parsed.turns].sort((a, b) => a.sequence - b.sequence);
 
@@ -1371,12 +1536,18 @@ export async function saveLiveExport(
     export_hash: hash,
   };
   // Never onto a restarted attempt, even one restarted since the read above.
-  const { data: landed, error: oErr } = await deps.service
+  // Onto an empty outcome, or onto exactly the refused export's failure read
+  // above (#51): a good export replaces it once, and never another outcome.
+  const failure = isImportFailure(row.live_outcome) ? row.live_outcome.import_failed_at : null;
+  const write = deps.service
     .from("interview_sessions")
     .update({ live_outcome: outcome })
     .eq("id", sessionId)
-    .eq("kind", "live")
-    .is("live_outcome", null)
+    .eq("kind", "live");
+  const { data: landed, error: oErr } = await (failure === null
+    ? write.is("live_outcome", null)
+    : write.eq("live_outcome->>import_failed_at", failure)
+  )
     .neq("status", "abandoned")
     .select("id");
   if (oErr) throw new LiveIngestError("db_error", "outcome write");

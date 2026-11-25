@@ -129,13 +129,17 @@ test("the test database applies 076: indexes 1 to 10, and the new action beside 
     .map((m) => [...m[1].matchAll(/"([a-z_]+)"/g)].map((x) => x[1]))
     .filter((l) => l.includes("resolve_needs_check"));
   assert.equal(lists.length, 2);
+  // The fake mirrors the latest schema: 078 added resolve_time_limit_check
+  // (pinned exactly in migration-078.test.ts). 076's list is all there.
   for (const l of lists) {
-    assert.deepEqual(l, [
+    for (const a of [
       "resolve_needs_check",
       "resolve_repeat_check",
       "resolve_wording_check",
       "resolve_follow_up_check",
       "resolve_style_check",
-    ]);
+    ]) {
+      assert.ok(l.includes(a), a);
+    }
   }
 });

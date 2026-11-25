@@ -1,7 +1,7 @@
 /**
  * What a person decided about an AI Video Interview, read from its recovery
- * log (migrations 042, 043, 048, 049 and 076, live_interview_actions). Timing,
- * repeat, wording, follow-up and style checks are separate decisions: each is read only
+ * log (migrations 042, 043, 048, 049, 076 and 078, live_interview_actions). Timing,
+ * repeat, wording, follow-up, time-limit and style checks are separate decisions: each is read only
  * from its own action. The log is append-only, so the
  * LATEST action on a question or a turn is the one that holds: a timing check
  * resolved 'score' and later 'exclude' is excluded; a failed turn excluded and
@@ -38,6 +38,7 @@ function decisionsOf(
     | "resolve_repeat_check"
     | "resolve_wording_check"
     | "resolve_follow_up_check"
+    | "resolve_time_limit_check"
     | "resolve_style_check",
 ): Map<number, NeedsCheckDecision> {
   const out = new Map<number, NeedsCheckDecision>();
@@ -91,6 +92,18 @@ export function followUpCheckDecisions(
   actions: readonly LiveActionRow[],
 ): Map<number, NeedsCheckDecision> {
   return decisionsOf(actions, "resolve_follow_up_check");
+}
+
+/**
+ * The holding TIME-LIMIT-check decision per question position (migration
+ * 078): a turn after the session's length, or clocks that disagree near it,
+ * checked against the recording. Only resolve_time_limit_check counts: no
+ * other resolution on the same question clears it, and it clears no other.
+ */
+export function timeLimitCheckDecisions(
+  actions: readonly LiveActionRow[],
+): Map<number, NeedsCheckDecision> {
+  return decisionsOf(actions, "resolve_time_limit_check");
 }
 
 /**

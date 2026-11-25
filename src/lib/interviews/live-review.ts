@@ -15,6 +15,7 @@ import {
   interruptionCheckOf,
   type LiveOutcome,
   type RepeatCheck,
+  type TimeLimitCheck,
   type WordingCheck,
 } from "@/lib/interviews/live-ingest";
 import {
@@ -25,6 +26,7 @@ import {
   resolveNeedsCheck,
   resolveRepeatCheck,
   resolveStyleCheck,
+  resolveTimeLimitCheck,
   resolveWordingCheck,
   retryTranscription,
 } from "@/lib/interviews/live-recovery";
@@ -35,6 +37,7 @@ import {
   needsCheckDecisions,
   repeatCheckDecisions,
   styleCheckDecisions,
+  timeLimitCheckDecisions,
   wordingCheckDecisions,
 } from "@/lib/interviews/live-resolutions";
 import { restartEligibility } from "@/lib/interviews/live-restart";
@@ -202,6 +205,7 @@ const EXCLUDED_REASON: Record<string, string> = {
   repeat_excluded: "Left out after a review of how the question was repeated.",
   wording_excluded: "Left out after a review of how the question was asked.",
   follow_up_excluded: "Left out after a review of the follow-up questions asked.",
+  time_limit_excluded: "Left out after a review of speech after the time limit.",
   scoring_failed: "Left out: the AI could not score it reliably.",
 };
 
@@ -211,6 +215,7 @@ const WAITING_REASON: Record<string, string> = {
   repeat_check: "Waiting for a check of how the question was repeated.",
   wording_check: "Waiting for a check of how the question was asked.",
   follow_up_check: "Waiting for a check of the follow-up questions asked.",
+  time_limit_check: "Waiting for a check of speech after the time limit.",
   not_final: "Waiting for every answer to be transcribed.",
   unconfirmed: "Waiting for the transcript.",
   scoring_retry: "Scoring will be tried again.",
@@ -247,6 +252,31 @@ const WORDING_REASON: Record<WordingCheck, (interviewer: string, position: numbe
 
 export function wordingReason(check: WordingCheck, interviewer: string, position: number): string {
   return WORDING_REASON[check](interviewer, position);
+}
+
+/**
+ * Why an interview is a technical failure because its export was refused
+ * (#51): the reason code only, never the provider's text.
+ */
+export function importFailureReason(code: string, notRetained: string | null = null): string {
+  const safe = (c: string) => (/^[a-z_]{1,40}$/.test(c) ? c : "unknown");
+  const read = `The provider's record of this interview could not be read (reason: ${safe(code)}), so nothing was scored.`;
+  // Never claim the record was kept when it was not.
+  return notRetained === null
+    ? `${read} It is kept for review, and a restart can be offered.`
+    : `${read} It was NOT kept (reason: ${safe(notRetained)}). A restart can be offered.`;
+}
+
+/** Why a question is held because of the time limit (live-ingest.ts TimeLimitCheck). */
+const TIME_LIMIT_REASON: Record<TimeLimitCheck, (position: number) => string> = {
+  after_limit: (n) =>
+    `Part of question ${n} was said after the interview's time limit. It is not scored until a person checks the recording.`,
+  clocks_disagree: (n) =>
+    `The provider's timing and Remotiv's disagree near the time limit on question ${n}. It is not scored until a person checks the recording.`,
+};
+
+export function timeLimitReason(check: TimeLimitCheck, position: number): string {
+  return TIME_LIMIT_REASON[check](position);
 }
 
 /** Why a question is held for its follow-ups (live-ingest.ts FollowUpCheck), with the interviewer's name. */
@@ -295,6 +325,7 @@ const REVIEW_WAITS: ReadonlySet<string> = new Set([
   "repeat_check",
   "wording_check",
   "follow_up_check",
+  "time_limit_check",
   "style_check",
 ]);
 
@@ -303,6 +334,7 @@ const NAMES_ITS_QUESTION: ReadonlySet<LiveReviewFlag["kind"]> = new Set([
   "repeat",
   "wording",
   "follow_up",
+  "time_limit",
 ]);
 
 const RESTART_NOTE = "A restart is your decision for this interview.";
@@ -425,6 +457,14 @@ function reviewReasonsFor(
   questions: readonly LiveReviewQuestion[],
 ): string[] {
   const reasons: string[] = [];
+  if (outcome?.import_failure) {
+    reasons.push(
+      importFailureReason(
+        outcome.import_failure.code,
+        outcome.import_failure.evidence_not_retained ?? null,
+      ),
+    );
+  }
   if (outcome?.final && outcome.end_check) reasons.push(endReason(outcome.end_check));
   for (const q of outcome?.questions ?? []) {
     if (q.interruption_check) reasons.push(interruptionReason(q.interruption_check, q.position));
@@ -472,6 +512,7 @@ export function buildLiveReviewView(input: {
   const repeat = repeatCheckDecisions(input.actions);
   const wording = wordingCheckDecisions(input.actions);
   const followUp = followUpCheckDecisions(input.actions);
+  const timeLimit = timeLimitCheckDecisions(input.actions);
   const style = styleCheckDecisions(input.actions);
   const excludedSeqs = excludedFailedTurns(
     input.actions,
@@ -566,6 +607,15 @@ export function buildLiveReviewView(input: {
         turnId: null,
       });
     }
+    const timeLimitCheck = facts?.time_limit_check ?? null;
+    if (timeLimitCheck !== null) {
+      flags.push({
+        kind: "time_limit",
+        reason: timeLimitReason(timeLimitCheck, fq.position),
+        resolved: timeLimit.get(fq.position) ?? null,
+        turnId: null,
+      });
+    }
     if (entry?.style_check) {
       flags.push({
         kind: "style",
@@ -617,6 +667,9 @@ export function buildLiveReviewView(input: {
     } else if (followUpCheck !== null && !followUp.has(fq.position)) {
       status = "waiting_review";
       statusReason = WAITING_REASON.follow_up_check;
+    } else if (timeLimitCheck !== null && !timeLimit.has(fq.position)) {
+      status = "waiting_review";
+      statusReason = WAITING_REASON.time_limit_check;
     } else {
       status = facts.status === "skipped" ? "skipped" : "answered";
     }
@@ -1390,6 +1443,7 @@ const QUESTION_RESOLVERS = {
   resolve_repeat_check: resolveRepeatCheck,
   resolve_wording_check: resolveWordingCheck,
   resolve_follow_up_check: resolveFollowUpCheck,
+  resolve_time_limit_check: resolveTimeLimitCheck,
   resolve_style_check: resolveStyleCheck,
 } as const;
 

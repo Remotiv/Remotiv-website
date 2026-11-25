@@ -24,6 +24,7 @@ import {
   needsCheckDecisions,
   repeatCheckDecisions,
   styleCheckDecisions,
+  timeLimitCheckDecisions,
   wordingCheckDecisions,
 } from "@/lib/interviews/live-resolutions";
 import { hasRealWords } from "@/lib/interviews/live-transcribe";
@@ -147,6 +148,8 @@ export type ScoreReason =
   | "wording_excluded"
   | "follow_up_check"
   | "follow_up_excluded"
+  | "time_limit_check"
+  | "time_limit_excluded"
   | "skipped"
   | "answered";
 
@@ -162,6 +165,8 @@ export function planLiveScoring(
     wordingCheck: ReadonlyMap<number, NeedsCheckDecision>;
     /** Its own decisions (076): absent means none yet, so a flagged question waits. */
     followUpCheck?: ReadonlyMap<number, NeedsCheckDecision>;
+    /** Its own decisions (078): absent means none yet, so a flagged question waits. */
+    timeLimitCheck?: ReadonlyMap<number, NeedsCheckDecision>;
     excludedPositions: ReadonlySet<number>;
   },
 ): QuestionPlan[] {
@@ -194,6 +199,12 @@ export function planLiveScoring(
       const d = resolved.followUpCheck?.get(position);
       if (!d) return plan("wait", "follow_up_check");
       if (d === "exclude") return plan("left_out", "follow_up_excluded");
+    }
+    // Speech after the time limit (#50): never scored automatically.
+    if ((f.time_limit_check ?? null) !== null) {
+      const d = resolved.timeLimitCheck?.get(position);
+      if (!d) return plan("wait", "time_limit_check");
+      if (d === "exclude") return plan("left_out", "time_limit_excluded");
     }
     if (f.status === "skipped") return plan("lowest", "skipped");
     if (f.confirmed !== true) return plan("wait", "unconfirmed");
@@ -490,6 +501,7 @@ export async function scoreLiveSession(
     repeatCheck: repeatCheckDecisions(actions),
     wordingCheck: wordingCheckDecisions(actions),
     followUpCheck: followUpCheckDecisions(actions),
+    timeLimitCheck: timeLimitCheckDecisions(actions),
     excludedPositions,
   });
 

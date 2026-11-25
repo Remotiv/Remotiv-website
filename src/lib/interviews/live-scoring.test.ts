@@ -1723,7 +1723,12 @@ test("ending_unconfirmed is scored like partial: an overall, partial = true, nev
 test("completed with questions never asked is held from ranking: partial = true on a completed row", async () => {
   const db = await decided();
   const o = outcomeOf(db);
-  db.tables.interview_sessions[0].live_outcome = { ...o, provider_status_code: "completed" };
+  // Sarah closed it normally (#50: without completed_gracefully it is never Completed).
+  db.tables.interview_sessions[0].live_outcome = {
+    ...o,
+    provider_status_code: "completed",
+    completed_gracefully: true,
+  };
   await resolveAllChecks(db, fakeModel());
   assert.deepEqual(
     [outcomeOf(db).outcome, outcomeOf(db).held_from_ranking, outcomeOf(db).end_check?.reason],

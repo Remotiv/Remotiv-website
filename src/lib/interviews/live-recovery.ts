@@ -169,6 +169,7 @@ async function log(
       | "resolve_repeat_check"
       | "resolve_wording_check"
       | "resolve_follow_up_check"
+      | "resolve_time_limit_check"
       | "resolve_style_check"
       | "resolve_failed_transcription";
     decision: "retry" | "score" | "exclude";
@@ -311,6 +312,31 @@ export async function resolveFollowUpCheck(
   if ((q?.follow_up_check ?? null) === null) throw new LiveRecoveryError("no_check", session.id);
   await log(deps, session, role, {
     action: "resolve_follow_up_check",
+    decision: input.decision,
+    note,
+    question_position: input.position,
+  });
+  return afterwards(deps, session.id);
+}
+
+/**
+ * A question held by a time-limit check (a turn after the session's length,
+ * or clocks that disagree near it, migration 078), checked against the
+ * recording by a person: scored as usual, or left out. Only a question the
+ * outcome flags can be resolved here, and the decision clears no other check.
+ */
+export async function resolveTimeLimitCheck(
+  input: { sessionId: string; position: number; decision: "score" | "exclude"; note: string },
+  deps: RecoveryDeps,
+): Promise<LiveScoreRow | null> {
+  const { session, role, note } = await authorised(deps, input.sessionId, input.note);
+  if (input.decision !== "score" && input.decision !== "exclude") {
+    throw new LiveRecoveryError("bad_input", session.id);
+  }
+  const q = session.live_outcome?.questions.find((x) => x.position === input.position);
+  if ((q?.time_limit_check ?? null) === null) throw new LiveRecoveryError("no_check", session.id);
+  await log(deps, session, role, {
+    action: "resolve_time_limit_check",
     decision: input.decision,
     note,
     question_position: input.position,

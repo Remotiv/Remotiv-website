@@ -1,6 +1,7 @@
 import "server-only";
 import { retentionPassed } from "@/lib/interviews/async-score-purge";
 import {
+  CONFIRMED_EXIT_CODES,
   interruptionSpeechMissing,
   isOutcomeDecided,
   type LiveOutcome,
@@ -210,7 +211,15 @@ export function settleOutcome(
     final &&
     turns.every((t) => t.transcript_status === "done") &&
     !interruptionSpeechMissing(outcome.interruptions);
-  const fields = outcomeFrom(questions, outcome.provider_status_code, attempt, final, usable);
+  const fields = outcomeFrom(
+    questions,
+    outcome.provider_status_code,
+    attempt,
+    final,
+    usable,
+    CONFIRMED_EXIT_CODES,
+    outcome.completed_gracefully,
+  );
   return {
     ...outcome,
     questions,

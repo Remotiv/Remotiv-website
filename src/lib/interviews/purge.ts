@@ -1184,11 +1184,24 @@ async function sweepOrphans(
       .not("media_path", "is", null);
     if (pieceRefErr)
       throw new Error(`orphan sweep: piece refs ${sessionId}: ${pieceRefErr.message}`);
+    // A refused export's evidence (#51, live-import.ts), named by its outcome:
+    // kept until the session's own purge or deletion, never swept as an orphan.
+    const { data: outcomeRows, error: evidenceErr } = await service
+      .from("interview_sessions")
+      .select("live_outcome")
+      .eq("id", sessionId);
+    if (evidenceErr)
+      throw new Error(`orphan sweep: evidence ref ${sessionId}: ${evidenceErr.message}`);
+    const outcome = ((outcomeRows ?? []) as { live_outcome: unknown }[])[0]?.live_outcome as {
+      import_failure?: { evidence_path?: unknown };
+    } | null;
+    const evidence = outcome?.import_failure?.evidence_path;
     const referenced = new Set(
       [
         ...((refData ?? []) as { video_path: string | null }[]).map((r) => r.video_path),
         ...((turnRefs ?? []) as { media_path: string | null }[]).map((r) => r.media_path),
         ...((pieceRefs ?? []) as { media_path: string | null }[]).map((r) => r.media_path),
+        typeof evidence === "string" ? evidence : null,
       ].filter((p): p is string => Boolean(p)),
     );
 

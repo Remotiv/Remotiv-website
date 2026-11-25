@@ -950,6 +950,8 @@ test("completed, but Sarah closed before asking every question: completed, held 
   db.tables.interview_sessions[0].live_outcome = {
     ...o,
     provider_status_code: "completed",
+    // Sarah closed it normally (#50: without this it is never Completed).
+    completed_gracefully: true,
     outcome: "completed",
     end_check: { reason: "closed_early", never_asked: 2 },
     held_from_ranking: true,
@@ -1978,4 +1980,55 @@ test("#48 resolving one reason keeps the question held for the other; resolving 
       ["follow_up", "score"],
     ],
   );
+});
+
+/* ── #50: the time-limit check on the review page ──────────────── */
+
+const { timeLimitReason, importFailureReason } = await import("./live-review.ts");
+
+test("#50 a time-limit check: its own card, waiting for review, and it combines with a wording check", () => {
+  const input = wordingInput("altered_wording");
+  input.session.live_outcome.questions[1].time_limit_check = "after_limit";
+  input.row = null;
+  let q2 = byPos(buildLiveReviewView(input), 2);
+  assert.deepEqual(
+    q2.flags.map((f) => [f.kind, f.reason, f.resolved]),
+    [
+      ["wording", WORDING_TEXT.altered_wording("Maya", 2), null],
+      ["time_limit", timeLimitReason("after_limit", 2), null],
+    ],
+  );
+  // Resolving the wording keeps it held for the time limit.
+  input.actions = [resolveAt("resolve_wording_check")];
+  q2 = byPos(buildLiveReviewView(input), 2);
+  assert.deepEqual(
+    [q2.status, q2.statusReason],
+    ["waiting_review", "Waiting for a check of speech after the time limit."],
+  );
+  input.actions = [resolveAt("resolve_wording_check"), resolveAt("resolve_time_limit_check")];
+  assert.notEqual(byPos(buildLiveReviewView(input), 2).status, "waiting_review");
+});
+
+test("#51 a refused export: the reviewer is told why by code only, and never 'Completed'", () => {
+  const input = completedInput();
+  input.session.live_outcome = {
+    ...input.session.live_outcome,
+    outcome: "technical_failure",
+    import_failure: {
+      code: "too_many_follow_ups",
+      evidence_path: "s/export-x.json",
+      evidence_truncated: false,
+      at: "2026-11-25T10:00:00.000Z",
+    },
+    import_failed_at: "2026-11-25T10:00:00.000Z",
+  };
+  const v = buildLiveReviewView(input);
+  assert.equal(v.header.reviewReasons[0], importFailureReason("too_many_follow_ups"));
+  assert.notEqual(v.header.label, "Completed");
+  assert.equal(
+    importFailureReason("too_many_follow_ups"),
+    "The provider's record of this interview could not be read (reason: too_many_follow_ups), so nothing was scored. It is kept for review, and a restart can be offered.",
+  );
+  // Anything but a plain code is never shown.
+  assert.match(importFailureReason("<b>provider text</b>"), /reason: unknown/);
 });

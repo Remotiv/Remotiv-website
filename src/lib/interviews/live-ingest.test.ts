@@ -229,7 +229,7 @@ test("what the fixture produced: statuses, follow-ups, timing_suspect; candidate
     ["ending_unconfirmed", 5, 1, 2, 8, 63],
   );
   assert.deepEqual(outcome.end_check, { reason: "exit_unconfirmed", never_asked: 2 });
-  assert.equal(outcome.v, 7);
+  assert.equal(outcome.v, 8);
   // Provisional until every answer is transcribed: no restart decision yet.
   assert.deepEqual([outcome.final, outcome.restart_allowed], [false, null]);
   assert.equal(isOutcomeDecided(outcome), false);
@@ -705,7 +705,7 @@ test("both real exports (candidate_ended) are never completed, even once every a
   }
 });
 
-test("needs_review includes the ending, a repeat check and a wording check; the outcome version is 7; the shipped exit list is empty", () => {
+test("needs_review includes the ending, a repeat check and a wording check; the outcome version is 8; the shipped exit list is empty", () => {
   assert.equal(
     needsReview([{ needs_check: false }], [], { reason: "ending_unknown", never_asked: 0 }),
     true,
@@ -726,7 +726,7 @@ test("needs_review includes the ending, a repeat check and a wording check; the 
   }
   // Nor before version 4.
   assert.equal(needsReview([{ needs_check: false, wording_check: undefined }], [], null), false);
-  assert.equal(LIVE_OUTCOME_VERSION, 7);
+  assert.equal(LIVE_OUTCOME_VERSION, 8);
   assert.equal(CONFIRMED_EXIT_CODES.size, 0, "D10 unconfirmed: no status is a confirmed exit");
 });
 
@@ -1893,4 +1893,374 @@ test("at the limit with a provider error: a person decides; with nothing usable 
   const broken = outcomeFrom(f.questions, "provider_error", 1, true, false);
   assert.equal(broken.outcome, "technical_failure");
   assert.equal(broken.restart_allowed, true, "and a restart can be offered");
+});
+
+/* ── #50: speech after the time limit ──────────────────────────── */
+
+const { CLOCK_TOLERANCE_MS } = await import("./live-ingest.ts");
+const { timeLimitReason } = await import("./live-review.ts");
+
+/** The fixture's provider start, and where its last asked question begins. */
+function limitAtLastQuestion() {
+  const p = parsedFixture();
+  const providerStart = Date.parse(p.started_at);
+  const bases = p.turns
+    .filter((t) => t.kind === "base_question")
+    .sort((a, b) => a.offset_ms - b.offset_ms);
+  const last = bases.at(-1);
+  // The limit falls just before the last question is asked: it and its answer are after it.
+  return { p, providerStart, last, limitMs: last.offset_ms - 1 };
+}
+
+test("#50 a turn after the limit: kept, its question held with the time-limit reason; the others untouched", () => {
+  const { p, providerStart, last, limitMs } = limitAtLastQuestion();
+  const plain = assessLiveExport(parsedFixture(), frozenOf(), 1, null, 2);
+  const f = assessLiveExport(p, frozenOf(), 1, null, 2, { limitMs, ourStartedAtMs: providerStart });
+  const q = f.questions.find((x) => x.position === last.question_position);
+  assert.equal(q.time_limit_check, "after_limit");
+  assert.equal(
+    q.status,
+    plain.questions.find((x) => x.position === q.position).status,
+    "kept as it was",
+  );
+  assert.ok(f.time_limit_check_turns.includes(last.sequence));
+  assert.equal(f.turn_count, p.turns.length, "every turn kept");
+  for (const other of f.questions.filter((x) => x.position !== q.position)) {
+    assert.equal(other.time_limit_check, null, `question ${other.position}`);
+  }
+  assert.equal(f.needs_review, true);
+  assert.equal(
+    timeLimitReason("after_limit", q.position),
+    `Part of question ${q.position} was said after the interview's time limit. It is not scored until a person checks the recording.`,
+  );
+});
+
+test("#50 never scored automatically: the held question waits; the others are planned as usual", () => {
+  const { p, providerStart, last, limitMs } = limitAtLastQuestion();
+  const frozen = frozenOf();
+  const f = assessLiveExport(p, frozen, 1, null, 2, { limitMs, ourStartedAtMs: providerStart });
+  const outcome = { ...f, ...outcomeFrom(f.questions, f.provider_status_code, 1, true, true) };
+  const done = new Map(f.questions.map((x) => [x.position, "score"]));
+  const plans = (timeLimitCheck) =>
+    planLiveScoring(outcome, frozen.questions, {
+      needsCheck: done,
+      repeatCheck: done,
+      wordingCheck: done,
+      followUpCheck: done,
+      timeLimitCheck,
+      excludedPositions: new Set(),
+    });
+  const held = plans(new Map()).find((x) => x.position === last.question_position);
+  assert.deepEqual([held.decision, held.reason], ["wait", "time_limit_check"]);
+  for (const other of plans(new Map()).filter((x) => x.position !== last.question_position)) {
+    assert.notEqual(other.reason, "time_limit_check", `question ${other.position}`);
+  }
+  const left = plans(new Map([[last.question_position, "exclude"]])).find(
+    (x) => x.position === last.question_position,
+  );
+  assert.deepEqual([left.decision, left.reason], ["left_out", "time_limit_excluded"]);
+});
+
+test("#50 combined with another reason: both shown, resolving one keeps it held, both release it", () => {
+  const { p, providerStart, last, limitMs } = limitAtLastQuestion();
+  const position = last.question_position;
+  // Asked in other words too: a wording check on the same question.
+  const frozen = frozenOf({}, { [position]: "Describe a system you would rebuild today." });
+  const f = assessLiveExport(p, frozen, 1, null, 2, { limitMs, ourStartedAtMs: providerStart });
+  const q = f.questions.find((x) => x.position === position);
+  assert.deepEqual([q.wording_check, q.time_limit_check], ["altered_wording", "after_limit"]);
+  const outcome = { ...f, ...outcomeFrom(f.questions, f.provider_status_code, 1, true, true) };
+  const done = new Map(f.questions.map((x) => [x.position, "score"]));
+  const reason = (wordingCheck, timeLimitCheck) =>
+    planLiveScoring(outcome, frozen.questions, {
+      needsCheck: done,
+      repeatCheck: done,
+      wordingCheck,
+      followUpCheck: done,
+      timeLimitCheck,
+      excludedPositions: new Set(),
+    }).find((x) => x.position === position).reason;
+  const yes = new Map([[position, "score"]]);
+  assert.equal(reason(new Map(), new Map()), "wording_check");
+  assert.equal(
+    reason(yes, new Map()),
+    "time_limit_check",
+    "the wording decision alone keeps it held",
+  );
+  assert.equal(
+    reason(new Map(), yes),
+    "wording_check",
+    "the time-limit decision alone keeps it held",
+  );
+  assert.ok(!["wording_check", "time_limit_check"].includes(reason(yes, yes)), "both: released");
+});
+
+test("#50 Remotiv's own clock decides when the two agree within the tolerance", () => {
+  const p = parsedFixture();
+  const providerStart = Date.parse(p.started_at);
+  assert.equal(CLOCK_TOLERANCE_MS, 10_000);
+  // The limit falls 1 ms before the export's last positioned turn ends.
+  const ends = p.turns
+    .filter((t) => t.question_position !== null || t.responds_to_provider_turn_id)
+    .map((t) => t.offset_ms + t.duration_ms);
+  const limitMs = Math.max(...ends) - 1;
+  // Our start is 5 s after the provider's: within the tolerance, so our clock
+  // is used, and on it every turn ends 5 s earlier, before the limit. On the
+  // provider's clock the last one would be 1 ms late. Ours wins: nothing held.
+  const ours = assessLiveExport(p, frozenOf(), 1, null, 2, {
+    limitMs,
+    ourStartedAtMs: providerStart + 5_000,
+  });
+  assert.ok(ours.questions.every((x) => x.time_limit_check === null));
+  // With no start of our own recorded, the provider's clock is all there is.
+  const theirs = assessLiveExport(p, frozenOf(), 1, null, 2, { limitMs, ourStartedAtMs: null });
+  assert.ok(theirs.questions.some((x) => x.time_limit_check === "after_limit"));
+});
+
+test("#50 clocks more than 10 s apart near the limit: neither is trusted, the question is flagged", () => {
+  const { p, providerStart, last, limitMs } = limitAtLastQuestion();
+  const f = assessLiveExport(p, frozenOf(), 1, null, 2, {
+    limitMs,
+    ourStartedAtMs: providerStart + 60_000,
+  });
+  assert.equal(
+    f.questions.find((x) => x.position === last.question_position).time_limit_check,
+    "clocks_disagree",
+  );
+  // Far from the limit on both clocks, a disagreement holds nothing.
+  const far = assessLiveExport(parsedFixture(), frozenOf(), 1, null, 2, {
+    limitMs: 3_600_000,
+    ourStartedAtMs: providerStart + 60_000,
+  });
+  assert.ok(far.questions.every((x) => x.time_limit_check === null));
+});
+
+test("#50 the save uses the session's frozen length and its server-recorded start", async () => {
+  const p = parsedFixture();
+  // A 30-minute session (settings v4), its server start 3 s before the
+  // provider's: the clocks agree, so Remotiv's is used.
+  const session = frozenRow({
+    live_settings: settingsV4("ai_guided"),
+    started_at: new Date(Date.parse(p.started_at) - 3_000).toISOString(),
+  });
+  const w = world({ session });
+  // Push the last turns past 30:00 on both clocks.
+  const shifted = parsedFixture();
+  const lastBase = shifted.turns.filter((t) => t.kind === "base_question").at(-1);
+  for (const t of shifted.turns) if (t.sequence >= lastBase.sequence) t.offset_ms += 1_800_000;
+  const r = await save(w, { ...shifted, provider_session_id: PROVIDER_SESSION });
+  assert.equal(r.saved, true);
+  assert.equal(w.db.tables.interview_turns.length, shifted.turns.length, "every turn kept");
+  assert.equal(
+    r.outcome.questions.find((q) => q.position === lastBase.question_position).time_limit_check,
+    "after_limit",
+  );
+});
+
+/* ── also checked: an ending at the limit is never Completed without a normal close ── */
+
+test("a 'completed' ending with questions never asked is Completed only when Sarah closed normally", () => {
+  const qs = [{ status: "answered" }, { status: "answered" }, { status: "not_reached" }];
+  for (const [graceful, outcome] of [
+    [true, "completed"],
+    [false, "ending_unconfirmed"],
+    [null, "ending_unconfirmed"],
+  ]) {
+    const f = outcomeFrom(qs, "completed", 1, true, true, undefined, graceful);
+    assert.equal(f.outcome, outcome, String(graceful));
+    assert.equal(f.end_check.reason, "closed_early");
+  }
+  // Every question asked: a completed status is Completed, as before.
+  const all = [{ status: "answered" }, { status: "answered" }];
+  assert.equal(outcomeFrom(all, "completed", 1, true, true, undefined, null).outcome, "completed");
+  // A provider time limit, or a hard stop, with questions unanswered: never Completed.
+  for (const code of ["timed_out", "disconnected", "candidate_ended"]) {
+    assert.notEqual(
+      outcomeFrom(qs, code, 1, true, true, undefined, true).outcome,
+      "completed",
+      code,
+    );
+  }
+});
+
+/* ── #50: a turn that spans the deadline ───────────────────────── */
+
+/**
+ * The fixture with its last question-bearing turn starting at 29:50 and
+ * lasting `durationMs` (everything after it shifted with it, order kept).
+ */
+function spanningAt2950(durationMs) {
+  const p = parsedFixture();
+  const byId = new Map(p.turns.map((t) => [t.provider_turn_id, t]));
+  const positioned = p.turns.filter(
+    (t) =>
+      t.question_position !== null ||
+      (t.responds_to_provider_turn_id &&
+        byId.get(t.responds_to_provider_turn_id)?.question_position != null),
+  );
+  const last = positioned.sort((a, b) => a.offset_ms - b.offset_ms).at(-1);
+  const shift = 1_790_000 - last.offset_ms;
+  for (const t of p.turns) if (t.offset_ms >= last.offset_ms) t.offset_ms += shift;
+  last.duration_ms = durationMs;
+  const position =
+    last.question_position ?? byId.get(last.responds_to_provider_turn_id).question_position;
+  return { p, last, position, providerStart: Date.parse(p.started_at) };
+}
+
+test("#50 a turn that starts at 29:50 and ends at 30:20 holds its question; one that ends at 29:59 does not", () => {
+  const limitMs = 1_800_000;
+  for (const [durationMs, held] of [
+    [30_000, true],
+    [9_000, false],
+  ]) {
+    const { p, last, position, providerStart } = spanningAt2950(durationMs);
+    // On Remotiv's clock (agreeing with the provider's), then on a clock 3 s later, still within tolerance.
+    for (const ours of [providerStart, providerStart + 3_000]) {
+      const f = assessLiveExport(p, frozenOf(), 1, null, 2, { limitMs, ourStartedAtMs: ours });
+      const q = f.questions.find((x) => x.position === position);
+      assert.equal(
+        q.time_limit_check,
+        held ? "after_limit" : null,
+        `${durationMs} ms, ours ${ours - providerStart}`,
+      );
+      assert.equal(f.time_limit_check_turns.includes(last.sequence), held);
+    }
+  }
+});
+
+test("#50 a spanning turn on clocks more than 10 s apart: flagged, neither clock trusted", () => {
+  const { p, position, providerStart } = spanningAt2950(30_000);
+  const f = assessLiveExport(p, frozenOf(), 1, null, 2, {
+    limitMs: 1_800_000,
+    ourStartedAtMs: providerStart + 60_000,
+  });
+  assert.equal(
+    f.questions.find((x) => x.position === position).time_limit_check,
+    "clocks_disagree",
+  );
+});
+
+/* ── incomplete interviews: the existing rules, unchanged ──────── */
+
+test("incomplete interviews follow the existing partial / ending-not-confirmed / technical-failure rules", () => {
+  const q = (...s) => s.map((status) => ({ status }));
+  const A = "answered";
+  const S = "skipped";
+  const N = "not_reached";
+  const D10 = new Set(["candidate_ended"]);
+  // [case, questions, status, usable, exit codes, graceful] -> [outcome, end check, restart allowed (attempt 1)]
+  const cases = [
+    [
+      "every question asked, Sarah closed",
+      q(A, A, S, A),
+      "completed",
+      true,
+      undefined,
+      true,
+      ["completed", null, false],
+    ],
+    [
+      "closed normally with questions never asked",
+      q(A, A, N, N),
+      "completed",
+      true,
+      undefined,
+      true,
+      ["completed", "closed_early", false],
+    ],
+    [
+      "'completed' with questions never asked, no normal close",
+      q(A, A, N, N),
+      "completed",
+      true,
+      undefined,
+      false,
+      ["ending_unconfirmed", "closed_early", null],
+    ],
+    [
+      "provider error, answers saved",
+      q(A, A, N, N),
+      "provider_error",
+      true,
+      undefined,
+      null,
+      ["ending_unconfirmed", "provider_error_saved", null],
+    ],
+    [
+      "provider error, nothing usable",
+      q(A, A, N, N),
+      "provider_error",
+      false,
+      undefined,
+      null,
+      ["technical_failure", null, true],
+    ],
+    [
+      "connection dropped",
+      q(A, N, N, N),
+      "disconnected",
+      true,
+      undefined,
+      null,
+      ["ending_unconfirmed", "disconnected", null],
+    ],
+    [
+      "provider time limit",
+      q(A, A, N, N),
+      "timed_out",
+      true,
+      undefined,
+      null,
+      ["ending_unconfirmed", "ending_unknown", null],
+    ],
+    [
+      "candidate left, exit not confirmed (D10 off)",
+      q(A, A, N, N),
+      "candidate_ended",
+      true,
+      undefined,
+      null,
+      ["ending_unconfirmed", "exit_unconfirmed", null],
+    ],
+    [
+      "confirmed exit, half or more answered",
+      q(A, A, N, N),
+      "candidate_ended",
+      true,
+      D10,
+      null,
+      ["partial", null, false],
+    ],
+    [
+      "confirmed exit, under half answered",
+      q(A, N, N, N),
+      "candidate_ended",
+      true,
+      D10,
+      null,
+      ["abandoned", null, true],
+    ],
+    [
+      "confirmed exit after the last answer",
+      q(A, A, A, A),
+      "candidate_ended",
+      true,
+      D10,
+      null,
+      ["ending_unconfirmed", "left_after_last_answer", null],
+    ],
+    [
+      "unknown ending",
+      q(A, A, N, N),
+      "unknown",
+      true,
+      undefined,
+      null,
+      ["ending_unconfirmed", "ending_unknown", null],
+    ],
+  ];
+  for (const [label, questions, status, usable, exits, graceful, expected] of cases) {
+    const f = outcomeFrom(questions, status, 1, true, usable, exits, graceful);
+    assert.deepEqual([f.outcome, f.end_check?.reason ?? null, f.restart_allowed], expected, label);
+  }
 });

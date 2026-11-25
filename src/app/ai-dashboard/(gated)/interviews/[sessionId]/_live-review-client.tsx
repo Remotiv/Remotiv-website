@@ -72,6 +72,7 @@ const FLAG_TITLE: Record<LiveReviewFlag["kind"], string> = {
   repeat: "Repeat check",
   wording: "Wording check",
   follow_up: "Follow-up check",
+  time_limit: "Time limit check",
   style: "Style check",
   transcription_failed: "Transcription failed",
 };
@@ -82,6 +83,7 @@ const RESOLVE_ACTION = {
   repeat: "resolve_repeat_check",
   wording: "resolve_wording_check",
   follow_up: "resolve_follow_up_check",
+  time_limit: "resolve_time_limit_check",
   style: "resolve_style_check",
 } as const;
 
