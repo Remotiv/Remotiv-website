@@ -88,9 +88,11 @@ export function normalizeQuery(query: string): string {
  * any change to what the model is told or shown, so a ranking made under the
  * old prompt is never served after the change (it simply stops matching and
  * expires within CACHE_TTL_HOURS). matching-v2: the fairness rules, and no
- * candidate name in the prompt (#71).
+ * candidate name in the prompt (#71). matching-v3: the free-text summary is
+ * sent with the candidate's own name, emails and phone numbers removed
+ * (redactSummaryForPrompt).
  */
-export const MATCHING_PROMPT_VERSION = "matching-v2";
+export const MATCHING_PROMPT_VERSION = "matching-v3";
 
 /**
  * The ai_match_cache key: the prompt version, the normalized query, and for a
@@ -312,17 +314,113 @@ function parseMatchJson(raw: string): MatchResult[] | null {
   }
 }
 
+/** What stands in for a removed name, email or phone number. */
+const REDACTED = "[removed]";
+/** Whole words, Unicode-aware: \b is ASCII-only and would miss "Zoë". */
+const notWordBefore = "(?<![\\p{L}\\p{N}])";
+const notWordAfter = "(?![\\p{L}\\p{N}])";
+const EMAIL = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/giu;
+/** A run of digits that could hold phone numbers; phonesIn splits it and phoneLike decides. */
+const DIGIT_RUN = /\+?\(?\d[\d\s().-]{6,}\d/g;
+/** A year or a year range ("2019", "2019-2023"): job evidence, never part of a phone. */
+const YEARS = /^\(?(19|20)\d\d(\s*[-.]\s*(19|20)\d\d)?\)?[.,]?$/;
+const digitsIn = (s: string) => s.replace(/\D/g, "").length;
+
+/**
+ * Phone-shaped: 10 to 15 digits, or a leading "+" and at least 8. A year range
+ * ("2019-2023", 8 digits) or a short figure is job evidence and stays.
+ */
+function phoneLike(run: string): boolean {
+  const digits = digitsIn(run);
+  if (digits > 15) return false;
+  return digits >= 10 || (run.startsWith("+") && digits >= 8);
+}
+
+/**
+ * A digit run with every phone number in it replaced, each judged on its own.
+ * DIGIT_RUN spans spaces, so two numbers side by side ("0300-1234567
+ * 0321-7654321") arrive as ONE run of more digits than any phone, and judging
+ * the run whole would keep both. So the run is split at its spaces into
+ * tokens and regrouped: a token starting "+", "0" or "(" starts a new number;
+ * any other token joins the number before it while the total stays at most 15
+ * digits ("+92 300 1234567" is one number). A year or year range never joins
+ * anything and is never removed.
+ */
+function phonesIn(run: string): string {
+  const tokens = [...run.matchAll(/\S+/g)].map((m) => ({
+    text: m[0],
+    start: m.index ?? 0,
+    end: (m.index ?? 0) + m[0].length,
+  }));
+  const groups: { start: number; end: number; text: string }[] = [];
+  for (const t of tokens) {
+    const last = groups.at(-1);
+    const joins =
+      last !== undefined &&
+      !/^[+0(]/.test(t.text) &&
+      !YEARS.test(t.text) &&
+      !YEARS.test(last.text) &&
+      digitsIn(last.text) + digitsIn(t.text) <= 15;
+    if (joins) {
+      last.text = run.slice(last.start, t.end);
+      last.end = t.end;
+    } else {
+      groups.push({ ...t });
+    }
+  }
+  let out = "";
+  let at = 0;
+  for (const g of groups) {
+    out += run.slice(at, g.start) + (phoneLike(g.text) ? REDACTED : g.text);
+    at = g.end;
+  }
+  return out + run.slice(at);
+}
+
+/**
+ * The candidate's free-text summary with their own first and last name
+ * (each part of either, case-insensitive, whole words), any email address and
+ * any phone number removed, before it reaches the matching model (#71). The
+ * profile's name, email and phone are never sent as fields; this keeps them
+ * out of the one field the candidate writes freely.
+ */
+export function redactSummaryForPrompt(
+  summary: string,
+  person: { first_name: string | null; last_name: string | null },
+): string {
+  let out = summary.replace(EMAIL, REDACTED);
+  out = out.replace(DIGIT_RUN, phonesIn);
+  const parts = [person.first_name, person.last_name]
+    .flatMap((n) => (n ?? "").split(/[\s-]+/))
+    .map((p) => p.trim())
+    .filter((p) => p.length >= 2);
+  // The whole names first (a hyphenated one in one piece), then each part.
+  const names = [person.first_name, person.last_name, ...parts]
+    .map((n) => (n ?? "").trim())
+    .filter((n) => n.length >= 2)
+    .sort((a, b) => b.length - a.length);
+  for (const name of new Set(names)) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp(`${notWordBefore}${escaped}${notWordAfter}`, "giu"), REDACTED);
+  }
+  return out;
+}
+
 /**
  * One candidate as the model sees it. No name (#71): the fairness rules
- * forbid using it, so it is not sent at all. The model answers by
- * candidate_id; the name is joined back from the row after ranking.
+ * forbid using it, so it is not sent at all, and the summary has it (and any
+ * email or phone) removed before the length cut, so nothing is hidden past it.
+ * The model answers by candidate_id; the name is joined back from the row
+ * after ranking.
  */
 function candidateSummaryForPrompt(c: CandidateRow): string {
   const skills = c.skills?.length ? c.skills.slice(0, PROMPT_SKILLS_LIMIT).join(", ") : "—";
   const loc = [c.city, c.country].filter(Boolean).join(", ") || "—";
   const exp = c.years_experience != null ? `${c.years_experience} yrs` : "—";
   const role = c.job_title || c.role_category || "—";
-  const summary = (c.summary || "").slice(0, PROMPT_SUMMARY_LIMIT).replace(/\s+/g, " ");
+  const summary = redactSummaryForPrompt(c.summary || "", c)
+    .slice(0, PROMPT_SUMMARY_LIMIT)
+    .replace(/\s+/g, " ");
   return `id: ${c.id}\nrole: ${role}\nlocation: ${loc}\nexperience: ${exp}\nskills: ${skills}\nsummary: ${summary || "—"}`;
 }
 
