@@ -705,7 +705,7 @@ export function fakeLiveDb(initial = {}, options = {}) {
         if (SCORING_TABLES.includes(table))
           for (const r of fresh) checkScoringRow(table, r, after, tables);
         if (table === "live_video_pieces")
-          for (const r of fresh) checkVideoPiece(r, null, after, tables);
+          for (const r of fresh) checkVideoPiece(r, null, after, tables, clock());
         if (table === "admin_access_logs") for (const r of fresh) checkAdminAccessLog(r);
         if (table === "background_jobs") checkJobIds(fresh, rows);
         if (table === "live_session_events")
@@ -741,7 +741,7 @@ export function fakeLiveDb(initial = {}, options = {}) {
         const next = hit.map((r) => ({ ...r, ...structuredClone(update[1]) }));
         for (const [i, r] of next.entries()) {
           if (table === "interview_sessions") stampLiveEnded(r, hit[i], clock(), endRule);
-          if (table === "live_video_pieces") checkVideoPiece(r, hit[i], rows, tables);
+          if (table === "live_video_pieces") checkVideoPiece(r, hit[i], rows, tables, clock());
         }
         const after = rows.map((r) => next[hit.indexOf(r)] ?? r);
         if (table === "interview_turns") {

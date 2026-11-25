@@ -141,25 +141,21 @@ test("through the route: an old link an hour after the end stores nothing", asyn
 
 /**
  * A call that ran over and was never stamped: started 6 hours ago, so with the
- * 30-minute limit (the fixture's settings fall back to MAX_SESSION_SECONDS)
- * plus the 10-minute grace its end was DUE 5 h 20 min ago.
+ * 30-minute limit (the fixture's settings fall back to the default) it ENDED
+ * 5 h 30 min ago (#23); the 10-minute grace only decides when the backstop acts.
  */
 const SIX_H_AGO = NOW - 6 * HOUR;
-const DUE = SIX_H_AGO + 30 * MINUTE + 10 * MINUTE;
+const END = SIX_H_AGO + 30 * MINUTE;
 
 // Negative control: count the window from live_ended_at only (the first
 // version of #17) and the second report lands, because fake-live-db stores the
 // stamp at its own clock (now), as migration 044 does.
-test("an overrun call: the window runs from the due time, and a late stamp can never restart it", async () => {
+test("an overrun call: the window runs from the interview's end, and a late stamp can never restart it", async () => {
   const db = world({ started_at: iso(SIX_H_AGO) });
-  assert.equal(
-    (await report(db, DUE + 20 * MINUTE)).status,
-    200,
-    "inside 30 minutes of the due time",
-  );
+  assert.equal((await report(db, END + 20 * MINUTE)).status, 200, "inside 30 minutes of the end");
   const stored = Date.parse(db.tables.interview_sessions[0].live_ended_at);
-  assert.ok(stored > DUE + HOUR, "044 stored the moment it was noticed, not the due time");
-  assert.equal((await report(db, DUE + 31 * MINUTE)).status, 409, "31 minutes after the due time");
+  assert.ok(stored > END + HOUR, "044 stored the moment it was noticed, not the end");
+  assert.equal((await report(db, END + 31 * MINUTE)).status, 409, "31 minutes after the end");
   assert.equal((await report(db, NOW)).status, 409, "hours later");
   assert.equal(rows(db).length, 1, "only the first report");
 });
@@ -190,8 +186,8 @@ function recording(sessionRow) {
   return { service, written };
 }
 
-// Negative control: pass `now` instead of `() => due` to stampLiveEnded.
-test("every backstop writes the due time, not the moment it noticed", async () => {
+// Negative control: pass `now` instead of `() => end` to stampLiveEnded.
+test("every backstop writes the interview's end, not the moment it noticed or the grace", async () => {
   const row = {
     id: SESSION,
     company_id: "c0000000-0000-4000-8000-0000000000b7",
@@ -212,24 +208,24 @@ test("every backstop writes the due time, not the moment it noticed", async () =
       { service: viaReport.service, now: () => NOW },
     ),
   );
-  assert.deepEqual(viaReport.written, [iso(DUE)], "the report's backstop");
+  assert.deepEqual(viaReport.written, [iso(END)], "the report's backstop");
 
   const viaSweep = recording(row);
   await quiet(() => stampOverdueLiveEnds(viaSweep.service, () => NOW));
-  assert.deepEqual(viaSweep.written, [iso(DUE)], "the worker's sweep");
+  assert.deepEqual(viaSweep.written, [iso(END)], "the worker's sweep");
 
   const video = readFileSync(new URL("./live-video.ts", import.meta.url), "utf8");
   assert.match(
     video,
-    /await stampLiveEnded\(deps\.service, session\.id, \(\) => due\);/,
+    /await stampLiveEnded\(deps\.service, session\.id, \(\) => end\);/,
     "the video backstop",
   );
   assert.equal(
     effectiveEndMs({ ...row, live_ended_at: iso(NOW) }, NOW),
-    DUE,
-    "the earlier of stamp and due",
+    END,
+    "the earlier of stamp and end",
   );
-  assert.equal(effectiveEndMs({ ...row, live_ended_at: iso(DUE - MINUTE) }, NOW), DUE - MINUTE);
+  assert.equal(effectiveEndMs({ ...row, live_ended_at: iso(END - MINUTE) }, NOW), END - MINUTE);
 });
 
 test("migration 069 keeps a past end within the call, and nothing else", () => {

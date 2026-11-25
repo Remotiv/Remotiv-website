@@ -2,7 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { retentionPassed } from "@/lib/interviews/async-score-purge";
 import { readFrozenQuestionSet } from "@/lib/interviews/frozen-questions";
-import { stampLiveEnded } from "@/lib/interviews/live-events";
+import { exportEndMs, stampLiveEnded } from "@/lib/interviews/live-events";
 import {
   CONFIRMED_EXIT_CODES,
   type EvidenceNotRetained,
@@ -279,8 +279,9 @@ async function recordImportFailure(
     .neq("status", "abandoned")
     .select("id");
   if (error) throw new LiveIngestError("db_error", "failure write");
-  // The provider exported it, so the conversation is over: the end for video and restart.
-  await stampLiveEnded(deps.service, sessionId, deps.now);
+  // The provider exported it, so the conversation is over: the end for video and restart,
+  // at the save time, never later than the interview's length allows (#23).
+  await stampLiveEnded(deps.service, sessionId, () => exportEndMs(row, deps.now()));
   console.error(
     `[live-import] session ${sessionId}: export refused (${code}); technical failure recorded`,
   );

@@ -1,7 +1,7 @@
 import "server-only";
 import { retentionPassed } from "@/lib/interviews/async-score-purge";
 import { LiveConsentError, requireLiveConsent } from "@/lib/interviews/live-consent-record";
-import { liveEndDueAt, stampLiveEnded } from "@/lib/interviews/live-events";
+import { liveEndAt, liveEndDueAt, stampLiveEnded } from "@/lib/interviews/live-events";
 import { INTERVIEW_BUCKET } from "@/lib/interviews/session";
 import { hashSessionToken } from "@/lib/interviews/tokens";
 import type { createServiceClient } from "@/lib/supabase/server";
@@ -55,9 +55,9 @@ import type { createServiceClient } from "@/lib/supabase/server";
  * the server confirms the end the interview stays open for video. To keep
  * that bounded, every reserve and confirm first applies the server-side
  * backstop: once the time limit plus the grace has passed since started_at,
- * the end is stamped (by the database's clock) before anything else, so no
- * new piece is reserved, and a piece already reserved still has its 30
- * minutes to be confirmed.
+ * the end is stamped before anything else, at started_at plus the limit
+ * (#23), so no new piece is reserved, and a piece already reserved can be
+ * confirmed until 30 minutes after that end.
  *
  * ── Closed under a running interview (#54, 25 Nov) ───────────
  *
@@ -147,7 +147,7 @@ type SessionRow = {
   live_ended_at: string | null;
   /** Set by the start route with the server's clock: where the backstop counts from. */
   started_at: string | null;
-  /** Read only for its time limit (liveEndDueAt). */
+  /** Read only for its time limit (liveEndAt). */
   live_settings: unknown;
   /** Past it (retention over, or the application being deleted, B7), no video at all. */
   delete_after: string | null;
@@ -231,9 +231,10 @@ async function gate(
   // The server-side backstop first: past the time limit plus the grace, the interview has ended.
   if (session.live_ended_at === null) {
     const due = liveEndDueAt(session);
-    if (due !== null && due <= now()) {
-      // At the due time, not now (#17): see stampLiveEnded.
-      await stampLiveEnded(deps.service, session.id, () => due);
+    const end = liveEndAt(session);
+    if (due !== null && end !== null && due <= now()) {
+      // At the interview's end, not now (#17, #23): see stampLiveEnded.
+      await stampLiveEnded(deps.service, session.id, () => end);
       const again = await sessionFor(deps.service, token);
       if (!again) return fail(404, "not_found", "This interview link isn't valid.");
       return { session: again, phase: phase(again, now()) };

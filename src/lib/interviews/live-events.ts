@@ -25,11 +25,13 @@ import type { createServiceClient } from "@/lib/supabase/server";
  *
  * live_ended_at (migration 044) ends the interview for video: nothing new is
  * reserved after it, and a piece already reserved can be confirmed for 30
- * minutes. Stamped, once, by the database's clock, ONLY by the server
- * (RB1, 28 Oct 2026):
+ * minutes. Stamped, once, ONLY by the server, on the server's clock
+ * (RB1, 28 Oct 2026; #23):
  *
  *   the export saved        saveLiveExport (live-ingest.ts), the provider's
- *                           own record of the session
+ *                           own record of the session; also its refusal
+ *                           (live-import.ts). Stored at the save time, never
+ *                           later than the interview's end (exportEndMs)
  *   a finalize call         a future authenticated server-to-server call from
  *                           the provider (not built yet; it will call
  *                           stampLiveEnded)
@@ -38,7 +40,12 @@ import type { createServiceClient } from "@/lib/supabase/server";
  *                           since started_at, which the start route set with
  *                           the server's clock: checked on every report, on
  *                           every video reserve and confirm (live-video.ts),
- *                           and swept from the worker tick (stampOverdueLiveEnds)
+ *                           and swept from the worker tick (stampOverdueLiveEnds).
+ *                           Stored at the interview's end (liveEndAt), not at
+ *                           the moment the backstop acted: the grace only
+ *                           decides when it acts
+ *
+ * The provider's own durations and timestamps are never used for the end.
  *
  * NEVER by a browser report, whatever it says: provider_end_reported (the
  * screen's claim that the provider ended it), End pressed, a closed tab, a
@@ -96,10 +103,10 @@ const SESSION_COLUMNS =
 
 /**
  * When the call ended, for the report window (#17): the stamped end, or the
- * backstop's due time once that has passed, whichever is earlier. The earlier
- * one because a stamp can land later than the due time (the sweep's next tick,
- * or 044 storing now() for the due time written), and a window measured from
- * that would restart each time the end was noticed late.
+ * interview's end once the backstop is due, whichever is earlier. The earlier
+ * one because an end stamped before #23 may be later than the interview's end,
+ * and a window measured from that would restart each time the end was noticed
+ * late.
  */
 export function effectiveEndMs(
   row: Pick<SessionRow, "id" | "started_at" | "live_settings" | "live_ended_at">,
@@ -107,13 +114,17 @@ export function effectiveEndMs(
 ): number | null {
   const stamped = row.live_ended_at ? Date.parse(row.live_ended_at) : null;
   const due = liveEndDueAt(row);
-  const dueEnd = due !== null && due <= nowMs ? due : null;
+  const dueEnd = due !== null && due <= nowMs ? liveEndAt(row) : null;
   if (stamped === null || Number.isNaN(stamped)) return dueEnd;
   return dueEnd === null ? stamped : Math.min(stamped, dueEnd);
 }
 
-/** When the backstop ends this interview, or null before it has started. */
-export function liveEndDueAt(
+/**
+ * The latest this interview can have ended (#23): started_at, set by the start
+ * route with the server's clock, plus its frozen length. The candidate screen
+ * hard-stops the call there (#49). Null before it has started.
+ */
+export function liveEndAt(
   row: Pick<SessionRow, "id" | "started_at" | "live_settings">,
 ): number | null {
   if (!row.started_at) return null;
@@ -123,7 +134,34 @@ export function liveEndDueAt(
   // 30 minutes for a row whose settings cannot be read, as before v4.
   const limit =
     readLiveSettings(row.live_settings, row.id)?.max_session_seconds ?? DEFAULT_SESSION_SECONDS;
-  return started + Math.min(limit, MAX_SESSION_SECONDS) * 1000 + END_GRACE_MS;
+  return started + Math.min(limit, MAX_SESSION_SECONDS) * 1000;
+}
+
+/**
+ * When the backstop acts on an interview with no end: its end plus
+ * END_GRACE_MS. Only when it acts; the end it stores is liveEndAt.
+ */
+export function liveEndDueAt(
+  row: Pick<SessionRow, "id" | "started_at" | "live_settings">,
+): number | null {
+  const end = liveEndAt(row);
+  return end === null ? null : end + END_GRACE_MS;
+}
+
+/**
+ * The end to store when the export is saved, or refused, at `nowMs` (#23):
+ * the save time, never later than the interview's end and never before its
+ * start. Server clock only: the provider's duration and timestamps are not
+ * read.
+ */
+export function exportEndMs(
+  row: Pick<SessionRow, "id" | "started_at" | "live_settings">,
+  nowMs: number,
+): number {
+  const end = liveEndAt(row);
+  const capped = end === null ? nowMs : Math.min(nowMs, end);
+  const started = row.started_at ? Date.parse(row.started_at) : Number.NaN;
+  return Number.isFinite(started) ? Math.max(capped, started) : capped;
 }
 
 /**
@@ -131,13 +169,11 @@ export function liveEndDueAt(
  * refused, so the update only matches an unstamped row. True when this call
  * stamped it.
  *
- * `now` is the end to record. The backstop passes the moment it was DUE, not
- * the moment it noticed (#17), so a call that ran over ends when its limit
- * says, however late a report, a video request or the sweep arrives. Migration
- * 044 replaces any written value with the database's now(); migration 069 lets
- * a past value between started_at and now() stand. Until 069 runs, the stored
- * end may be later than the due time, and the report window does not depend
- * on it (effectiveEndMs).
+ * `now` is the end to record. The backstop passes the interview's end
+ * (liveEndAt), not the moment it noticed (#17, #23), so a call that ran over
+ * ends when its length says, however late a report, a video request or the
+ * sweep arrives; the export passes exportEndMs. Migration 069 lets a past
+ * value between started_at and now() stand; anything else becomes now().
  */
 export async function stampLiveEnded(
   service: Service,
@@ -231,7 +267,10 @@ export async function handleLiveEvent(
     !retentionOver(session, now())
   ) {
     const due = liveEndDueAt(session);
-    if (due !== null && due <= now()) await stampLiveEnded(deps.service, session.id, () => due);
+    const end = liveEndAt(session);
+    if (due !== null && end !== null && due <= now()) {
+      await stampLiveEnded(deps.service, session.id, () => end);
+    }
   }
   if (closedToReports(session, now())) {
     console.warn(`[live-events] session ${session.id}: refused, closed`);
@@ -260,8 +299,9 @@ export async function handleLiveEvent(
 
 /**
  * The backstop sweep, from the worker tick: every started live interview
- * past its time limit plus END_GRACE_MS with no end stamped gets one.
- * Returns how many it stamped. Counts only in the log.
+ * past its time limit plus END_GRACE_MS with no end stamped gets one, at
+ * started_at plus the limit (liveEndAt). Returns how many it stamped. Counts
+ * only in the log.
  */
 export async function stampOverdueLiveEnds(
   service: Service,
@@ -286,7 +326,13 @@ export async function stampOverdueLiveEnds(
   let stamped = 0;
   for (const row of (data ?? []) as Pick<SessionRow, "id" | "started_at" | "live_settings">[]) {
     const due = liveEndDueAt(row);
-    if (due !== null && due <= now() && (await stampLiveEnded(service, row.id, () => due))) {
+    const end = liveEndAt(row);
+    if (
+      due !== null &&
+      end !== null &&
+      due <= now() &&
+      (await stampLiveEnded(service, row.id, () => end))
+    ) {
       stamped += 1;
     }
   }

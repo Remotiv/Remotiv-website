@@ -6,7 +6,7 @@ import {
   type LiveQuestionSource,
   readFrozenQuestionSet,
 } from "@/lib/interviews/frozen-questions";
-import { stampLiveEnded } from "@/lib/interviews/live-events";
+import { exportEndMs, stampLiveEnded } from "@/lib/interviews/live-events";
 import {
   type ExportStatusCode,
   FOLLOW_UP_INDEX_MAX,
@@ -1737,8 +1737,9 @@ export async function saveLiveExport(
     throw new LiveIngestError("db_error", "the outcome did not land");
   }
   // 6. The provider's export is its own record that the conversation is over:
-  //    the interview's end, for video (live-events.ts), if nothing stamped it yet.
-  await stampLiveEnded(deps.service, sessionId, deps.now);
+  //    the interview's end, for video (live-events.ts), if nothing stamped it yet:
+  //    the save time, never later than the interview's length allows (#23).
+  await stampLiveEnded(deps.service, sessionId, () => exportEndMs(row, deps.now()));
   console.log(
     `[live-ingest] session ${sessionId}: ${rows.length} turns, outcome ${outcome.outcome}, answered ${outcome.answered_count}/${outcome.total}, timing suspect ${outcome.timing_suspect_turns.length}, wording checks ${outcome.wording_check_turns.length}, interruption checks ${outcome.interruption_check_turns.length}`,
   );
