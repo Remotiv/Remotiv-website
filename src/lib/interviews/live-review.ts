@@ -14,6 +14,7 @@ import {
   type InterruptionCheck,
   interruptionCheckOf,
   type LiveOutcome,
+  type OrderCheck,
   type RepeatCheck,
   type TimeLimitCheck,
   type WordingCheck,
@@ -24,6 +25,7 @@ import {
   resolveFailedTranscription,
   resolveFollowUpCheck,
   resolveNeedsCheck,
+  resolveOrderCheck,
   resolveRepeatCheck,
   resolveStyleCheck,
   resolveTimeLimitCheck,
@@ -35,6 +37,7 @@ import {
   followUpCheckDecisions,
   type LiveActionRow,
   needsCheckDecisions,
+  orderCheckDecisions,
   repeatCheckDecisions,
   styleCheckDecisions,
   timeLimitCheckDecisions,
@@ -206,6 +209,7 @@ const EXCLUDED_REASON: Record<string, string> = {
   wording_excluded: "Left out after a review of how the question was asked.",
   follow_up_excluded: "Left out after a review of the follow-up questions asked.",
   time_limit_excluded: "Left out after a review of speech after the time limit.",
+  order_excluded: "Left out after a review of the order the questions were asked in.",
   scoring_failed: "Left out: the AI could not score it reliably.",
 };
 
@@ -216,6 +220,7 @@ const WAITING_REASON: Record<string, string> = {
   wording_check: "Waiting for a check of how the question was asked.",
   follow_up_check: "Waiting for a check of the follow-up questions asked.",
   time_limit_check: "Waiting for a check of speech after the time limit.",
+  order_check: "Waiting for a check of the order the questions were asked in.",
   not_final: "Waiting for every answer to be transcribed.",
   unconfirmed: "Waiting for the transcript.",
   scoring_retry: "Scoring will be tried again.",
@@ -296,6 +301,26 @@ export function timeLimitReason(check: TimeLimitCheck, position: number): string
   return TIME_LIMIT_REASON[check](position);
 }
 
+/** Why a question is held because of the order it was asked in (live-ingest.ts OrderCheck, #15). */
+const ORDER_REASON: Record<OrderCheck, (interviewer: string, position: number) => string> = {
+  asked_twice: (who, n) =>
+    `${who} asked question ${n} more than once. It is not scored until a person checks the recording.`,
+  out_of_order: (who, n) =>
+    `${who} asked question ${n} out of the agreed order. It is not scored until a person checks the recording.`,
+  skipped_question: (who, n) =>
+    `${who} passed over a question without asking it, next to question ${n}. It is not scored until a person checks the recording.`,
+  answer_before_not_answered: (who, n) =>
+    `The candidate spoke on question ${n} before ${who} moved on as if it had not been answered. It is not scored until a person checks the recording.`,
+  follow_up_elsewhere: (_who, n) =>
+    `A follow-up question was asked out of place around question ${n}. It is not scored until a person checks the recording.`,
+  answer_elsewhere: (who, n) =>
+    `An answer for question ${n} was given while ${who} was on another question. It is not scored until a person checks the recording.`,
+};
+
+export function orderReason(check: OrderCheck, interviewer: string, position: number): string {
+  return ORDER_REASON[check](interviewer, position);
+}
+
 /** Why a question is held for its follow-ups (live-ingest.ts FollowUpCheck), with the interviewer's name. */
 export function followUpReason(interviewer: string, position: number): string {
   return `${interviewer} asked more follow-up questions on question ${position} than this interview allows. It is not scored until a person checks the recording.`;
@@ -343,6 +368,7 @@ const REVIEW_WAITS: ReadonlySet<string> = new Set([
   "wording_check",
   "follow_up_check",
   "time_limit_check",
+  "order_check",
   "style_check",
 ]);
 
@@ -352,6 +378,7 @@ const NAMES_ITS_QUESTION: ReadonlySet<LiveReviewFlag["kind"]> = new Set([
   "wording",
   "follow_up",
   "time_limit",
+  "order",
 ]);
 
 const RESTART_NOTE = "A restart is your decision for this interview.";
@@ -530,6 +557,7 @@ export function buildLiveReviewView(input: {
   const wording = wordingCheckDecisions(input.actions);
   const followUp = followUpCheckDecisions(input.actions);
   const timeLimit = timeLimitCheckDecisions(input.actions);
+  const order = orderCheckDecisions(input.actions);
   const style = styleCheckDecisions(input.actions);
   const excludedSeqs = excludedFailedTurns(
     input.actions,
@@ -633,6 +661,15 @@ export function buildLiveReviewView(input: {
         turnId: null,
       });
     }
+    const orderCheck = facts?.order_check ?? null;
+    if (orderCheck !== null) {
+      flags.push({
+        kind: "order",
+        reason: orderReason(orderCheck, interviewer, fq.position),
+        resolved: order.get(fq.position) ?? null,
+        turnId: null,
+      });
+    }
     if (entry?.style_check) {
       flags.push({
         kind: "style",
@@ -687,6 +724,9 @@ export function buildLiveReviewView(input: {
     } else if (timeLimitCheck !== null && !timeLimit.has(fq.position)) {
       status = "waiting_review";
       statusReason = WAITING_REASON.time_limit_check;
+    } else if (orderCheck !== null && !order.has(fq.position)) {
+      status = "waiting_review";
+      statusReason = WAITING_REASON.order_check;
     } else {
       status = facts.status === "skipped" ? "skipped" : "answered";
     }
@@ -1467,6 +1507,7 @@ const QUESTION_RESOLVERS = {
   resolve_wording_check: resolveWordingCheck,
   resolve_follow_up_check: resolveFollowUpCheck,
   resolve_time_limit_check: resolveTimeLimitCheck,
+  resolve_order_check: resolveOrderCheck,
   resolve_style_check: resolveStyleCheck,
 } as const;
 

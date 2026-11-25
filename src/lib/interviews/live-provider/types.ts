@@ -181,6 +181,19 @@ export type LiveTurn = {
    * like every candidate turn; never an answer, never counted, never scored.
    */
   candidate_interruption: boolean;
+  /**
+   * The interviewer offered to repeat the question (turn_type "repeat_offer",
+   * F15c): procedural, never a question, a follow-up or scored. A candidate
+   * reply to it is kept but never counts as an answer.
+   */
+  repeat_offer: boolean;
+  /**
+   * The interviewer moved on without an answer (turn_type "not_answered",
+   * F15c): procedural, at the question it names, or else the base question
+   * being asked. That question is skipped unless a real candidate answer for
+   * it comes after this turn.
+   */
+  not_answered: boolean;
   /** Session start plus offset_ms, then plus duration_ms: one clock for every turn. */
   started_at: string;
   ended_at: string;

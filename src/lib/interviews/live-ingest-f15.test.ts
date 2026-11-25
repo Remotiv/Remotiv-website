@@ -171,7 +171,7 @@ test("the interruption export saves as sent: 19 rows, every turn's audio, timest
 
 test("the outcome: ending not confirmed, the interruption kept, its missing speech flagged", async () => {
   const { outcome } = await saveRaw(fixture());
-  assert.equal(outcome.v, 8);
+  assert.equal(outcome.v, 9);
   assert.deepEqual(
     [
       outcome.provider_status,
@@ -262,11 +262,13 @@ test("a repeat not right after a line is read alone, as before", () => {
 /* ── the integrity checks, unchanged ──────────────────────────── */
 
 test("F11/F12 integrity: an unmarked second asking, a 9th question named, a changed first asking", () => {
+  // An unmarked second asking is kept and held (#15), never let through unflagged.
   const twice = fixture();
   twice.turns[REPEAT].turn_type = "base_question";
-  assert.throws(
-    () => assess(twice),
-    (e) => e instanceof LiveIngestError && e.code === "duplicate_base_question",
+  const held = assess(twice);
+  assert.ok(
+    held.questions.some((q) => q.order_check === "asked_twice"),
+    "held as asked twice",
   );
   const ninth = fixture();
   ninth.turns[18].question_id = 9;

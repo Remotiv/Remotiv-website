@@ -128,8 +128,8 @@ const quiet = async (fn) => {
 
 test("interruption speech is kept and listed (version 6 and later), but is never the answer: not counted, not timed", () => {
   const o = assess(finalExport());
-  assert.equal(o.v, 8);
-  assert.equal(LIVE_OUTCOME_VERSION, 8);
+  assert.equal(o.v, 9);
+  assert.equal(LIVE_OUTCOME_VERSION, 9);
   assert.deepEqual(o.interruption_speech_turns, [INTERRUPTION_SEQ]);
   const q3 = o.questions.find((q) => q.position === 3);
   const answers = FTEST.turns.filter(
@@ -334,7 +334,7 @@ test("then the final export of the same session saves: turns, audio, the outcome
   assert.equal(db.tables.interview_turns.length, 64);
   assert.equal(db.objects.size, 64, "every turn's audio, the interruption's included");
   const row = db.tables.interview_sessions[0];
-  assert.equal(row.live_outcome.v, 8);
+  assert.equal(row.live_outcome.v, 9);
   assert.notEqual(row.live_ended_at, null, "the export saved stamps the end (Commit 10)");
   // The interruption is stored like any candidate turn, waiting for Remotiv's transcription.
   const t = db.tables.interview_turns.find((x) => x.sequence === INTERRUPTION_SEQ);

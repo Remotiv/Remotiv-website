@@ -213,6 +213,7 @@ export function checkScoringRow(table, row, allRows, tables) {
       "resolve_wording_check",
       "resolve_follow_up_check",
       "resolve_time_limit_check",
+      "resolve_order_check",
       "resolve_style_check",
     ].includes(row.action) &&
       ["score", "exclude"].includes(row.decision)) ||
@@ -225,6 +226,7 @@ export function checkScoringRow(table, row, allRows, tables) {
       "resolve_wording_check",
       "resolve_follow_up_check",
       "resolve_time_limit_check",
+      "resolve_order_check",
       "resolve_style_check",
     ].includes(row.action)
       ? row.question_position == null

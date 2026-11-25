@@ -150,8 +150,10 @@ type Service = ReturnType<typeof createServiceClient>;
 /**
  * 7: follow_up_check and follow_up_check_turns (#48, 25 Nov).
  * 8: time_limit_check and time_limit_check_turns (#50); import_failure (#51).
+ * 9: order_check and order_check_turns (#15); moved_on_after, not_answered_turns,
+ *    repeat_offer_turns and offer_reply_turns (#16, F15c). 26 Nov.
  */
-export const LIVE_OUTCOME_VERSION = 8;
+export const LIVE_OUTCOME_VERSION = 9;
 /** One turn's audio, at most: Whisper's limit, and far above a spoken turn. */
 export const MAX_TURN_AUDIO_BYTES = 25 * 1024 * 1024;
 
@@ -258,6 +260,51 @@ export type FollowUpCheck = "over_limit";
  */
 export type TimeLimitCheck = "after_limit" | "clocks_disagree";
 
+/**
+ * Why a question needs a person because of the order it was asked in (#15,
+ * Waleed's decision 26 Nov: flag and hold, never refuse). The frozen
+ * question set's positions are the agreed order: Q1, its follow-ups, then Q2.
+ *
+ *   asked_twice          a second, unmarked base_question for a position
+ *                        already asked (a marked repeat is not one)
+ *   out_of_order         asked before a question with an earlier position
+ *                        that was asked later: both questions are held
+ *   follow_up_elsewhere  a follow-up on a question other than the one being
+ *                        asked: both questions are held
+ *   answer_elsewhere     a candidate answer for a question other than the one
+ *                        being asked (an answer after Sarah moved on): both
+ *   skipped_question     a question passed over in the middle: never asked,
+ *                        and no not_answered for it, before a later one was
+ *                        asked. That question and the one asked after it
+ *   answer_before_not_answered
+ *                        candidate speech on the question BEFORE Sarah's
+ *                        not_answered for it: the speech is kept and counted
+ *                        as the answer, and the question waits for a person
+ *                        rather than being scored as skipped
+ *
+ * Every turn is kept, audio included, and nothing is refused. The question is
+ * held from scoring until a person resolves it (resolve_order_check,
+ * migration 081), independently of every other check. Questions never reached
+ * at the end are not an order problem.
+ */
+export type OrderCheck =
+  | "asked_twice"
+  | "out_of_order"
+  | "skipped_question"
+  | "answer_before_not_answered"
+  | "follow_up_elsewhere"
+  | "answer_elsewhere";
+
+/** The reason shown when one question has more than one: the first that applies. */
+const ORDER_RANK: Record<OrderCheck, number> = {
+  asked_twice: 0,
+  out_of_order: 1,
+  skipped_question: 2,
+  answer_before_not_answered: 3,
+  follow_up_elsewhere: 4,
+  answer_elsewhere: 5,
+};
+
 /** How far apart the provider's conversation start and Remotiv's may be before neither is trusted. */
 export const CLOCK_TOLERANCE_MS = 10_000;
 
@@ -329,6 +376,18 @@ export type LiveQuestionFacts = {
    * question until resolved (resolve_time_limit_check). Absent before v8: null.
    */
   time_limit_check?: TimeLimitCheck | null;
+  /**
+   * Asked out of the frozen order, twice, or with a follow-up or an answer
+   * out of place (#15). Holds the question until resolved
+   * (resolve_order_check). Absent before v9: null.
+   */
+  order_check?: OrderCheck | null;
+  /**
+   * The sequence of Sarah's last not_answered turn on this question (F15c):
+   * only candidate turns after it count as its answer. Null when there was
+   * none. Absent before v9: null.
+   */
+  moved_on_after?: number | null;
 };
 
 export type LiveOutcome = {
@@ -361,6 +420,17 @@ export type LiveOutcome = {
   follow_up_check_turns?: number[];
   /** Sequences of turns placed after the limit, or near it on disagreeing clocks. Absent before v8. */
   time_limit_check_turns?: number[];
+  /** Sequences of the turns that broke the frozen order (#15). Absent before v9. */
+  order_check_turns?: number[];
+  /** Sequences of interviewer not_answered turns (F15c), kept for the record. Absent before v9. */
+  not_answered_turns?: number[];
+  /** Sequences of interviewer repeat_offer turns (F15c), kept for the record. Absent before v9. */
+  repeat_offer_turns?: number[];
+  /**
+   * Sequences of candidate turns that reply to a repeat_offer (F15c): kept,
+   * transcribed, never an answer, never counted or scored. Absent before v9.
+   */
+  offer_reply_turns?: number[];
   /** Sequences of marked repeats that did not ask their question as agreed. */
   repeat_check_turns: number[];
   /** Every interruption line, placed (parse-export.ts). Absent before version 5. */
@@ -563,7 +633,7 @@ export function needsReview(
     Partial<
       Pick<
         LiveQuestionFacts,
-        "repeat_check" | "wording_check" | "follow_up_check" | "time_limit_check"
+        "repeat_check" | "wording_check" | "follow_up_check" | "time_limit_check" | "order_check"
       >
     >)[],
   failedTurns: readonly number[],
@@ -580,7 +650,8 @@ export function needsReview(
         (q.repeat_check ?? null) !== null ||
         (q.wording_check ?? null) !== null ||
         (q.follow_up_check ?? null) !== null ||
-        (q.time_limit_check ?? null) !== null,
+        (q.time_limit_check ?? null) !== null ||
+        (q.order_check ?? null) !== null,
     )
   );
 }
@@ -877,7 +948,6 @@ export type LiveIngestErrorCode =
   | "not_frozen"
   | "wrong_session"
   | "unknown_question_position"
-  | "duplicate_base_question"
   | "too_many_follow_ups"
   | "missing_audio"
   | "bad_audio"
@@ -1005,6 +1075,83 @@ export function assessLiveExport(
     }
   }
 
+  // F15c: a candidate reply to an offer to repeat is kept, never an answer.
+  const offerReplies = new Set(
+    turns
+      .filter(
+        (t) =>
+          t.speaker === "candidate" &&
+          t.responds_to_provider_turn_id !== null &&
+          byId.get(t.responds_to_provider_turn_id)?.repeat_offer === true,
+      )
+      .map((t) => t.sequence),
+  );
+
+  // The order (#15), on the FROZEN positions: Q1, its follow-ups, then Q2.
+  const rank = new Map(
+    [...frozen.questions]
+      .map((q) => q.position)
+      .sort((a, b) => a - b)
+      .map((p, i) => [p, i]),
+  );
+  const orderByPosition = new Map<number, OrderCheck>();
+  const orderTurns = new Set<number>();
+  const flagOrder = (position: number, check: OrderCheck, sequence: number) => {
+    const was = orderByPosition.get(position);
+    if (was === undefined || ORDER_RANK[check] < ORDER_RANK[was]) {
+      orderByPosition.set(position, check);
+    }
+    orderTurns.add(sequence);
+  };
+  const askedInOrder: number[] = [];
+  // Questions Sarah said she moved on from (not_answered), so far.
+  const movedOn = new Set<number>();
+  // A question passed over is reported once, with the question asked after it.
+  const passedOver = new Set<number>();
+  let current: number | null = null;
+  for (const t of turns) {
+    if (t.not_answered && t.question_position !== null) movedOn.add(t.question_position);
+    if (t.speaker === "interviewer" && t.kind === "base_question") {
+      const p = t.question_position as number;
+      // Skipped in the middle: an earlier question never asked, and no
+      // not_answered for it. Questions never reached at the end are not this.
+      for (const x of rank.keys()) {
+        if ((rank.get(x) ?? 0) >= (rank.get(p) ?? 0)) continue;
+        if (askedInOrder.includes(x) || movedOn.has(x) || passedOver.has(x)) continue;
+        passedOver.add(x);
+        flagOrder(x, "skipped_question", t.sequence);
+        flagOrder(p, "skipped_question", t.sequence);
+      }
+      if (askedInOrder.includes(p)) {
+        flagOrder(p, "asked_twice", t.sequence);
+      } else {
+        const later = askedInOrder.filter((x) => (rank.get(x) ?? 0) > (rank.get(p) ?? 0));
+        if (later.length > 0) {
+          flagOrder(p, "out_of_order", t.sequence);
+          for (const x of later) flagOrder(x, "out_of_order", t.sequence);
+        }
+        askedInOrder.push(p);
+      }
+      current = p;
+    } else if (t.speaker === "interviewer" && t.kind === "follow_up") {
+      const p = t.question_position as number;
+      if (p !== current) {
+        flagOrder(p, "follow_up_elsewhere", t.sequence);
+        if (current !== null) flagOrder(current, "follow_up_elsewhere", t.sequence);
+      }
+    } else if (
+      t.speaker === "candidate" &&
+      !t.candidate_interruption &&
+      !offerReplies.has(t.sequence)
+    ) {
+      const p = positionOf(t);
+      if (p !== null && current !== null && p !== current) {
+        flagOrder(p, "answer_elsewhere", t.sequence);
+        flagOrder(current, "answer_elsewhere", t.sequence);
+      }
+    }
+  }
+
   const questions: LiveQuestionFacts[] = [];
   const wordingCheckTurns: number[] = [];
   const followUpCheckTurns: number[] = [];
@@ -1029,11 +1176,9 @@ export function assessLiveExport(
     const asked = turns.filter(
       (t) => t.kind === "base_question" && t.question_position === q.position,
     );
-    if (asked.length > 1) {
-      throw new LiveIngestError("duplicate_base_question", `position ${q.position} is asked twice`);
-    }
-    // Procedural turns (reminders, marked repeats, offers to skip) are never
-    // follow-ups; an unmarked second base_question above is a second question.
+    // An unmarked second base_question is kept and held (order_check
+    // asked_twice, #15). Procedural turns (reminders, marked repeats, offers
+    // to repeat, not_answered) are never follow-ups.
     const followUps = turns.filter(
       (t) => t.kind === "follow_up" && t.question_position === q.position,
     );
@@ -1047,10 +1192,29 @@ export function assessLiveExport(
       );
     }
     const overLimit = followUps.filter((t) => (t.follow_up_index ?? 0) > followUpLimit);
-    // Interruption speech (F15b) is kept but is never the answer: not counted, timed or scored.
-    const spoken = turns.filter(
-      (t) => t.speaker === "candidate" && !t.candidate_interruption && positionOf(t) === q.position,
+    // Sarah moved on without an answer (F15c): only speech after her last
+    // not_answered on this question is its answer.
+    const movedOnAfter =
+      turns.filter((t) => t.not_answered && t.question_position === q.position).at(-1)?.sequence ??
+      null;
+    // Interruption speech (F15b) and replies to an offer to repeat (F15c) are
+    // kept but are never the answer: not counted, timed or scored.
+    const onQuestion = turns.filter(
+      (t) =>
+        t.speaker === "candidate" &&
+        !t.candidate_interruption &&
+        !offerReplies.has(t.sequence) &&
+        positionOf(t) === q.position,
     );
+    // Speech BEFORE Sarah's not_answered: kept, counted as the answer, and
+    // the question held for a person (#15), never scored as skipped.
+    const before =
+      movedOnAfter === null
+        ? []
+        : onQuestion.filter((t) => t.sequence < movedOnAfter && t.duration_ms > 0);
+    if (before.length > 0) flagOrder(q.position, "answer_before_not_answered", before[0].sequence);
+    const countAfter = before.length > 0 ? null : movedOnAfter;
+    const spoken = onQuestion.filter((t) => countAfter === null || t.sequence > countAfter);
     // Any captured speech is an answer, however short; the parser has already
     // refused a turn with no duration and the save refuses one with no audio.
     const answerMs = spoken.reduce((sum, t) => sum + t.duration_ms, 0);
@@ -1058,7 +1222,7 @@ export function assessLiveExport(
     // The first asking: held for a person unless it is the frozen question,
     // harmless differences aside. Never asked: nothing to check.
     const wording =
-      asked.length === 1 ? classifyAsked(q.text, asked[0].text ?? "", candidateFirstName) : null;
+      asked.length > 0 ? classifyAsked(q.text, asked[0].text ?? "", candidateFirstName) : null;
     const wordingCheck =
       wording === "unexpected_lead_in" || wording === "altered_wording" ? wording : null;
     if (wordingCheck !== null) wordingCheckTurns.push(asked[0].sequence);
@@ -1081,6 +1245,8 @@ export function assessLiveExport(
       interruption_check: interruptionByPosition.get(q.position) ?? null,
       follow_up_check: followUpCheck,
       time_limit_check: timeLimitByPosition.get(q.position) ?? null,
+      order_check: orderByPosition.get(q.position) ?? null,
+      moved_on_after: countAfter,
     });
   }
 
@@ -1114,6 +1280,10 @@ export function assessLiveExport(
     wording_check_turns: wordingCheckTurns.sort((a, b) => a - b),
     follow_up_check_turns: followUpCheckTurns.sort((a, b) => a - b),
     time_limit_check_turns: timeLimitTurns.sort((a, b) => a - b),
+    order_check_turns: [...orderTurns].sort((a, b) => a - b),
+    not_answered_turns: turns.filter((t) => t.not_answered).map((t) => t.sequence),
+    repeat_offer_turns: turns.filter((t) => t.repeat_offer).map((t) => t.sequence),
+    offer_reply_turns: [...offerReplies].sort((a, b) => a - b),
     repeat_check_turns: repeatCheckTurns.sort((a, b) => a - b),
     interruptions,
     interruption_check_turns: interruptionCheckTurns.sort((a, b) => a - b),

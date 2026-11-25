@@ -170,6 +170,17 @@ const BROKEN = [
     {},
   ],
   ["unreadable JSON", "bad_json", () => '{"session_id": "x", "turns": [', {}],
+  // A turn type nobody has agreed (#16: only repeat_offer and not_answered were added).
+  [
+    "an unknown interviewer turn type",
+    "unknown_turn_type",
+    () =>
+      exportWith((r) => {
+        r.turns.find((t) => t.role === "interviewer" && t.turn_type !== "base_question").turn_type =
+          "mystery_type";
+      }),
+    {},
+  ],
   ["missing audio", "missing_audio", () => structuredClone(FIXTURE), "first-audio-missing"],
 ];
 

@@ -29,8 +29,9 @@ import {
  *   role                    -> speaker (interviewer | candidate)
  *   turn_type               -> kind: base_question, follow_up, clarification
  *                              and procedural as they are; acknowledgment,
- *                              greeting, closing, user_interrupted and
- *                              silence_reminder -> procedural; answer and
+ *                              greeting, closing, user_interrupted,
+ *                              silence_reminder, repeat_offer and
+ *                              not_answered -> procedural; answer and
  *                              interruption -> null
  *                              (candidate turns carry no kind, as
  *                              interview_turns requires). A candidate
@@ -53,6 +54,17 @@ import {
  * An acknowledgment that answers no turn and comes right before a new base
  * question belongs to the previous answer's question, not the next one: it
  * acknowledges what was just said (F15, 26 Oct 2026).
+ *
+ * ── repeat_offer and not_answered (F15c, 26 Nov 2026) ────────
+ *
+ * Both are procedural, never a question, a follow-up or scored, kept with
+ * their own sequence, offsets and audio like every turn. repeat_offer ("Would
+ * you like me to repeat the question?") is marked repeat_offer. not_answered
+ * (Sarah moving on without an answer) is marked not_answered and placed at
+ * the question it names, or, when it names none, at the base question being
+ * asked when it was said; live-ingest.ts reads that question as skipped
+ * unless a real answer for it follows. Any other unknown turn_type is still
+ * refused. The final list waits for the provider's full one (R22).
  *
  * ── How it ended (F15, 26 Oct 2026) ──────────────────────────
  *
@@ -105,8 +117,8 @@ import {
  * as a base_question with `is_repeat: true`, and becomes a PROCEDURAL turn at
  * the question's position with `repeat: true`: it adds no main question, no
  * follow-up and no scoring entry. A repeat must name its question. An
- * unmarked second base_question for a position is still a second main
- * question, and live-ingest.ts refuses it.
+ * unmarked second base_question for a position is still a second asking:
+ * live-ingest.ts keeps it and holds the question (order_check asked_twice).
  */
 
 export type LiveExportErrorCode =
@@ -171,6 +183,9 @@ const INTERVIEWER_KINDS: Readonly<Record<string, LiveTurnKind>> = {
   repeat: "procedural",
   // "Take your time." and the like (F15b): never a question, a follow-up or scored.
   silence_reminder: "procedural",
+  // F15c: an offer to repeat the question, and Sarah moving on without an answer.
+  repeat_offer: "procedural",
+  not_answered: "procedural",
 };
 // "interruption" (F15b): what the candidate said while cutting in. Kept, never an answer.
 const CANDIDATE_TYPES: ReadonlySet<string> = new Set(["answer", "interruption"]);
@@ -483,6 +498,8 @@ export function parseExport(raw: unknown): ParsedExport {
       repeat,
       interruption_line: turnType === "user_interrupted",
       candidate_interruption: speaker === "candidate" && turnType === "interruption",
+      repeat_offer: turnType === "repeat_offer",
+      not_answered: turnType === "not_answered",
       started_at: startedTurn,
       ended_at: plusMs(startedTurn, durationMs),
       audio_file_name:
@@ -507,6 +524,13 @@ export function parseExport(raw: unknown): ParsedExport {
     const position = answer ? positionOf(turns, answer) : null;
     if (position !== null) t.question_position = position;
   });
+
+  // not_answered naming no question: the base question being asked when it was said.
+  let asking: number | null = null;
+  for (const t of turns) {
+    if (t.kind === "base_question") asking = t.question_position;
+    else if (t.not_answered && t.question_position === null) t.question_position = asking;
+  }
 
   const interruptions = turns.flatMap((t, i) => (t.interruption_line ? [placeLine(turns, i)] : []));
 

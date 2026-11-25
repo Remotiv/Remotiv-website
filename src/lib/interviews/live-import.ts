@@ -73,7 +73,6 @@ export const EVIDENCE_MAX_BYTES = 25 * 1024 * 1024;
 /** The importer's refusals that mean the export itself is broken. */
 const BROKEN_INGEST: ReadonlySet<LiveIngestErrorCode> = new Set<LiveIngestErrorCode>([
   "unknown_question_position",
-  "duplicate_base_question",
   "too_many_follow_ups",
   "missing_audio",
   "bad_audio",
@@ -191,6 +190,8 @@ async function storedQuestionFacts(
       interruption_check: null,
       follow_up_check: null,
       time_limit_check: null,
+      order_check: null,
+      moved_on_after: null,
     };
   });
   return { questions, turnCount: turns.length };
@@ -251,6 +252,10 @@ async function recordImportFailure(
     wording_check_turns: [],
     follow_up_check_turns: [],
     time_limit_check_turns: [],
+    order_check_turns: [],
+    not_answered_turns: [],
+    repeat_offer_turns: [],
+    offer_reply_turns: [],
     repeat_check_turns: [],
     interruptions: [],
     interruption_check_turns: [],

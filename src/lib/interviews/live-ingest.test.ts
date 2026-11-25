@@ -229,7 +229,7 @@ test("what the fixture produced: statuses, follow-ups, timing_suspect; candidate
     ["ending_unconfirmed", 5, 1, 2, 8, 63],
   );
   assert.deepEqual(outcome.end_check, { reason: "exit_unconfirmed", never_asked: 2 });
-  assert.equal(outcome.v, 8);
+  assert.equal(outcome.v, 9);
   // Provisional until every answer is transcribed: no restart decision yet.
   assert.deepEqual([outcome.final, outcome.restart_allowed], [false, null]);
   assert.equal(isOutcomeDecided(outcome), false);
@@ -341,7 +341,7 @@ test("refused: not frozen, another provider session, a different export after on
 
 /* ── the rules, on the facts alone ────────────────────────────── */
 
-test("unknown question positions and a question asked twice are refused", () => {
+test("unknown question positions are refused; a question asked twice is kept and held (#15)", () => {
   const p = parsedFixture();
   p.turns[3] = { ...p.turns[3], question_position: 9 };
   assert.throws(
@@ -350,10 +350,9 @@ test("unknown question positions and a question asked twice are refused", () => 
   );
   const twice = parsedFixture();
   twice.turns[3] = { ...twice.turns[3], question_position: 1 };
-  assert.throws(
-    () => assessLiveExport(twice, frozenOf(), 1),
-    (e) => e.code === "duplicate_base_question",
-  );
+  const held = assessLiveExport(twice, frozenOf(), 1);
+  assert.equal(held.questions.find((q) => q.position === 1).order_check, "asked_twice");
+  assert.ok(held.order_check_turns.includes(twice.turns[3].sequence));
 });
 
 test("procedural turns never count as follow-ups; more than 2 follow-ups is refused", () => {
@@ -705,7 +704,7 @@ test("both real exports (candidate_ended) are never completed, even once every a
   }
 });
 
-test("needs_review includes the ending, a repeat check and a wording check; the outcome version is 8; the shipped exit list is empty", () => {
+test("needs_review includes the ending, a repeat check and a wording check; the outcome version is 9; the shipped exit list is empty", () => {
   assert.equal(
     needsReview([{ needs_check: false }], [], { reason: "ending_unknown", never_asked: 0 }),
     true,
@@ -726,7 +725,7 @@ test("needs_review includes the ending, a repeat check and a wording check; the 
   }
   // Nor before version 4.
   assert.equal(needsReview([{ needs_check: false, wording_check: undefined }], [], null), false);
-  assert.equal(LIVE_OUTCOME_VERSION, 8);
+  assert.equal(LIVE_OUTCOME_VERSION, 9);
   assert.equal(CONFIRMED_EXIT_CODES.size, 0, "D10 unconfirmed: no status is a confirmed exit");
 });
 
@@ -815,14 +814,16 @@ test("the repeat variant saves: 34 rows, the repeat a procedural turn at positio
   assert.equal(outcome.questions[1].repeats, 1);
 });
 
-test("an UNMARKED second base question for a position is still refused", () => {
+test("an UNMARKED second base question for a position is kept and held as asked twice (#15)", () => {
   const p = parseExport(structuredClone(REPEAT));
   const i = p.turns.findIndex((t) => t.repeat);
   p.turns[i] = { ...p.turns[i], kind: "base_question", repeat: false };
-  assert.throws(
-    () => assessLiveExport(p, frozenOf(), 1),
-    (e) => e.code === "duplicate_base_question",
+  const f = assessLiveExport(p, frozenOf(), 1);
+  assert.equal(
+    f.questions.find((q) => q.position === p.turns[i].question_position).order_check,
+    "asked_twice",
   );
+  assert.equal(f.questions.length, 8, "no extra question");
 });
 
 test("a repeat may differ in case, punctuation and spacing, and lead in only with an agreed phrase", () => {
@@ -1031,12 +1032,13 @@ test("a flagged repeat never weakens the integrity checks: positions, duplicates
     (e) => e.code === "unknown_question_position",
   );
 
+  // An unmarked second asking is kept and held (#15), never let through unflagged.
   const twice = flagged();
   const r = twice.turns.findIndex((t) => t.repeat);
   twice.turns[r] = { ...twice.turns[r], kind: "base_question", repeat: false };
-  assert.throws(
-    () => assessLiveExport(twice, frozenOf(), 1),
-    (e) => e.code === "duplicate_base_question",
+  assert.equal(
+    assessLiveExport(twice, frozenOf(), 1).questions[position - 1].order_check,
+    "asked_twice",
   );
 
   // A repeat must still name its question: the parser refuses one that does not.
@@ -1534,9 +1536,10 @@ test("F12 a flagged first asking never weakens the integrity checks", () => {
   );
   const twice = parsedFixture();
   twice.turns[3] = { ...twice.turns[3], question_position: 1 };
-  assert.throws(
-    () => assessLiveExport(twice, frozenOf(), 1),
-    (e) => e.code === "duplicate_base_question",
+  assert.equal(
+    assessLiveExport(twice, frozenOf(), 1).questions[0].order_check,
+    "asked_twice",
+    "kept and held (#15), never let through unflagged",
   );
   // The control: the same export with only question 1's greeting is accepted and flagged.
   assert.equal(
@@ -1755,10 +1758,13 @@ function withThirdFollowUp() {
   const p = parsedFixture();
   const [position, followUps] = [...followUpsByPosition(p)].find(([, f]) => f.length === 2);
   const second = followUps.find((t) => t.follow_up_index === 2);
+  // Right after the second, where a real third follow-up is asked (at the end
+  // of the export it would also be a follow-up out of place, #15).
+  for (const t of p.turns) if (t.sequence > second.sequence) t.sequence += 1;
   const third = {
     ...second,
     provider_turn_id: "third-follow-up",
-    sequence: Math.max(...p.turns.map((t) => t.sequence)) + 1,
+    sequence: second.sequence + 1,
     follow_up_index: 3,
   };
   p.turns.push(third);

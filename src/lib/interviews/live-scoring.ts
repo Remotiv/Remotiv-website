@@ -22,6 +22,7 @@ import {
   type LiveActionRow,
   type NeedsCheckDecision,
   needsCheckDecisions,
+  orderCheckDecisions,
   repeatCheckDecisions,
   styleCheckDecisions,
   timeLimitCheckDecisions,
@@ -160,6 +161,8 @@ export type ScoreReason =
   | "follow_up_excluded"
   | "time_limit_check"
   | "time_limit_excluded"
+  | "order_check"
+  | "order_excluded"
   | "skipped"
   | "answered";
 
@@ -177,6 +180,8 @@ export function planLiveScoring(
     followUpCheck?: ReadonlyMap<number, NeedsCheckDecision>;
     /** Its own decisions (078): absent means none yet, so a flagged question waits. */
     timeLimitCheck?: ReadonlyMap<number, NeedsCheckDecision>;
+    /** Its own decisions (081): absent means none yet, so a flagged question waits. */
+    orderCheck?: ReadonlyMap<number, NeedsCheckDecision>;
     excludedPositions: ReadonlySet<number>;
   },
 ): QuestionPlan[] {
@@ -215,6 +220,13 @@ export function planLiveScoring(
       const d = resolved.timeLimitCheck?.get(position);
       if (!d) return plan("wait", "time_limit_check");
       if (d === "exclude") return plan("left_out", "time_limit_excluded");
+    }
+    // Asked out of the frozen order, twice, or with a follow-up or an answer
+    // out of place (#15): never scored automatically, never cleared by another.
+    if ((f.order_check ?? null) !== null) {
+      const d = resolved.orderCheck?.get(position);
+      if (!d) return plan("wait", "order_check");
+      if (d === "exclude") return plan("left_out", "order_excluded");
     }
     if (f.status === "skipped") return plan("lowest", "skipped");
     if (f.confirmed !== true) return plan("wait", "unconfirmed");
@@ -534,6 +546,7 @@ export async function scoreLiveSession(
     wordingCheck: wordingCheckDecisions(actions),
     followUpCheck: followUpCheckDecisions(actions),
     timeLimitCheck: timeLimitCheckDecisions(actions),
+    orderCheck: orderCheckDecisions(actions),
     excludedPositions,
   });
 

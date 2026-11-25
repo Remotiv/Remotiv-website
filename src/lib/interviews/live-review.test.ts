@@ -2009,6 +2009,62 @@ test("#50 a time-limit check: its own card, waiting for review, and it combines 
   assert.notEqual(byPos(buildLiveReviewView(input), 2).status, "waiting_review");
 });
 
+/* ── #15: the order check on the review page ───────────────────── */
+
+const { orderReason } = await import("./live-review.ts");
+
+test("#15 an order check: its own 'Order check' card, waiting for review, and it combines with a wording check", () => {
+  const input = wordingInput("altered_wording");
+  input.session.live_outcome.questions[1].order_check = "out_of_order";
+  input.row = null;
+  let v = buildLiveReviewView(input);
+  let q2 = byPos(v, 2);
+  assert.deepEqual(
+    q2.flags.map((f) => [f.kind, f.reason, f.resolved]),
+    [
+      ["wording", WORDING_TEXT.altered_wording("Maya", 2), null],
+      ["order", orderReason("out_of_order", "Maya", 2), null],
+    ],
+  );
+  assert.equal(
+    orderReason("out_of_order", "Maya", 2),
+    "Maya asked question 2 out of the agreed order. It is not scored until a person checks the recording.",
+  );
+  assert.match(render(v), /Order check/);
+  // Resolving the wording keeps it held for the order, and the other way round.
+  input.actions = [resolveAt("resolve_wording_check")];
+  q2 = byPos(buildLiveReviewView(input), 2);
+  assert.deepEqual(
+    [q2.status, q2.statusReason],
+    ["waiting_review", "Waiting for a check of the order the questions were asked in."],
+  );
+  input.actions = [resolveAt("resolve_order_check")];
+  assert.equal(byPos(buildLiveReviewView(input), 2).status, "waiting_review");
+  input.actions = [resolveAt("resolve_wording_check"), resolveAt("resolve_order_check")];
+  v = buildLiveReviewView(input);
+  assert.notEqual(byPos(v, 2).status, "waiting_review");
+  assert.deepEqual(
+    byPos(v, 2).flags.map((f) => [f.kind, f.resolved]),
+    [
+      ["wording", "score"],
+      ["order", "score"],
+    ],
+  );
+  // Every reason names its question, never a dash.
+  for (const check of [
+    "asked_twice",
+    "out_of_order",
+    "skipped_question",
+    "answer_before_not_answered",
+    "follow_up_elsewhere",
+    "answer_elsewhere",
+  ]) {
+    const text = orderReason(check, "Maya", 3);
+    assert.match(text, /question 3/);
+    assert.doesNotMatch(text, /[\u2013\u2014]/);
+  }
+});
+
 test("#51 a refused export: the reviewer is told why by code only, and never 'Completed'", () => {
   const input = completedInput();
   input.session.live_outcome = {

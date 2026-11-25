@@ -179,12 +179,21 @@ export function settleOutcome(
   attempt: number,
   excluded: ReadonlySet<number> = new Set(),
 ): LiveOutcome {
-  // Interruption speech (F15b) never confirms an answer; it is still transcribed below.
-  const interruptionSpeech = new Set(outcome.interruption_speech_turns ?? []);
+  // Interruption speech (F15b) and replies to an offer to repeat (F15c) never
+  // confirm an answer; they are still transcribed below.
+  const notAnswer = new Set([
+    ...(outcome.interruption_speech_turns ?? []),
+    ...(outcome.offer_reply_turns ?? []),
+  ]);
   const questions: LiveQuestionFacts[] = outcome.questions.map((q) => {
     if (q.status !== "answered") return q;
+    // After Sarah moved on without an answer (F15c), only what follows counts.
+    const after = q.moved_on_after ?? null;
     const mine = turns.filter(
-      (t) => t.position === q.position && !interruptionSpeech.has(t.sequence),
+      (t) =>
+        t.position === q.position &&
+        !notAnswer.has(t.sequence) &&
+        (after === null || t.sequence > after),
     );
     if (
       mine.some(

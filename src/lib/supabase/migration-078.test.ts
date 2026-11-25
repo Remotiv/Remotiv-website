@@ -117,14 +117,20 @@ test("the test database applies exactly 078's per-question actions", () => {
     .map((m) => [...m[1].matchAll(/"([a-z_]+)"/g)].map((x) => x[1]))
     .filter((l) => l.includes("resolve_needs_check"));
   assert.equal(lists.length, 2, "decision and target rules");
+  // The fake mirrors the latest schema: 081 added resolve_order_check (pinned
+  // exactly in migration-081.test.ts). 078's list is all there, in order.
+  const m078 = [
+    "resolve_needs_check",
+    "resolve_repeat_check",
+    "resolve_wording_check",
+    "resolve_follow_up_check",
+    "resolve_time_limit_check",
+    "resolve_style_check",
+  ];
   for (const l of lists) {
-    assert.deepEqual(l, [
-      "resolve_needs_check",
-      "resolve_repeat_check",
-      "resolve_wording_check",
-      "resolve_follow_up_check",
-      "resolve_time_limit_check",
-      "resolve_style_check",
-    ]);
+    assert.deepEqual(
+      l.filter((a) => m078.includes(a)),
+      m078,
+    );
   }
 });

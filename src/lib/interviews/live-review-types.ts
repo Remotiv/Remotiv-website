@@ -84,6 +84,7 @@ export type LiveReviewFlag = {
     | "wording"
     | "follow_up"
     | "time_limit"
+    | "order"
     | "style"
     | "transcription_failed";
   reason: string;
@@ -311,6 +312,7 @@ export type LiveRecoveryRequest =
         | "resolve_wording_check"
         | "resolve_follow_up_check"
         | "resolve_time_limit_check"
+        | "resolve_order_check"
         | "resolve_style_check";
       sessionId: string;
       position: number;

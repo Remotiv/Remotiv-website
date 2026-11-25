@@ -54,6 +54,7 @@ const {
   resolveStyleCheck,
   resolveWordingCheck,
   resolveFailedTranscription,
+  resolveOrderCheck,
   LiveRecoveryError,
 } = await import("./live-recovery.ts");
 const { ensureJobQuestionGuide, questionSha256 } = await import("./live-guides.ts");
@@ -601,6 +602,70 @@ test("mixed: kept v2 scores stay v2, a question scored now is v3, the row shows 
     Object.values(now).map((q) => [q.position, q.prompt_version]),
   );
   assert.equal(row.prompt_version, LIVE_SCORING_MIXED_VERSIONS);
+});
+
+/* ── #15: a question asked twice, saved, held, resolved ────────── */
+
+/** The sample with question 3's base question asking question 2 again (#15). */
+function askedTwiceExport() {
+  const raw = structuredClone(FIXTURE);
+  const q3 = raw.turns.find((t) => t.turn_type === "base_question" && t.question_id === 3);
+  q3.question_id = 2;
+  q3.base_question_id = raw.questions[1].id;
+  q3.text = raw.turns.find((t) => t.turn_type === "base_question" && t.question_id === 2).text;
+  return { raw, sequence: raw.turns.indexOf(q3) + 1 };
+}
+
+test("#15 a question asked twice is SAVED, both askings with their own audio, and held until its own decision", async () => {
+  const { raw } = askedTwiceExport();
+  const db = await saved(raw);
+  await transcribe(db);
+  const asked = db.tables.interview_turns.filter(
+    (t) => t.kind === "base_question" && t.question_position === 2,
+  );
+  assert.equal(asked.length, 2, "both askings stored");
+  assert.ok(
+    asked.every((t) => t.media_path),
+    "each with its audio",
+  );
+  assert.notEqual(asked[0].media_path, asked[1].media_path, "each its own file");
+  assert.equal(outcomeOf(db).questions.find((q) => q.position === 2).order_check, "asked_twice");
+
+  const model = fakeModel();
+  await resolveAllChecks(db, model);
+  assert.deepEqual(
+    [byPosition(scoreRow(db))[2].status, byPosition(scoreRow(db))[2].reason],
+    ["waiting", "order_check"],
+    "the timing and wording decisions never release it",
+  );
+  const { deps } = recovery(db, model);
+  // Only a question the outcome flags can be resolved this way.
+  const clean = outcomeOf(db).questions.find((q) => (q.order_check ?? null) === null);
+  await assert.rejects(
+    quiet(() =>
+      resolveOrderCheck(
+        { sessionId: SESSION, position: clean.position, decision: "score", note: "Checked." },
+        deps,
+      ),
+    ),
+    (e) => e instanceof LiveRecoveryError && e.code === "no_check",
+  );
+  for (const q of outcomeOf(db).questions.filter((x) => x.order_check)) {
+    await quiet(() =>
+      resolveOrderCheck(
+        {
+          sessionId: SESSION,
+          position: q.position,
+          decision: "score",
+          note: "Checked the recording.",
+        },
+        deps,
+      ),
+    );
+  }
+  const logged = db.tables.live_interview_actions.filter((a) => a.action === "resolve_order_check");
+  assert.ok(logged.length >= 1, "the decision is recorded (the fake applies 081's rules)");
+  assert.notEqual(byPosition(scoreRow(db))[2].reason, "order_check");
 });
 
 test("re-scoring a scored session buys nothing again and changes no score", async () => {

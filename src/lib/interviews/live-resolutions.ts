@@ -39,6 +39,7 @@ function decisionsOf(
     | "resolve_wording_check"
     | "resolve_follow_up_check"
     | "resolve_time_limit_check"
+    | "resolve_order_check"
     | "resolve_style_check",
 ): Map<number, NeedsCheckDecision> {
   const out = new Map<number, NeedsCheckDecision>();
@@ -104,6 +105,19 @@ export function timeLimitCheckDecisions(
   actions: readonly LiveActionRow[],
 ): Map<number, NeedsCheckDecision> {
   return decisionsOf(actions, "resolve_time_limit_check");
+}
+
+/**
+ * The holding ORDER-check decision per question position (migration 081): a
+ * question asked out of the frozen order, twice, or with a follow-up or an
+ * answer out of place, checked against the recording. Only
+ * resolve_order_check counts: no other resolution on the same question clears
+ * it, and it clears no other.
+ */
+export function orderCheckDecisions(
+  actions: readonly LiveActionRow[],
+): Map<number, NeedsCheckDecision> {
+  return decisionsOf(actions, "resolve_order_check");
 }
 
 /**
