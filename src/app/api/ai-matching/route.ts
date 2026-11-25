@@ -11,6 +11,7 @@ import {
   getCached,
   getTier,
   logSearch,
+  matchCacheKey,
   normalizeQuery,
   prefilterCandidates,
   rankWithClaude,
@@ -161,7 +162,7 @@ export async function POST(request: NextRequest) {
   // share a global cache keyed by normalized query; subscribers get per-user
   // cache so personalised ranking doesn't leak between accounts.
   const normalized = normalizeQuery(query);
-  const cacheKey = tier === "subscriber" && userId ? `${normalized}:${userId}` : normalized;
+  const cacheKey = matchCacheKey(normalized, tier === "subscriber" ? userId : null);
 
   const cached = await getCached(cacheKey);
   if (cached) {

@@ -43,6 +43,7 @@ import {
   ScoringSkipped,
   verifyEvidence,
 } from "./cv-scoring";
+import { FAIRNESS_RULES } from "./fairness";
 import {
   acceptsTemperature,
   assertCompleteStop,
@@ -191,8 +192,15 @@ import { createScoringMessage, type ScoringMessage, scoringProvider } from "./sc
  * turned off where it would be on by default, text read from the first text
  * block, max_tokens and refusal stops named. On the default model the
  * requests are byte-identical to v8, so v9 stays in v8's generation.
+ *
+ * v10 - fairness (#71): the shared FAIRNESS_RULES (fairness.ts) in both the
+ * answer prompt and the session prompt. The speech rules already forbade
+ * grammar and fluency from counting with no exception; the clause's last
+ * sentence keeps that stricter rule. No band, rule or sampling changed (same
+ * generation as v9). Scores already stored keep their v9 label and are not
+ * re-scored.
  */
-export const PROMPT_VERSION = "interview-scoring-v9";
+export const PROMPT_VERSION = "interview-scoring-v10";
 
 /** Same env var as the CV scorer — one model setting for the product. */
 export { resolveScoringModel };
@@ -294,6 +302,8 @@ export const SYSTEM_PROMPT = `You are an experienced interviewer assessing ONE s
 
 You are reading a machine transcript of speech. You have no video and no audio. You know nothing about this person beyond these words.
 
+${FAIRNESS_RULES}
+
 ## What you are scoring
 
 Score WHAT WAS SAID against WHAT WAS ASKED. Nothing else.
@@ -373,6 +383,8 @@ export const SESSION_SYSTEM_PROMPT = `You are summarising a completed interview 
 The message opens with a header: how many questions the interview had, how many were answered, how many were scored, and which questions were NOT scored and why. Then one block per SCORED answer, headed "Question N of M" where N is its position in the interview. You are given only the scored answers. The overall score has ALREADY been computed from their numbers — you are not being asked to re-score anything.
 
 Write a verdict and a summary.
+
+${FAIRNESS_RULES}
 
 ## Verdict
 At most TWELVE words. A plain description of where this candidate stands on the evidence, not a recommendation. Never advise rejecting or hiring.

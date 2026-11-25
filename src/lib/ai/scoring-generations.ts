@@ -59,6 +59,11 @@ export const CV_SCORING_GENERATIONS: Record<string, GenerationEntry> = {
     reason:
       "temperature sent only to models that accept it; thinking turned off; text read from first text block; max_tokens/refusal now explicit errors - the default model's request is unchanged",
   },
+  "cv-scoring-v14": {
+    generation: 2,
+    reason:
+      "fairness rules (#71) and employment gaps never lower a score - evidence rules hardened; bands, dimensions and sampling unchanged",
+  },
 };
 
 export const INTERVIEW_SCORING_GENERATIONS: Record<string, GenerationEntry> = {
@@ -84,6 +89,11 @@ export const INTERVIEW_SCORING_GENERATIONS: Record<string, GenerationEntry> = {
     generation: 1,
     reason:
       "temperature sent only to models that accept it; thinking turned off; text read from first text block; max_tokens/refusal now explicit errors - the default model's request is unchanged",
+  },
+  "interview-scoring-v10": {
+    generation: 1,
+    reason:
+      "fairness rules (#71) - the speech rules already forbade the same things; bands, rules and sampling unchanged",
   },
 };
 

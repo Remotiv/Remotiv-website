@@ -13,6 +13,7 @@ import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { publicTalent } from "@/lib/talent-visibility";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAnthropic, AI_MATCHING_MODEL } from "@/lib/anthropic";
+import { FAIRNESS_RULES } from "@/lib/ai/fairness";
 import { extractText, thinkingOffParams } from "@/lib/ai/model-params";
 
 // ── Types ────────────────────────────────────────────────────
@@ -80,6 +81,25 @@ const STOPWORDS = new Set([
 
 export function normalizeQuery(query: string): string {
   return query.toLowerCase().trim().replace(/\s+/g, " ");
+}
+
+/**
+ * The ranking prompt's version, part of every ai_match_cache key. Move it with
+ * any change to what the model is told or shown, so a ranking made under the
+ * old prompt is never served after the change (it simply stops matching and
+ * expires within CACHE_TTL_HOURS). matching-v2: the fairness rules, and no
+ * candidate name in the prompt (#71).
+ */
+export const MATCHING_PROMPT_VERSION = "matching-v2";
+
+/**
+ * The ai_match_cache key: the prompt version, the normalized query, and for a
+ * subscriber their user id (their ranking is personal and must not leak to
+ * another account). Anonymous and free share one key per query.
+ */
+export function matchCacheKey(normalized: string, subscriberUserId: string | null): string {
+  const base = `${MATCHING_PROMPT_VERSION}:${normalized}`;
+  return subscriberUserId ? `${base}:${subscriberUserId}` : base;
 }
 
 // ── 2. getTier ───────────────────────────────────────────────
@@ -292,14 +312,18 @@ function parseMatchJson(raw: string): MatchResult[] | null {
   }
 }
 
+/**
+ * One candidate as the model sees it. No name (#71): the fairness rules
+ * forbid using it, so it is not sent at all. The model answers by
+ * candidate_id; the name is joined back from the row after ranking.
+ */
 function candidateSummaryForPrompt(c: CandidateRow): string {
-  const name = `${c.first_name}${c.last_name ? " " + c.last_name : ""}`.trim();
   const skills = c.skills?.length ? c.skills.slice(0, PROMPT_SKILLS_LIMIT).join(", ") : "—";
   const loc = [c.city, c.country].filter(Boolean).join(", ") || "—";
   const exp = c.years_experience != null ? `${c.years_experience} yrs` : "—";
   const role = c.job_title || c.role_category || "—";
   const summary = (c.summary || "").slice(0, PROMPT_SUMMARY_LIMIT).replace(/\s+/g, " ");
-  return `id: ${c.id}\nname: ${name}\nrole: ${role}\nlocation: ${loc}\nexperience: ${exp}\nskills: ${skills}\nsummary: ${summary || "—"}`;
+  return `id: ${c.id}\nrole: ${role}\nlocation: ${loc}\nexperience: ${exp}\nskills: ${skills}\nsummary: ${summary || "—"}`;
 }
 
 export async function rankWithClaude(
@@ -315,6 +339,8 @@ export async function rankWithClaude(
 
   const systemPrompt =
     "You are a technical recruiter. Rank candidates by fit to the hiring query. " +
+    // #71: the shared fairness rules, the same text every scoring prompt carries.
+    `\n\n${FAIRNESS_RULES}\n\n` +
     "Return ONLY valid JSON — no prose, no markdown, no code fences. " +
     `Output: a JSON array of up to ${TOP_N} objects, sorted by match_percent descending. ` +
     'Each object must be: {"candidate_id": "<uuid copied exactly from the candidate>", "match_percent": <integer 0-100>, "why": "<one short sentence on the fit>"}. ' +

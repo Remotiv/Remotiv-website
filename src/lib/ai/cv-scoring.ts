@@ -26,6 +26,7 @@ import {
 } from "@/lib/queue/job-context";
 import { createServiceClient } from "@/lib/supabase/server";
 import { CV_WEIGHT_DEFAULT } from "@/lib/weights";
+import { EMPLOYMENT_GAP_NOT_LISTED, EMPLOYMENT_GAP_RULE, FAIRNESS_RULES } from "./fairness";
 import { medianOfRuns, resolveScoringRuns } from "./median-runs";
 import {
   acceptsTemperature,
@@ -129,8 +130,18 @@ export {
  * is byte-identical to v12 - same prompt, temperature 0, same max_tokens - so
  * v13 stays in v12's generation. Rows scored on a 5.x model differ in
  * sampling, and ai_model on the row says which model that was.
+ *
+ * v14 - fairness (#71). The shared FAIRNESS_RULES (fairness.ts) now opens the
+ * rubric: job-related evidence only, and a fixed list of things never used or
+ * inferred. And employment gaps: an "unexplained multi-year gap" was the
+ * first example of a concern, which taught the model that a gap is a risk.
+ * EMPLOYMENT_GAP_RULE replaces it: a gap may be mentioned as a neutral
+ * observation, never speculated about, never a reason for a lower score, and
+ * never listed in concerns or missing requirements (EMPLOYMENT_GAP_NOT_LISTED). No
+ * band, dimension or sampling changed (scoring-generations.ts). Scores already
+ * stored keep their v13 label and are not re-scored.
  */
-export const PROMPT_VERSION = "cv-scoring-v13";
+export const PROMPT_VERSION = "cv-scoring-v14";
 
 /**
  * Swappable without a deploy; the resolved value is stored on every row.
@@ -500,6 +511,8 @@ export const SYSTEM_PROMPT = `You are an experienced technical recruiter assessi
 
 You judge against THAT JOB'S stated requirements and responsibilities — never against a generic idea of a good CV. A CV that is excellent for a different role scores low here if it does not match what this job asks for.
 
+${FAIRNESS_RULES}
+
 ${BAND_DEFINITIONS}
 
 EVIDENCE IS MANDATORY, AND IT MUST BE THE RIGHT EVIDENCE.
@@ -550,7 +563,9 @@ A must-have you marked "not_found" SHOULD also appear in missing_requirements if
 
 MISSING REQUIREMENTS — the most useful thing you produce. MAXIMUM 3. List the job's stated requirements for which the CV shows no supporting evidence. Be specific and concrete: "No Kubernetes or container orchestration experience mentioned" — never "lacks some technical skills". Return only gaps that would change a hiring decision; if every stated requirement has evidence, return an empty array.
 
-CONCERNS — MAXIMUM 3. These are shown to the recruiter under the heading "Risks / points to verify": they are things to CHECK in an interview, not reasons to reject. Neutral factual observations only — an unexplained multi-year gap, a run of very short tenures, a career change mid-CV. NEVER recommend rejecting, advancing, or interviewing anyone. You do not make hiring decisions; you surface what the CV does and does not show. If there is nothing genuinely worth verifying, return an empty array.
+CONCERNS — MAXIMUM 3. These are shown to the recruiter under the heading "Risks / points to verify": they are things to CHECK in an interview, not reasons to reject. Neutral factual observations only: a run of very short tenures, a career change mid-CV. NEVER recommend rejecting, advancing, or interviewing anyone. You do not make hiring decisions; you surface what the CV does and does not show. If there is nothing genuinely worth verifying, return an empty array.
+
+EMPLOYMENT GAPS. ${EMPLOYMENT_GAP_RULE} ${EMPLOYMENT_GAP_NOT_LISTED}
 
 CONTRADICTIONS BETWEEN THE SCREENING ANSWERS AND THE CV — include these as concerns, and rank them first when present. The screening answers are the candidate's own claims; the CV is what they chose to document. When a claim and the document point in different directions, that gap is the most useful thing on this card, and the recruiter should hear it in one line.
 
