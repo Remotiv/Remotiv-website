@@ -362,8 +362,14 @@ export function JobsDashboard({
 
   // ── Status mutations ──────────────────────────────────────
   async function handleSetStatus(job: Job, status: Job["status"]) {
+    setMutError(null);
     setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status } : j)));
-    await updateJobStatus(job.id, status);
+    const result = await updateJobStatus(job.id, status);
+    // Refused (the go-live gate, #59, or a failed write): put the status back and say why.
+    if (!result.success) {
+      setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: job.status } : j)));
+      setMutError(result.error);
+    }
   }
 
   // ── Delete ────────────────────────────────────────────────
@@ -392,6 +398,10 @@ export function JobsDashboard({
     if (!result.success) {
       setJobs(snapshot);
       setMutError(result.error);
+    } else if (result.warning) {
+      // Restored On hold by the go-live gate (#59).
+      setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: "on_hold" } : j)));
+      setMutError(result.warning);
     }
   }
 
@@ -430,6 +440,13 @@ export function JobsDashboard({
       <TopNav email={email} userRole={userRole} />
 
       <div className="p-4 lg:p-8">
+        {/* The same message line the edit form shows, for actions taken from
+            the list (status, restore, delete), which never open the form. */}
+        {mutError && !showModal && (
+          <p className="mb-4 rounded-lg bg-red-50 px-3.5 py-2.5 text-sm text-red-500" role="alert">
+            {mutError}
+          </p>
+        )}
         {/* Page header */}
         <div className="mb-6 flex items-center justify-between">
           <div>

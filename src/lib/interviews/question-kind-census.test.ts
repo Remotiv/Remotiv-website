@@ -62,8 +62,8 @@ const FILTERED = [
   [IA, "fetchInterviewPanel", "kind"],
   // The edit page's fetch and the duplicate both read through loadQuestionList.
   [JOBS, "loadQuestionList", "kind"],
-  // The stored live count, when AI Video Interview is on and no live list was sent.
-  [JOBS, "liveCountRefusal", '"live"'],
+  // The one go-live gate's stored live count (#59): every path that makes a job live.
+  ["lib/interviews/live-go-live.ts", "storedLiveQuestionCount", '"live"'],
   ["lib/ai/interview-scoring.ts", "handleAiScorecard", '"async"'],
   ["lib/interviews/live-settings.ts", "gateLiveInterviewInvite", '"live"'],
   ["lib/interviews/review.ts", "loadInterviewSession", "kind"],

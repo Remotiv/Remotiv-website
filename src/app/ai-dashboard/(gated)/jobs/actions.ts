@@ -59,6 +59,15 @@ import { generateScoringCriteria } from "@/lib/ai/scoring-criteria";
 import { generateScreeningQuestions } from "@/lib/ai/screening-questions";
 import { parseRules } from "@/lib/calendar/availability";
 import {
+  GO_LIVE_REFUSED,
+  GO_LIVE_UNREADABLE,
+  goLiveCheck,
+  liveQuestionCountOk,
+  RESTORED_ON_HOLD,
+  storedLiveQuestionCount,
+  UNARCHIVED_ON_HOLD,
+} from "@/lib/interviews/live-go-live";
+import {
   LIVE_QUESTION_COUNT_REFUSAL,
   LIVE_QUESTION_LIST_NOT_YET,
   LIVE_QUESTION_LIST_SAVE_ENABLED,
@@ -71,7 +80,6 @@ import {
   fairnessBlockMessage,
   firstFairnessBlock,
 } from "@/lib/interviews/question-fairness";
-import { MAX_JOB_QUESTIONS, MIN_JOB_QUESTIONS } from "@/lib/interviews/question-mix";
 import {
   ANSWER_SECONDS_MAX,
   ANSWER_SECONDS_MIN,
@@ -168,6 +176,20 @@ function askedIn(list: readonly InterviewQuestionInput[]): number {
 }
 
 /**
+ * Whether a job coming back (restore, unarchive) must come back On hold: it
+ * is stored as Published and fails the go-live gate, or could not be checked
+ * (the gate fails closed). Never a reason to refuse the action itself.
+ */
+async function backOnHold(
+  supabase: ReturnType<typeof createServiceClient>,
+  jobId: string,
+  companyId: string,
+): Promise<boolean> {
+  const gate = await goLiveCheck(supabase, jobId, companyId);
+  return gate.status === "open" && !gate.ok;
+}
+
+/**
  * AI Video Interview on and no live list sent (a client from before step 6):
  * the job's STORED live questions must already be 4 to 8. Read for a job the
  * caller's company owns and may act on (updateCompanyJob checks both first).
@@ -181,16 +203,10 @@ async function liveCountRefusal(
   if (input.avatar_interview_enabled !== true || input.live_interview_questions !== undefined) {
     return null;
   }
-  const { data, error } = await supabase
-    .from("interview_questions")
-    .select("id")
-    .eq("job_id", jobId)
-    .eq("company_id", companyId)
-    .eq("interview_kind", "live")
-    .limit(50);
-  if (error) return actionFailed("save those changes", error);
-  const n = (data ?? []).length;
-  return n >= MIN_JOB_QUESTIONS && n <= MAX_JOB_QUESTIONS ? null : LIVE_QUESTION_COUNT_REFUSAL;
+  // The one gate's own read and rule (live-go-live.ts).
+  const n = await storedLiveQuestionCount(supabase, jobId, companyId);
+  if (n === null) return GO_LIVE_UNREADABLE;
+  return liveQuestionCountOk(true, n) ? null : LIVE_QUESTION_COUNT_REFUSAL;
 }
 
 function buildPatch(
@@ -277,11 +293,11 @@ function buildPatch(
   // AI Video Interview on: 4 to 8 live questions, the range the live invite
   // accepts. Off: any number is kept, none included. A save that sends no
   // live list is checked against what is stored (liveCountRefusal).
-  if (avatarOn && Array.isArray(input.live_interview_questions)) {
-    const n = askedIn(input.live_interview_questions);
-    if (n < MIN_JOB_QUESTIONS || n > MAX_JOB_QUESTIONS) {
-      return { ok: false, error: LIVE_QUESTION_COUNT_REFUSAL };
-    }
+  if (
+    Array.isArray(input.live_interview_questions) &&
+    !liveQuestionCountOk(avatarOn, askedIn(input.live_interview_questions))
+  ) {
+    return { ok: false, error: LIVE_QUESTION_COUNT_REFUSAL };
   }
 
   // AI Video Interview mode, length and hiring challenges (074). Checked here,
@@ -920,7 +936,10 @@ export async function createCompanyJob(
   if (!built.ok) return { success: false, error: built.error };
   // A new job stores no live questions, so AI Video Interview on with none
   // sent is 0: refused, as buildPatch refuses a sent list outside 4 to 8.
-  if (input.avatar_interview_enabled === true && input.live_interview_questions === undefined) {
+  if (
+    input.live_interview_questions === undefined &&
+    !liveQuestionCountOk(input.avatar_interview_enabled === true, 0)
+  ) {
     return { success: false, error: LIVE_QUESTION_COUNT_REFUSAL };
   }
 
@@ -1339,6 +1358,11 @@ export async function updateCompanyJobStatus(
     if (unpublishable) {
       return { success: false, error: `${unpublishable} Open the job to fix it.` };
     }
+    // The one go-live gate (#59): AI Video Interview on needs 4 to 8 live questions.
+    const gate = await goLiveCheck(supabase, jobId, ctx.companyId);
+    if (!gate.ok) {
+      return { success: false, error: gate.unreadable ? GO_LIVE_UNREADABLE : GO_LIVE_REFUSED };
+    }
   }
 
   const { error } = await supabase
@@ -1406,9 +1430,15 @@ export async function setCompanyJobArchived(
     return { success: false, error: "That job isn't in your workspace." };
   }
 
+  // Unarchiving a Published job makes it public again: one that fails the
+  // go-live gate (#59) comes back On hold instead, and the recruiter is told.
+  const onHold = !archived && (await backOnHold(supabase, jobId, ctx.companyId));
   const { error } = await supabase
     .from("jobs")
-    .update({ archived_at: archived ? new Date().toISOString() : null })
+    .update({
+      archived_at: archived ? new Date().toISOString() : null,
+      ...(onHold ? { status: "on_hold" } : {}),
+    })
     .eq("id", jobId)
     .eq("company_id", ctx.companyId);
 
@@ -1431,7 +1461,7 @@ export async function setCompanyJobArchived(
   // Same revalidation as a status change: the public list, the detail page and
   // the company careers view all have to drop (or regain) the job at once.
   revalidateJobSurfaces();
-  return { success: true, data: undefined };
+  return { success: true, data: undefined, ...(onHold ? { warning: UNARCHIVED_ON_HOLD } : {}) };
 }
 
 export async function deleteCompanyJob(jobId: string): Promise<MutationResult<undefined>> {
@@ -1506,16 +1536,19 @@ export async function restoreCompanyJob(jobId: string): Promise<MutationResult<u
     return { success: false, error: "That job isn't in your workspace." };
   }
 
+  // Never refused: a Published job that fails the go-live gate (#59) comes
+  // back On hold instead, and the recruiter is told why.
+  const onHold = await backOnHold(supabase, jobId, ctx.companyId);
   const { error } = await supabase
     .from("jobs")
-    .update({ deleted_at: null })
+    .update(onHold ? { deleted_at: null, status: "on_hold" } : { deleted_at: null })
     .eq("id", jobId)
     .eq("company_id", ctx.companyId)
     .not("deleted_at", "is", null);
   if (error) return { success: false, error: actionIncomplete("restore that job", error) };
 
   revalidateJobSurfaces();
-  return { success: true, data: undefined };
+  return { success: true, data: undefined, ...(onHold ? { warning: RESTORED_ON_HOLD } : {}) };
 }
 
 /** Copy an existing job into a fresh Draft. Ownership-checked like the rest. */

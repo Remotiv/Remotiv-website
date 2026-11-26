@@ -737,7 +737,8 @@ export function JobsClient({
     }
 
     setDeletedJobs((prev) => prev.filter((j) => j.id !== job.id));
-    setToast(`“${job.title}” restored`);
+    // Restored On hold by the go-live gate (#59): say why, not just "restored".
+    setToast(result.warning ?? `“${job.title}” restored`);
     // The job has to reappear in the live list, which only the server can
     // supply — it carries columns the recovery row deliberately does not hold.
     router.refresh();
@@ -888,7 +889,8 @@ export function JobsClient({
       });
       return;
     }
-    setToast(archived ? `“${job.title}” archived` : `“${job.title}” restored`);
+    // Unarchived On hold by the go-live gate (#59): say why, not just "restored".
+    setToast(result.warning ?? (archived ? `“${job.title}” archived` : `“${job.title}” restored`));
     router.refresh();
   }
 
