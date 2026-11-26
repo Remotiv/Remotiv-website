@@ -20,7 +20,8 @@ import type { createServiceClient } from "@/lib/supabase/server";
  *
  * ── Pieces ───────────────────────────────────────────────────
  *
- * About two minutes each (three at most, 50 MB at most), each a complete file:
+ * About thirty seconds each (the screen's PIECE_MS, _live/video-pieces.ts;
+ * PIECE_MAX_MS and PIECE_MAX_BYTES below allow three minutes and 50 MB), each a complete file:
  * the screen stops and restarts the recorder per piece. Piece N is RESERVED
  * when it starts recording (the screen asks for its upload URL then), and
  * CONFIRMED once the file is checked here. Reserving at the start is what

@@ -49,14 +49,19 @@ import { createServiceClient } from "@/lib/supabase/server";
  *                                           through, 'exclude' leaves it out
  *   wording_check (the first asking not     the same, resolved by its own
  *   as frozen)                              action
+ *   follow_up_check (076), time_limit_check the same, each resolved by its own
+ *   (speech after the limit, 078),          action
+ *   order_check (out of the frozen order,
+ *   081)
  *   skipped (asked, no real answer)         the lowest score, no AI call
  *   answered and confirmed                  scored by the AI
  *   ...whose rationale kept describing      waits for a person (style check);
  *   speaking style after a retry            'score' counts it, 'exclude' leaves
  *                                           it out
  *
- * The timing, repeat, wording and style checks are SEPARATE flags on each question,
- * resolved by separate logged actions: resolving one never clears another.
+ * The timing, repeat, wording, follow-up, time-limit, order and style checks
+ * are SEPARATE flags on each question, resolved by separate logged actions:
+ * resolving one never clears another.
  *
  * A failed transcription keeps the outcome undecided, so nothing is scored
  * until the turn is retried or a person excludes it: a failure never counts
@@ -101,8 +106,10 @@ import { createServiceClient } from "@/lib/supabase/server";
  * A question already AI-scored in the stored row is reused, never re-bought.
  * The row is written with a compare-and-set on `rev`; a writer that loses
  * reads again and keeps the AI results it already paid for. A retryable
- * provider failure leaves its question waiting, writes what was scored, and
- * rethrows so the queue retries; a terminal one leaves that question out.
+ * provider failure, or a billing or configuration one, leaves its question
+ * waiting, writes what was scored, and rethrows so the queue retries; a
+ * deterministic one (the same request would fail the same way) leaves that
+ * question out.
  *
  * ── Which prompt scored what ─────────────────────────────────
  *
@@ -423,7 +430,7 @@ export type LiveScoringDeps = {
   service: Service;
   /** The model call. Defaults to the scoring transport. */
   call?: ScoringCall;
-  /** Defaults to AI_INTERVIEW_SCORING_ENABLED. */
+  /** Defaults to liveScoringEnabled(): LIVE_INTERVIEW_SCORING_ENABLED, not the async scorer's switch. */
   enabled?: boolean;
   now?: () => number;
 };
@@ -490,8 +497,8 @@ export class LiveScoringError extends Error {
 
 /**
  * Work out what can be scored, score what is newly eligible, and store the
- * session's row. Returns the stored row, or null when scoring is off or the
- * session's words are purged.
+ * session's row. Returns the stored row, or null when scoring is off, the
+ * attempt was restarted, or the session's words are purged.
  */
 export async function scoreLiveSession(
   sessionId: string,
