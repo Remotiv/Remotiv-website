@@ -74,13 +74,16 @@ import { createServiceClient } from "@/lib/supabase/server";
  * questions are never written for an interview already under way. A marker
  * that cannot be read is refused too, never written over.
  *
- * ── Not wired yet ────────────────────────────────────────────
+ * ── Called at start ──────────────────────────────────────────
  *
- * Live links stay locked (session.ts resolves a live session as not open),
- * and nothing calls this yet: the start path does not freeze before it
- * creates the provider session. Until it does, the lock at invite is the
- * invite's own questions_snapshot (applicants/interview-actions.ts), which
- * this freezes as it stands.
+ * The start path calls this (startLiveInterview, live-start.ts, step 3): after
+ * the start has claimed the session and before it asks the provider for a
+ * session, passing its claim, so the freeze lands only while that claim is
+ * still on the row. A start the provider then refuses (busy) leaves the set
+ * frozen, and the next start reuses it. What is frozen is the invite's own
+ * questions_snapshot (applicants/interview-actions.ts), as it stands. Live
+ * links stay closed unless LIVE_INTERVIEW_SCREEN_ENABLED is "1" (session.ts,
+ * live-screen.ts).
  *
  * ── Never logged ─────────────────────────────────────────────
  *
