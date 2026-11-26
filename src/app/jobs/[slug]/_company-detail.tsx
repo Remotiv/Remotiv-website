@@ -4,6 +4,7 @@ import { ShareRole } from "@/components/white-label/share";
 import { WhiteLabelShell } from "@/components/white-label/shell";
 import type { Job } from "@/lib/jobs";
 import { canonicalUrl } from "@/lib/seo";
+import { whatsAppAllowedFor } from "@/lib/whatsapp/remotiv-board";
 import ApplyButton from "./_apply-button";
 import type { JobCompany } from "./_company-data";
 import { fmtSalary, serializeJsonLd, splitLines, timeAgo, toPublicJob } from "./_format";
@@ -83,6 +84,8 @@ export function CompanyJobDetail({
   const salary = fmtSalary(job.salary_min, job.salary_max, job.salary_currency);
   const shareUrl = canonicalUrl(`/jobs/${job.slug}`);
   const applyJob = toPublicJob(job) as Job;
+  // The same answer /api/apply reaches from the job row (remotiv-board.ts).
+  const offerWhatsApp = whatsAppAllowedFor(job.company_id);
 
   // Every careers link is gated on the slug together: a company with none has
   // no careers page, and a link labelled "All roles at X" that lands on the
@@ -173,7 +176,12 @@ export function CompanyJobDetail({
             <h1>{job.title}</h1>
 
             <div className="hact">
-              <ApplyButton job={applyJob} className="btn onbrand" preset={company.preset}>
+              <ApplyButton
+                job={applyJob}
+                offerWhatsApp={offerWhatsApp}
+                className="btn onbrand"
+                preset={company.preset}
+              >
                 <Icon d={ARROW} />
               </ApplyButton>
               <span className="meta">
@@ -346,7 +354,12 @@ export function CompanyJobDetail({
                   contact you by email with an update.
                 </p>
               </div>
-              <ApplyButton job={applyJob} className="btn" preset={company.preset}>
+              <ApplyButton
+                job={applyJob}
+                offerWhatsApp={offerWhatsApp}
+                className="btn"
+                preset={company.preset}
+              >
                 <Icon d={ARROW} />
               </ApplyButton>
             </div>
@@ -389,7 +402,13 @@ export function CompanyJobDetail({
           breakpoint so this cannot cover the Remotiv line. */}
       <div className="stick">
         <span className="st">{job.title}</span>
-        <ApplyButton job={applyJob} className="btn" label="Apply" preset={company.preset} />
+        <ApplyButton
+          job={applyJob}
+          offerWhatsApp={offerWhatsApp}
+          className="btn"
+          label="Apply"
+          preset={company.preset}
+        />
       </div>
 
       <script

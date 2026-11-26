@@ -34,6 +34,7 @@ export default function ApplyButton({
   label = "Apply for this role",
   children,
   preset,
+  offerWhatsApp = false,
 }: {
   job: Job;
   variant?: "hero" | "ticket";
@@ -54,6 +55,8 @@ export default function ApplyButton({
    * Remotiv variants leave it undefined and the modal stays Remotiv purple.
    */
   preset?: BrandPreset;
+  /** Decided on the server from the job's owner; passed to the modal. */
+  offerWhatsApp?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   useCaptureAttribution();
@@ -80,7 +83,14 @@ export default function ApplyButton({
           </>
         )}
       </button>
-      {open && <ApplyModal job={job} onClose={() => setOpen(false)} preset={preset} />}
+      {open && (
+        <ApplyModal
+          job={job}
+          onClose={() => setOpen(false)}
+          preset={preset}
+          offerWhatsApp={offerWhatsApp}
+        />
+      )}
     </>
   );
 }

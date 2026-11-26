@@ -96,7 +96,7 @@ const drawer = readFileSync(new URL("./applications-dashboard.tsx", import.meta.
 test("the effect clears the old answer, asks for the current applicant, and returns the cancel", () => {
   assert.match(
     drawer,
-    /useEffect\(\(\) => \{\s*setWaLink\(null\);\s*return requestWhatsAppLink\(getApplicationWhatsAppLink, app\.id, setWaLink\);\s*\}, \[app\.id\]\);/,
+    /useEffect\(\(\) => \{\s*setWaLink\(null\);\s*if \(!whatsAppEnabled\) return;\s*return requestWhatsAppLink\(getApplicationWhatsAppLink, app\.id, setWaLink\);\s*\}, \[app\.id, whatsAppEnabled\]\);/,
   );
   // Nothing else asks for the link, so nothing else can apply a stale answer.
   assert.equal(drawer.match(/getApplicationWhatsAppLink\(/g)?.length ?? 0, 0);
@@ -122,8 +122,8 @@ test("the STOP note sits under the button, only when the button is shown", () =>
   );
   assert.doesNotMatch(CHAT_STOP_NOTE, /[‒-―]/);
   const shown = drawer.slice(
-    drawer.indexOf("{waLink?.ok ? ("),
-    drawer.indexOf(") : (", drawer.indexOf("{waLink?.ok ? (")),
+    drawer.indexOf("(waLink?.ok ? ("),
+    drawer.indexOf(") : (", drawer.indexOf("(waLink?.ok ? (")),
   );
   assert.ok(shown.indexOf("Message on WhatsApp") < shown.indexOf("{CHAT_STOP_NOTE}"));
   assert.equal(drawer.match(/\{CHAT_STOP_NOTE\}/g)?.length, 1, "nowhere else");

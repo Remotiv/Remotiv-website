@@ -74,6 +74,7 @@ export default function ApplyModal({
   job,
   onClose,
   preset,
+  offerWhatsApp = false,
 }: {
   job: Job;
   onClose: () => void;
@@ -87,6 +88,12 @@ export default function ApplyModal({
    * because there is no branded code path for it to drift through.
    */
   preset?: BrandPreset;
+  /**
+   * Show the WhatsApp box? Decided on the server from the job's owner
+   * (remotiv-board.ts): Remotiv's own board gets none while its switch is off.
+   * /api/apply decides again from the job row and ignores a posted tick.
+   */
+  offerWhatsApp?: boolean;
 }) {
   const questions = job.screening_questions ?? [];
 
@@ -215,7 +222,7 @@ export default function ApplyModal({
       // the payload honest about what the candidate actually answered.
       if (form.noticePeriod) fd.append("notice_period", form.noticePeriod);
       if (form.availability) fd.append("availability", form.availability);
-      if (whatsAppOptIn) fd.append(WHATSAPP_OPT_IN_FIELD, WHATSAPP_OPT_IN_TICKED);
+      if (offerWhatsApp && whatsAppOptIn) fd.append(WHATSAPP_OPT_IN_FIELD, WHATSAPP_OPT_IN_TICKED);
       fd.append("cv", cvFile as File);
       // New: screening answers, normalized to strings and keyed by question id.
       // Ignored by /api/apply until its own step reads this key.
@@ -657,15 +664,17 @@ export default function ApplyModal({
                   appearing and disappearing. Screening answers are still
                   captured and scored server-side, unchanged. */}
 
-              <label htmlFor="apply-whatsapp" className="ap-optin">
-                <input
-                  id="apply-whatsapp"
-                  type="checkbox"
-                  checked={whatsAppOptIn}
-                  onChange={(e) => setWhatsAppOptIn(e.target.checked)}
-                />
-                <span>{WHATSAPP_OPT_IN_LABEL}</span>
-              </label>
+              {offerWhatsApp && (
+                <label htmlFor="apply-whatsapp" className="ap-optin">
+                  <input
+                    id="apply-whatsapp"
+                    type="checkbox"
+                    checked={whatsAppOptIn}
+                    onChange={(e) => setWhatsAppOptIn(e.target.checked)}
+                  />
+                  <span>{WHATSAPP_OPT_IN_LABEL}</span>
+                </label>
+              )}
 
               {submitError && (
                 <p role="alert" className="ap-errbanner">

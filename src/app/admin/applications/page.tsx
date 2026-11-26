@@ -4,6 +4,7 @@ import { ApplicationsDashboard } from "@/app/admin/_components/applications-dash
 import { type UserRole, isSuperAdminEmail } from "@/app/admin/lib/roles";
 import type { ApplicationTag, JobApplication, OpenJob } from "./actions";
 import { adminApplicationScope } from "@/lib/admin-scope";
+import { whatsAppOnRemotivBoard } from "@/lib/whatsapp/remotiv-board";
 
 export const dynamic = "force-dynamic";
 
@@ -155,6 +156,7 @@ export default async function ApplicationsPage({
       initialApplications={applications}
       openJobs={openJobs}
       initialSearch={initialSearch ?? ""}
+      whatsAppEnabled={whatsAppOnRemotivBoard()}
     />
   );
 }

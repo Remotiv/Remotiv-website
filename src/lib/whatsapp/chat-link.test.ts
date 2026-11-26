@@ -108,12 +108,15 @@ test("a number that cannot be addressed: no link", async () => {
 
 // ── The admin action the drawer calls ───────────────────────
 
-async function asAdmin(fn) {
+/** An admin, with Remotiv Admin's WhatsApp switch on unless `switchOn` is false. */
+async function asAdmin(fn, { switchOn = true } = {}) {
   globalThis.__chatAdmin = true;
+  if (switchOn) process.env.WHATSAPP_REMOTIV_BOARD_ENABLED = "true";
   try {
     return await quiet(fn);
   } finally {
     delete globalThis.__chatAdmin;
+    delete process.env.WHATSAPP_REMOTIV_BOARD_ENABLED;
   }
 }
 
@@ -152,7 +155,9 @@ test("the action reads consent from the row, inside the admin scope", async () =
 
 test("fails closed: no admin, a failed read, or no row is no link and reads nothing more", async () => {
   const svc = world();
+  process.env.WHATSAPP_REMOTIV_BOARD_ENABLED = "true";
   const notAdmin = await quiet(() => getApplicationWhatsAppLink("app-1"));
+  delete process.env.WHATSAPP_REMOTIV_BOARD_ENABLED;
   assert.deepEqual(notAdmin, { ok: false, label: CHAT_LINK_UNAVAILABLE.check_failed });
   assert.equal(svc.queries.length, 0, "nothing read for a non-admin");
 
@@ -167,6 +172,16 @@ test("fails closed: no admin, a failed read, or no row is no link and reads noth
     ok: false,
     label: CHAT_LINK_UNAVAILABLE.check_failed,
   });
+});
+
+test("Remotiv Admin's switch off (unset): no link for anyone, and nothing is read", async () => {
+  for (const value of [undefined, "", "false", "1", "TRUE"]) {
+    const svc = world();
+    if (value !== undefined) process.env.WHATSAPP_REMOTIV_BOARD_ENABLED = value;
+    const r = await asAdmin(() => getApplicationWhatsAppLink("app-1"), { switchOn: false });
+    assert.deepEqual(r, { ok: false, label: CHAT_LINK_UNAVAILABLE.admin_off }, String(value));
+    assert.equal(svc.queries.length, 0, String(value));
+  }
 });
 
 test("the labels are the decided wording, with no dash", () => {

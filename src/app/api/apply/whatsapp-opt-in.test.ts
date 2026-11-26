@@ -147,7 +147,7 @@ test("the apply form: optional, unticked by default, the decided label, posted o
   assert.match(modal, /<span>\{WHATSAPP_OPT_IN_LABEL\}<\/span>/);
   assert.match(
     modal,
-    /if \(whatsAppOptIn\) fd\.append\(WHATSAPP_OPT_IN_FIELD, WHATSAPP_OPT_IN_TICKED\);/,
+    /if \(offerWhatsApp && whatsAppOptIn\) fd\.append\(WHATSAPP_OPT_IN_FIELD, WHATSAPP_OPT_IN_TICKED\);/,
   );
   // Never required: the submit gate does not know about it.
   const gate = /const BASIC_KEYS = \[([^\]]*)\]/.exec(modal)?.[1] ?? "";

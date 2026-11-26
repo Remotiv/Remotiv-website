@@ -220,6 +220,7 @@ function AppPanel({
   onDelete,
   onToast,
   extractingId,
+  whatsAppEnabled,
 }: {
   app: JobApplication;
   authorName: string;
@@ -239,6 +240,8 @@ function AppPanel({
   // and self-debounce. Compares to `app.id` because there's at most one
   // panel open at a time.
   extractingId: string | null;
+  /** Remotiv Admin's WhatsApp switch (remotiv-board.ts), read on the server. */
+  whatsAppEnabled: boolean;
 }) {
   const [comments, setComments] = useState<ApplicationComment[]>([]);
   const [loadingComments, setLoadingComments] = useState(true);
@@ -264,10 +267,12 @@ function AppPanel({
   }, [app.id]);
 
   // The cleanup drops an answer for an applicant this drawer no longer shows.
+  // Nothing is asked while the switch is off.
   useEffect(() => {
     setWaLink(null);
+    if (!whatsAppEnabled) return;
     return requestWhatsAppLink(getApplicationWhatsAppLink, app.id, setWaLink);
-  }, [app.id]);
+  }, [app.id, whatsAppEnabled]);
 
   function handleClose() {
     setVisible(false);
@@ -355,30 +360,31 @@ function AppPanel({
               Actions
             </p>
 
-            {waLink?.ok ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => window.open(waLink.href, "_blank", "noopener,noreferrer")}
-                  className={`${actionBtn} text-remotiv-green hover:bg-remotiv-green/5`}
-                >
-                  <span className="flex size-7 items-center justify-center rounded-lg bg-remotiv-green/10">
-                    <MessageCircle className="size-3.5 text-remotiv-green" strokeWidth={2} />
+            {whatsAppEnabled &&
+              (waLink?.ok ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => window.open(waLink.href, "_blank", "noopener,noreferrer")}
+                    className={`${actionBtn} text-remotiv-green hover:bg-remotiv-green/5`}
+                  >
+                    <span className="flex size-7 items-center justify-center rounded-lg bg-remotiv-green/10">
+                      <MessageCircle className="size-3.5 text-remotiv-green" strokeWidth={2} />
+                    </span>
+                    Message on WhatsApp
+                  </button>
+                  <p className="mb-1 px-4 text-[11px] leading-snug text-gray-400">
+                    {CHAT_STOP_NOTE}
+                  </p>
+                </>
+              ) : (
+                <p className={`${actionBtn} text-gray-400`}>
+                  <span className="flex size-7 items-center justify-center rounded-lg bg-gray-100">
+                    <MessageCircle className="size-3.5 text-gray-300" strokeWidth={2} />
                   </span>
-                  Message on WhatsApp
-                </button>
-                <p className="mb-1 px-4 text-[11px] leading-snug text-gray-400">
-                  {CHAT_STOP_NOTE}
+                  {waLink ? waLink.label : "Checking WhatsApp…"}
                 </p>
-              </>
-            ) : (
-              <p className={`${actionBtn} text-gray-400`}>
-                <span className="flex size-7 items-center justify-center rounded-lg bg-gray-100">
-                  <MessageCircle className="size-3.5 text-gray-300" strokeWidth={2} />
-                </span>
-                {waLink ? waLink.label : "Checking WhatsApp…"}
-              </p>
-            )}
+              ))}
 
             <button
               type="button"
@@ -1007,12 +1013,15 @@ export function ApplicationsDashboard({
   initialApplications,
   openJobs,
   initialSearch = "",
+  whatsAppEnabled = false,
 }: {
   email: string;
   userRole?: UserRole;
   initialApplications: JobApplication[];
   openJobs: OpenJob[];
   initialSearch?: string;
+  /** Remotiv Admin's WhatsApp switch (remotiv-board.ts). Off unless the page says on. */
+  whatsAppEnabled?: boolean;
 }) {
   const canDel = canDelete(userRole);
   const canUpload = canEdit(userRole);
@@ -1927,6 +1936,7 @@ export function ApplicationsDashboard({
             onDelete={() => setDeleteTarget(livePanelApp)}
             onToast={setToast}
             extractingId={extractingId}
+            whatsAppEnabled={whatsAppEnabled}
           />
         );
       })()}

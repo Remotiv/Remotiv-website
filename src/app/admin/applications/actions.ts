@@ -18,6 +18,7 @@ import { removeApplicationFiles } from "@/lib/application-files";
 import { deriveCvPathFromUrl } from "@/lib/cv-path";
 import { whatsAppChatLink } from "@/lib/whatsapp/chat-link";
 import { CHAT_LINK_UNAVAILABLE } from "@/lib/whatsapp/consent";
+import { whatsAppOnRemotivBoard } from "@/lib/whatsapp/remotiv-board";
 
 export type ApplicationStatus = "new" | "shortlisted" | "not_a_fit" | "maybe";
 export type ApplicationSource = "job_application" | "manual_upload";
@@ -604,6 +605,9 @@ export type ApplicationWhatsAppLink = { ok: true; href: string } | { ok: false; 
  * candidate ticked the WhatsApp box and has not replied STOP. Read here, on
  * the server, from the row as it is now. Anything else, a failed read
  * included, answers the line the drawer shows instead of the link.
+ *
+ * Off, before anything is read, while Remotiv Admin's WhatsApp switch is off
+ * (remotiv-board.ts). The drawer hides the button then; this is the backstop.
  */
 export async function getApplicationWhatsAppLink(
   applicationId: string,
@@ -612,6 +616,7 @@ export async function getApplicationWhatsAppLink(
     ok: false,
     label: CHAT_LINK_UNAVAILABLE[reason],
   });
+  if (!whatsAppOnRemotivBoard()) return refused("admin_off");
   if (typeof applicationId !== "string" || applicationId.length < 1 || applicationId.length > 100) {
     return refused("check_failed");
   }

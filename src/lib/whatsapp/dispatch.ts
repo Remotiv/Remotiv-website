@@ -24,6 +24,7 @@ import { TerminalJobError } from "@/lib/queue/failure-class";
 import { createServiceClient } from "@/lib/supabase/server";
 import { hasWhatsAppOptIn, NO_OPT_IN_REASON } from "@/lib/whatsapp/consent";
 import { isWhatsAppOptedOut } from "@/lib/whatsapp/opt-out";
+import { REMOTIV_BOARD_OFF_REASON, whatsAppAllowedFor } from "@/lib/whatsapp/remotiv-board";
 import {
   resolveRecipient,
   sendTemplateMessage,
@@ -185,7 +186,10 @@ export async function handleWhatsAppMessage(job: {
 
   const companyId = app.company_id_snapshot;
   if (!companyId) {
-    skipJob("send_message[whatsapp]", job.id, `application ${applicationId} has no company`);
+    // Remotiv's own board. No company owns a Messages row for it, so this was
+    // never sent; while its switch is off (remotiv-board.ts) the log says why.
+    const why = whatsAppAllowedFor(companyId) ? "has no company" : REMOTIV_BOARD_OFF_REASON;
+    skipJob("send_message[whatsapp]", job.id, `application ${applicationId}: ${why}`);
     return;
   }
 
@@ -700,7 +704,10 @@ export async function queueManualWhatsApp(
  * candidate got an email but no WhatsApp — silence there would look like the
  * integration was broken.
  *
- * Consent first (#67, consent.ts), from the application row each caller has
+ * Remotiv's own board first (remotiv-board.ts): while its switch is off, an
+ * application with no company gets no WhatsApp, opted in or not.
+ *
+ * Then consent (#67, consent.ts), from the application row each caller has
  * just read: no tick on the apply form, no WhatsApp, whatever else is true. A
  * tick never overrides a STOP: the opt-out check below still runs for a
  * candidate who opted in.
@@ -711,9 +718,19 @@ export async function queueManualWhatsApp(
  */
 async function sendTarget(
   service: ReturnType<typeof createServiceClient>,
-  app: Pick<ApplicationRow, "phone" | "whatsapp_opt_in" | "whatsapp_opt_in_at">,
+  app: Pick<
+    ApplicationRow,
+    "phone" | "company_id_snapshot" | "whatsapp_opt_in" | "whatsapp_opt_in_at"
+  >,
 ): Promise<{ send: true; digits: string } | { send: false; toAddress: string; reason: string }> {
   const recipient = resolveRecipient(app.phone);
+  if (!whatsAppAllowedFor(app.company_id_snapshot)) {
+    return {
+      send: false,
+      toAddress: recipient.ok ? recipient.digits : "unknown",
+      reason: REMOTIV_BOARD_OFF_REASON,
+    };
+  }
   if (!hasWhatsAppOptIn(app)) {
     return {
       send: false,

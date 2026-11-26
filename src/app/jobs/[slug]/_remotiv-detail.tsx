@@ -27,6 +27,7 @@ import type { CSSProperties } from "react";
 import { Navbar } from "@/components/navbar";
 import { isRemotivOwned, type Job } from "@/lib/jobs";
 import { canonicalUrl } from "@/lib/seo";
+import { whatsAppAllowedFor } from "@/lib/whatsapp/remotiv-board";
 import ApplyButton from "./_apply-button";
 import { fmtSalary, serializeJsonLd, splitLines, timeAgo, toPublicJob } from "./_format";
 import "./job-detail.css";
@@ -150,6 +151,8 @@ export function RemotivJobDetail({
   // ApplyButton's own prop type belongs to the jobs-list surface, which is out
   // of scope for JOB-001.
   const applyJob = toPublicJob(job) as Job;
+  // The same answer /api/apply reaches from the job row (remotiv-board.ts).
+  const offerWhatsApp = whatsAppAllowedFor(job.company_id);
 
   const flipCards = [
     {
@@ -275,7 +278,7 @@ export function RemotivJobDetail({
 
             {/* CTA + salary */}
             <div className="mt-6 flex flex-wrap items-center gap-5">
-              <ApplyButton job={applyJob} variant="hero" />
+              <ApplyButton job={applyJob} offerWhatsApp={offerWhatsApp} variant="hero" />
               <div>
                 <span className="font-heading text-[1.45rem] font-bold text-white">{salary}</span>
                 <span className="text-[13px] text-[#d6c8ff]"> / month</span>
@@ -470,7 +473,7 @@ export function RemotivJobDetail({
             </div>
 
             <div className="px-[22px] pb-[22px] pt-5">
-              <ApplyButton job={applyJob} variant="ticket" />
+              <ApplyButton job={applyJob} offerWhatsApp={offerWhatsApp} variant="ticket" />
               <p className="mt-3 flex items-center justify-center gap-2 text-xs text-[#9a9488]">
                 <IconClock size={14} style={{ color: "#49D7A7" }} /> Avg. response in 24 hours
               </p>

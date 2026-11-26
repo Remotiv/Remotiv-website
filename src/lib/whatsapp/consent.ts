@@ -25,7 +25,7 @@ export const NO_OPT_IN_REASON =
   "Not sent: this candidate didn't opt in to WhatsApp when they applied, so they get email only.";
 
 /** Why the admin drawer shows no WhatsApp link (chat-link.ts). */
-export type ChatLinkRefusal = "no_opt_in" | "stopped" | "no_number" | "check_failed";
+export type ChatLinkRefusal = "no_opt_in" | "stopped" | "no_number" | "check_failed" | "admin_off";
 
 /** What the drawer shows instead of the link. Hyphens only, never a dash. */
 export const CHAT_LINK_UNAVAILABLE: Record<ChatLinkRefusal, string> = {
@@ -33,6 +33,9 @@ export const CHAT_LINK_UNAVAILABLE: Record<ChatLinkRefusal, string> = {
   stopped: "WhatsApp unavailable: replied STOP",
   no_number: "WhatsApp unavailable: phone number format unclear",
   check_failed: "WhatsApp unavailable: couldn't check opt-in or STOP. Try again.",
+  // The drawer hides itself while the switch is off (remotiv-board.ts), so
+  // this shows only if the page and the server disagree, e.g. mid-deploy.
+  admin_off: "WhatsApp unavailable: off for Remotiv Admin",
 };
 
 /**
