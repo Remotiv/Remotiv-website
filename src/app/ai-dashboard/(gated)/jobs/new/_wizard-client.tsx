@@ -112,6 +112,16 @@ import {
   setOtherCompetency,
 } from "./question-lists";
 import { currencySymbol, salaryRange } from "./salary-range";
+import {
+  formSnapshot,
+  isDirty,
+  LEAVE_BODY,
+  LEAVE_LABEL,
+  LEAVE_TITLE,
+  STAY_LABEL,
+  savedEverything,
+  useUnsavedChangesGuard,
+} from "./unsaved-changes";
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -1055,6 +1065,27 @@ export function WizardClient({
   const [jdBox, setJdBox] = useState(() => mergeJobText(initialState ?? EMPTY_JOB_INPUT));
 
   /*
+   * Unsaved changes (#59): the form as last loaded or saved, against the form
+   * now. Step moves are not part of it, so they never warn; a successful save
+   * moves the baseline, so nothing warns after one.
+   */
+  const [savedSnapshot, setSavedSnapshot] = useState(() =>
+    formSnapshot(initialState ?? EMPTY_JOB_INPUT, mergeJobText(initialState ?? EMPTY_JOB_INPUT)),
+  );
+  const dirty = isDirty(savedSnapshot, formSnapshot(state, jdBox));
+  const leaveGuard = useUnsavedChangesGuard(
+    dirty,
+    (href) => router.push(href),
+    (href) => router.replace(href),
+  );
+  const leaveDialogRef = useRef<HTMLDivElement>(null);
+  const stayButtonRef = useRef<HTMLButtonElement>(null);
+  useModalFocus(leaveDialogRef, leaveGuard.pending !== null, {
+    onClose: leaveGuard.stay,
+    initialFocus: stayButtonRef,
+  });
+
+  /*
    * The box is authoritative for the three columns whenever it changes.
    *
    * `over_threshold` and `no_headings` deliberately write the WHOLE box to
@@ -1694,6 +1725,9 @@ export function WizardClient({
         showToast(result.error);
         return;
       }
+      // Saved in full: what is on screen is what is stored, so nothing warns
+      // from here. A partial save (the questions failed) stays dirty.
+      if (savedEverything(result)) setSavedSnapshot(formSnapshot(payload, jdBox));
 
       /*
        * The role saved but its interview questions did not.
@@ -1710,7 +1744,7 @@ export function WizardClient({
       if (result.warning) {
         showToast(result.warning);
         if (!isEdit && result.data?.id) {
-          router.push(`/ai-dashboard/jobs/${result.data.id}/edit`);
+          leaveGuard.go(`/ai-dashboard/jobs/${result.data.id}/edit`);
           router.refresh();
         }
         return;
@@ -1719,14 +1753,14 @@ export function WizardClient({
       // Editing returns straight to the list — the "Post another" overlay only
       // makes sense right after creating something.
       if (isEdit) {
-        router.push("/ai-dashboard/jobs");
+        leaveGuard.go("/ai-dashboard/jobs");
         router.refresh();
         return;
       }
       if (status === "open") {
         setPublished({ title: state.title.trim() || "Your role" });
       } else {
-        router.push("/ai-dashboard/jobs");
+        leaveGuard.go("/ai-dashboard/jobs");
       }
     } finally {
       inFlightRef.current = false;
@@ -2644,6 +2678,11 @@ export function WizardClient({
                     </ReviewCard>
                     <ReviewCard label="AI Video Interview" onEdit={() => setStep(6)}>
                       <span data-review-interview="live">{reviewLines.live.join(" · ")}</span>
+                      {reviewLines.liveWarning && (
+                        <span className="mt-1.5 block text-xs text-[#C4362F]" data-review-warning>
+                          {reviewLines.liveWarning}
+                        </span>
+                      )}
                     </ReviewCard>
                   </div>
 
@@ -3039,6 +3078,7 @@ export function WizardClient({
                 onClick={() => {
                   setPublished(null);
                   setState(EMPTY_JOB_INPUT);
+                  setSavedSnapshot(formSnapshot(EMPTY_JOB_INPUT, jdBox));
                   setStep(1);
                   setErrors({});
                   showToast("Started a new draft");
@@ -3053,6 +3093,47 @@ export function WizardClient({
               >
                 View in Jobs
               </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {leaveGuard.pending !== null && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-[rgba(20,16,32,0.45)] p-6 backdrop-blur-sm">
+          <div
+            ref={leaveDialogRef}
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="leave-title"
+            aria-describedby="leave-body"
+            className="w-full max-w-[400px] rounded-[22px] bg-white px-[26px] py-[26px] shadow-[0_40px_100px_rgba(0,0,0,0.35)] outline-none"
+            data-leave-dialog
+          >
+            <h2 id="leave-title" className="mb-[7px] font-heading text-[19px] font-extrabold">
+              {LEAVE_TITLE}
+            </h2>
+            <p
+              id="leave-body"
+              className="mb-[22px] text-[13.5px] leading-relaxed text-[var(--ai-t3)]"
+            >
+              {LEAVE_BODY}
+            </p>
+            <div className="flex justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={leaveGuard.leave}
+                className="rounded-[11px] border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-4 py-[9px] text-[13.5px] font-semibold text-[var(--ai-t2)] transition-colors hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)]"
+              >
+                {LEAVE_LABEL}
+              </button>
+              <button
+                ref={stayButtonRef}
+                type="button"
+                onClick={leaveGuard.stay}
+                className="rounded-[11px] bg-remotiv-purple px-[18px] py-[9px] text-[13.5px] font-semibold text-white transition-colors hover:bg-[var(--ai-purple-hover)]"
+              >
+                {STAY_LABEL}
+              </button>
             </div>
           </div>
         </div>

@@ -447,6 +447,7 @@ test("the Review cards: the right values, both Off when neither is on, each with
   assert.deepEqual(lists.interviewReviewLines(base, { mode: "ai_guided", minutes: 60 }), {
     async: ["On", "Re-recording allowed", "2 questions"],
     live: ["On", "AI-Guided", "60 minutes", "5 questions"],
+    liveWarning: null,
   });
   assert.deepEqual(
     lists.interviewReviewLines(
@@ -461,6 +462,7 @@ test("the Review cards: the right values, both Off when neither is on, each with
     {
       async: ["Off", "No re-recording", "2 questions"],
       live: ["Off", "Recruiter-Defined", "30 minutes", "5 questions"],
+      liveWarning: null,
     },
   );
   assert.match(
@@ -507,4 +509,148 @@ test("switching mode on step 6 only sets the mode: no list is touched", () => {
   assert.match(STEP6, /onModeChange=\{\(v\) => set\("live_interview_mode", v\)\}/);
   const settings = readFileSync(new URL("./_live-interview-settings.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(settings, /interview_questions|onQuestions|setQuestions/);
+});
+
+/* ── #59 commit 2: the Review line, the buttons, unsaved changes ── */
+
+const unsaved = await import("./unsaved-changes.ts");
+
+test("Review: AI Video Interview on with fewer than 4 questions says it needs 4 to 8 before publishing", () => {
+  const q = (question) => ({ id: question, question, competency: "", rubric: "" });
+  const with_ = (n, on = true) =>
+    lists.interviewReviewLines(
+      {
+        async_interview_enabled: false,
+        allow_rerecord: true,
+        avatar_interview_enabled: on,
+        interview_questions: [],
+        live_interview_questions: Array.from({ length: n }, (_, i) => q(`l${i}`)),
+      },
+      { mode: "structured", minutes: 30 },
+    ).liveWarning;
+  assert.equal(lists.LIVE_NEEDS_QUESTIONS_LINE, "Needs 4 to 8 questions before publishing.");
+  for (const n of [0, 3])
+    assert.equal(with_(n), "Needs 4 to 8 questions before publishing.", `${n}`);
+  for (const n of [4, 8]) assert.equal(with_(n), null, `${n}`);
+  assert.equal(with_(0, false), null, "AI Video Interview off: no line");
+  assert.match(
+    STEP10,
+    /\{reviewLines\.liveWarning && \(\s*<span[^>]*data-review-warning>\s*\{reviewLines\.liveWarning\}/,
+  );
+});
+
+test("the buttons and the status they save: Save draft / Save as draft = On hold; Publish = Published; Save changes keeps the job's status", () => {
+  assert.match(
+    WIZARD,
+    /onClick=\{\(\) => submit\("on_hold"\)\}[\s\S]{0,400}?\{isEdit \? "Save as draft" : "Save draft"\}/,
+  );
+  assert.match(WIZARD, /onClick=\{\(\) => submit\(isEdit \? state\.status : "open"\)\}/);
+  assert.equal((WIZARD.match(/submit\(isEdit \? state\.status : "open"\)/g) ?? []).length, 2);
+});
+
+test("dirty: a change is dirty; the saved form is clean; the description box counts, not the columns parsed from it", () => {
+  const base = {
+    title: "Synthetic role",
+    description: "A",
+    responsibilities: "",
+    requirements: "",
+    status: "on_hold",
+  };
+  const saved = unsaved.formSnapshot(base, "A");
+  assert.equal(unsaved.isDirty(saved, unsaved.formSnapshot(base, "A")), false, "nothing changed");
+  assert.equal(
+    unsaved.isDirty(saved, unsaved.formSnapshot({ ...base, title: "Renamed" }, "A")),
+    true,
+  );
+  assert.equal(unsaved.isDirty(saved, unsaved.formSnapshot(base, "A, edited")), true, "the box");
+  // The effect that re-parses the box into the three columns on load is not a change.
+  assert.equal(
+    unsaved.isDirty(
+      saved,
+      unsaved.formSnapshot({ ...base, description: "parsed", requirements: "x" }, "A"),
+    ),
+    false,
+  );
+  // After a save the baseline is the saved form: clean again.
+  const next = { ...base, title: "Renamed" };
+  assert.equal(
+    unsaved.isDirty(unsaved.formSnapshot(next, "A"), unsaved.formSnapshot(next, "A")),
+    false,
+  );
+  // The wizard resets its baseline on a successful save, and on "Post another".
+  // Only a FULL save moves it: a partial one (questions failed) stays dirty.
+  assert.match(
+    WIZARD,
+    /if \(savedEverything\(result\)\) setSavedSnapshot\(formSnapshot\(payload, jdBox\)\);/,
+  );
+  // After a save the wizard navigates through the guard, never past it.
+  assert.equal((WIZARD.match(/leaveGuard\.go\(/g) ?? []).length, 3);
+  assert.doesNotMatch(WIZARD, /router\.push\("\/ai-dashboard\/jobs"\)/);
+  assert.match(
+    WIZARD,
+    /setState\(EMPTY_JOB_INPUT\);\s*setSavedSnapshot\(formSnapshot\(EMPTY_JOB_INPUT, jdBox\)\);/,
+  );
+});
+
+test("moving between steps never warns: the step is not in the compared form, and the rail and Back/Continue are buttons, not links", () => {
+  const s = { title: "x", description: "", responsibilities: "", requirements: "" };
+  assert.doesNotMatch(unsaved.formSnapshot(s, ""), /"step"/);
+  const row = WIZARD.slice(
+    WIZARD.indexOf("function StepRow("),
+    WIZARD.indexOf("function positionOf("),
+  );
+  assert.match(row, /<button\s+type="button"\s+onClick=\{\(\) => onGo\(step\.n\)\}/);
+  assert.doesNotMatch(row, /<a\b|<Link\b/);
+  // Only an <a> is ever stopped.
+  const click = {
+    defaultPrevented: false,
+    button: 0,
+    metaKey: false,
+    ctrlKey: false,
+    shiftKey: false,
+    altKey: false,
+  };
+  assert.equal(unsaved.guardedHref(click, null, "https://app.test/ai-dashboard/jobs/new"), null);
+});
+
+test("which link clicks are stopped while dirty: in-app pages only", () => {
+  const here = "https://app.test/ai-dashboard/jobs/new";
+  const click = {
+    defaultPrevented: false,
+    button: 0,
+    metaKey: false,
+    ctrlKey: false,
+    shiftKey: false,
+    altKey: false,
+  };
+  const link = (href, extra = {}) => ({ href, target: "", download: false, ...extra });
+  const g = (l, c = click) => unsaved.guardedHref(c, l, here);
+  assert.equal(g(link("/ai-dashboard/jobs")), "/ai-dashboard/jobs", "the Jobs button");
+  assert.equal(
+    g(link("https://app.test/ai-dashboard/applicants?x=1")),
+    "/ai-dashboard/applicants?x=1",
+  );
+  assert.equal(g(link("#preview")), null, "same page");
+  assert.equal(g(link("https://other.example/")), null, "another site: the browser's own prompt");
+  assert.equal(g(link("/ai-dashboard/jobs", { target: "_blank" })), null, "new tab");
+  assert.equal(g(link("/file.pdf", { download: true })), null);
+  assert.equal(g(link("/ai-dashboard/jobs"), { ...click, metaKey: true }), null, "cmd-click");
+  assert.equal(g(link("/ai-dashboard/jobs"), { ...click, defaultPrevented: true }), null);
+});
+
+test("the dialog's wording, exactly; Stay is the default (first focus, Escape)", () => {
+  assert.deepEqual(
+    [unsaved.LEAVE_TITLE, unsaved.LEAVE_BODY, unsaved.STAY_LABEL, unsaved.LEAVE_LABEL],
+    ["Leave without saving?", "Your changes to this job will be lost.", "Stay", "Leave"],
+  );
+  assert.match(
+    WIZARD,
+    /useModalFocus\(leaveDialogRef, leaveGuard\.pending !== null, \{\s*onClose: leaveGuard\.stay,\s*initialFocus: stayButtonRef,/,
+  );
+  assert.match(WIZARD, /ref=\{stayButtonRef\}[\s\S]{0,160}onClick=\{leaveGuard\.stay\}/);
+  assert.match(
+    WIZARD,
+    /const leaveGuard = useUnsavedChangesGuard\(\s*dirty,\s*\(href\) => router\.push\(href\),\s*\(href\) => router\.replace\(href\),\s*\);/,
+  );
+  for (const s of [unsaved.LEAVE_TITLE, unsaved.LEAVE_BODY]) assert.doesNotMatch(s, /[–—]/);
 });

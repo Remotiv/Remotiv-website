@@ -69,7 +69,8 @@ const OVERLAYS = [
   [`${G}applicants/_split-sheet.tsx`, 2],
   [`${G}team/_team-client.tsx`, 4],
   [`${G}jobs/_jobs-client.tsx`, 1],
-  [`${G}jobs/new/_wizard-client.tsx`, 1],
+  // "Your job is live", and the unsaved-changes dialog (#59).
+  [`${G}jobs/new/_wizard-client.tsx`, 2],
   [`${G}interviews/[sessionId]/_review-client.tsx`, 1],
   [`${G}messages/_messages-client.tsx`, 1],
   [`${G}messages/_composer.tsx`, 1],

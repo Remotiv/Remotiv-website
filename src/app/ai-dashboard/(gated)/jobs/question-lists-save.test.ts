@@ -406,12 +406,16 @@ test("the edit page's fetch returns each list by its kind, in order", async () =
 
 /* ── #58 commit 6: the 4 to 8 rule, the new job's failure copy, mode switches ── */
 
-test("AI Video Interview on: a sent live list outside 4 to 8 is refused, nothing written; 4 and 8 save", async () => {
+test("Published, AI Video Interview on: a sent live list outside 4 to 8 is refused, nothing written; 4 and 8 save", async () => {
   const db = world();
   for (const n of [0, 3]) {
     const r = await quiet(() =>
       createCompanyJob(
-        jobInput({ avatar_interview_enabled: true, live_interview_questions: qs("Live", n) }),
+        jobInput({
+          status: "open",
+          avatar_interview_enabled: true,
+          live_interview_questions: qs("Live", n),
+        }),
       ),
     );
     assert.deepEqual(r, { success: false, error: COUNT_REFUSAL }, `${n}`);
@@ -420,7 +424,11 @@ test("AI Video Interview on: a sent live list outside 4 to 8 is refused, nothing
   for (const n of [4, 8]) {
     const r = await quiet(() =>
       createCompanyJob(
-        jobInput({ avatar_interview_enabled: true, live_interview_questions: qs("Live", n) }),
+        jobInput({
+          status: "open",
+          avatar_interview_enabled: true,
+          live_interview_questions: qs("Live", n),
+        }),
       ),
     );
     assert.equal(r.success, true, `${n}: ${r.error}`);
@@ -428,15 +436,17 @@ test("AI Video Interview on: a sent live list outside 4 to 8 is refused, nothing
   }
 });
 
-test("AI Video Interview on with no live list sent: a new job is refused; an edit is checked against the stored list", async () => {
+test("Published, AI Video Interview on with no live list sent: a new job is refused; an edit is checked against the stored list", async () => {
   const db = world();
-  const create = await quiet(() => createCompanyJob(jobInput({ avatar_interview_enabled: true })));
+  const create = await quiet(() =>
+    createCompanyJob(jobInput({ status: "open", avatar_interview_enabled: true })),
+  );
   assert.deepEqual(create, { success: false, error: COUNT_REFUSAL });
   assert.equal(db.tables.jobs.length, 0);
   // 5 stored live questions: an edit that sends none saves, and keeps them.
   const id = await jobWithBoth();
   const kept = await quiet(() =>
-    updateCompanyJob(id, jobInput({ avatar_interview_enabled: true })),
+    updateCompanyJob(id, jobInput({ status: "open", avatar_interview_enabled: true })),
   );
   assert.equal(kept.success, true, kept.error);
   assert.equal(rows(db, id, "live").length, 5);
@@ -444,7 +454,7 @@ test("AI Video Interview on with no live list sent: a new job is refused; an edi
   const bare = (await quiet(() => createCompanyJob(jobInput()))).data.id;
   const before = structuredClone(db.tables);
   const on = await quiet(() =>
-    updateCompanyJob(bare, jobInput({ avatar_interview_enabled: true })),
+    updateCompanyJob(bare, jobInput({ status: "open", avatar_interview_enabled: true })),
   );
   assert.deepEqual(on, { success: false, error: COUNT_REFUSAL });
   assert.deepEqual(db.tables, before);
@@ -721,4 +731,70 @@ test("duplicate: the copy fails AND its removal fails - the log names the job an
   );
   assert.ok(!lines.join("\n").includes("SECRET-TEXT"), "no question text logged");
   assert.ok(!lines.join("\n").includes("candidate"), "no candidate data logged");
+});
+
+/* ── #59 commit 2: drafts always save; Published keeps the 4 to 8 rule ── */
+
+test("a draft with AI Video Interview on and 0 or 3 live questions saves, sent or stored; publishing it is refused", async () => {
+  const db = world();
+  for (const n of [0, 3]) {
+    const made = await quiet(() =>
+      createCompanyJob(
+        jobInput({ avatar_interview_enabled: true, live_interview_questions: qs("Live", n) }),
+      ),
+    );
+    assert.equal(made.success, true, `${n}: ${made.error}`);
+    assert.equal(db.tables.jobs.find((j) => j.id === made.data.id).status, "on_hold");
+    assert.equal(rows(db, made.data.id, "live").length, n);
+    // A later draft save that sends no live list is not checked against the stored list either.
+    const again = await quiet(() =>
+      updateCompanyJob(made.data.id, jobInput({ avatar_interview_enabled: true })),
+    );
+    assert.equal(again.success, true, again.error);
+    // Publishing it, by Save changes as Published: refused.
+    const publish = await quiet(() =>
+      updateCompanyJob(made.data.id, jobInput({ status: "open", avatar_interview_enabled: true })),
+    );
+    assert.deepEqual(publish, { success: false, error: COUNT_REFUSAL });
+    assert.equal(db.tables.jobs.find((j) => j.id === made.data.id).status, "on_hold");
+  }
+  // A new job with no live list sent at all, as a draft: saves too.
+  const bare = await quiet(() => createCompanyJob(jobInput({ avatar_interview_enabled: true })));
+  assert.equal(bare.success, true, bare.error);
+  // Closed is not Published either.
+  const closed = await quiet(() =>
+    createCompanyJob(
+      jobInput({ status: "closed", avatar_interview_enabled: true, live_interview_questions: [] }),
+    ),
+  );
+  assert.equal(closed.success, true, closed.error);
+});
+
+test("a draft still refuses 9 questions in either list, and a fairness block in either list, nothing written", async () => {
+  const db = world();
+  const cases = [
+    [
+      { interview_questions: qs("Async", 9) },
+      "A job can have at most 8 interview questions. Remove 1 to save.",
+    ],
+    [
+      { avatar_interview_enabled: true, live_interview_questions: qs("Live", 9) },
+      "A job can have at most 8 AI Video Interview questions. Remove 1 to save.",
+    ],
+    [
+      { interview_questions: [q("Are you married?")] },
+      /^Question 1 \("Are you married\?"\) touches on family or marital status/,
+    ],
+    [
+      { avatar_interview_enabled: true, live_interview_questions: [q("Do you have children?")] },
+      /^AI Video Interview question 1 \("Do you have children\?"\) touches on family or marital status/,
+    ],
+  ];
+  for (const [over, message] of cases) {
+    const r = await quiet(() => createCompanyJob(jobInput({ status: "on_hold", ...over })));
+    assert.equal(r.success, false, JSON.stringify(over).slice(0, 60));
+    if (typeof message === "string") assert.equal(r.error, message);
+    else assert.match(r.error, message);
+  }
+  assert.deepEqual([db.tables.jobs.length, db.tables.interview_questions.length], [0, 0]);
 });

@@ -3,6 +3,7 @@ import type {
   LiveInterviewMinutes,
   LiveInterviewMode,
 } from "@/app/ai-dashboard/lib/job-types";
+import { MIN_JOB_QUESTIONS } from "@/lib/interviews/question-mix";
 import type { InterviewKind, InterviewQuestionInput } from "@/lib/interviews/types";
 import { AI_VIDEO_MODE_CARDS } from "./ai-video-copy";
 
@@ -81,6 +82,12 @@ export const LIVE_EQUAL_WEIGHT_LINE =
   "Each question counts equally and is marked against its own scoring guide.";
 
 /**
+ * Under the AI Video Interview Review card while it is on with fewer than 4
+ * questions: a draft saves like that, but it cannot be published (#59, #60).
+ */
+export const LIVE_NEEDS_QUESTIONS_LINE = "Needs 4 to 8 questions before publishing.";
+
+/**
  * The two read-only Review cards' lines. "Off" first when an interview is off.
  * The AI Video Interview's mode and length are passed in by the wizard, which
  * owns those fields (the 074 column census keeps them to the wizard's files).
@@ -88,8 +95,13 @@ export const LIVE_EQUAL_WEIGHT_LINE =
 export function interviewReviewLines(
   state: CompanyJobInput,
   live: { mode: LiveInterviewMode; minutes: LiveInterviewMinutes },
-): { async: string[]; live: string[] } {
+): { async: string[]; live: string[]; liveWarning: string | null } {
+  const liveCount = askedCount(questionsOf(state, "live"));
   return {
+    liveWarning:
+      state.avatar_interview_enabled && liveCount < MIN_JOB_QUESTIONS
+        ? LIVE_NEEDS_QUESTIONS_LINE
+        : null,
     async: [
       state.async_interview_enabled ? "On" : "Off",
       state.allow_rerecord ? "Re-recording allowed" : "No re-recording",
@@ -99,7 +111,7 @@ export function interviewReviewLines(
       state.avatar_interview_enabled ? "On" : "Off",
       AI_VIDEO_MODE_CARDS.find((c) => c.value === live.mode)?.title ?? live.mode,
       `${live.minutes} minutes`,
-      questionsWord(askedCount(questionsOf(state, "live"))),
+      questionsWord(liveCount),
     ],
   };
 }

@@ -170,6 +170,11 @@ const QUESTIONS_UNREADABLE = "Those interview questions couldn't be read. Nothin
 /** A duplicate whose questions could not be copied: the copy is removed again. */
 const DUPLICATE_QUESTIONS_FAILED = "Couldn't duplicate that job - please try again.";
 
+/** Whether this save leaves the job Published: the status buildPatch stores. */
+function isPublished(input: CompanyJobInput): boolean {
+  return oneOf<JobStatus>(input.status, JOB_STATUSES, "open") === "open";
+}
+
 /** Questions with text: what a save keeps. */
 function askedIn(list: readonly InterviewQuestionInput[]): number {
   return list.filter((q) => (q?.question ?? "").trim().length > 0).length;
@@ -200,7 +205,11 @@ async function liveCountRefusal(
   companyId: string,
   input: CompanyJobInput,
 ): Promise<string | null> {
-  if (input.avatar_interview_enabled !== true || input.live_interview_questions !== undefined) {
+  if (
+    !isPublished(input) ||
+    input.avatar_interview_enabled !== true ||
+    input.live_interview_questions !== undefined
+  ) {
     return null;
   }
   // The one gate's own read and rule (live-go-live.ts).
@@ -290,10 +299,13 @@ function buildPatch(
     const refused = checkQuestionList(list, noun, label);
     if (refused) return { ok: false, error: refused };
   }
-  // AI Video Interview on: 4 to 8 live questions, the range the live invite
-  // accepts. Off: any number is kept, none included. A save that sends no
-  // live list is checked against what is stored (liveCountRefusal).
+  // Published saves only (#59): AI Video Interview on needs 4 to 8 live
+  // questions, the range the live invite accepts. A draft (On hold) or a
+  // Closed job always saves; the 8 limit and the fairness check above still
+  // apply to every save. A Published save that sends no live list is checked
+  // against what is stored (liveCountRefusal).
   if (
+    status === "open" &&
     Array.isArray(input.live_interview_questions) &&
     !liveQuestionCountOk(avatarOn, askedIn(input.live_interview_questions))
   ) {
@@ -937,6 +949,7 @@ export async function createCompanyJob(
   // A new job stores no live questions, so AI Video Interview on with none
   // sent is 0: refused, as buildPatch refuses a sent list outside 4 to 8.
   if (
+    isPublished(input) &&
     input.live_interview_questions === undefined &&
     !liveQuestionCountOk(input.avatar_interview_enabled === true, 0)
   ) {
