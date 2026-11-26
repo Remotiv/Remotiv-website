@@ -43,7 +43,7 @@ import {
   ScoringSkipped,
   verifyEvidence,
 } from "./cv-scoring";
-import { FAIRNESS_RULES } from "./fairness";
+import { EMPLOYMENT_GAP_IN_INTERVIEWS, EMPLOYMENT_GAP_RULE, FAIRNESS_RULES } from "./fairness";
 import {
   acceptsTemperature,
   assertCompleteStop,
@@ -199,8 +199,15 @@ import { createScoringMessage, type ScoringMessage, scoringProvider } from "./sc
  * sentence keeps that stricter rule. No band, rule or sampling changed (same
  * generation as v9). Scores already stored keep their v9 label and are not
  * re-scored.
+ *
+ * v11 - employment gaps (#40): EMPLOYMENT_GAP_RULE and EMPLOYMENT_GAP_IN_INTERVIEWS
+ * (fairness.ts) in both prompts, as the CV scorer has had since cv-scoring-v14.
+ * A career break is never a concern and never lowers a score. No band, rule
+ * or sampling changed (same generation as v10). Scores already stored keep
+ * their v10 label and are not re-scored: nothing compares a stored
+ * prompt_version (fairness.test.ts).
  */
-export const PROMPT_VERSION = "interview-scoring-v10";
+export const PROMPT_VERSION = "interview-scoring-v11";
 
 /** Same env var as the CV scorer — one model setting for the product. */
 export { resolveScoringModel };
@@ -304,6 +311,8 @@ You are reading a machine transcript of speech. You have no video and no audio. 
 
 ${FAIRNESS_RULES}
 
+EMPLOYMENT GAPS. ${EMPLOYMENT_GAP_RULE} ${EMPLOYMENT_GAP_IN_INTERVIEWS}
+
 ## What you are scoring
 
 Score WHAT WAS SAID against WHAT WAS ASKED. Nothing else.
@@ -385,6 +394,8 @@ The message opens with a header: how many questions the interview had, how many 
 Write a verdict and a summary.
 
 ${FAIRNESS_RULES}
+
+EMPLOYMENT GAPS. ${EMPLOYMENT_GAP_RULE} ${EMPLOYMENT_GAP_IN_INTERVIEWS}
 
 ## Verdict
 At most TWELVE words. A plain description of where this candidate stands on the evidence, not a recommendation. Never advise rejecting or hiring.

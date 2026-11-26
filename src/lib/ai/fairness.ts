@@ -34,6 +34,14 @@ export const EMPLOYMENT_GAP_NOT_LISTED =
   "Never list an employment gap in concerns or in missing_requirements: a gap is not a risk to verify and not a missing requirement.";
 
 /**
+ * The interview scorers' line (#40), next to EMPLOYMENT_GAP_RULE in both
+ * async interview prompts. A candidate may talk about a career break in their
+ * own words, and an interview card has concerns but no missing requirements.
+ */
+export const EMPLOYMENT_GAP_IN_INTERVIEWS =
+  "A career break or employment gap is never listed in concerns and never lowers a score: mention it only neutrally, and never guess the cause.";
+
+/**
  * The QUESTION fairness policy (AI-Guided question drafting, job wizard step
  * 5). Separate from FAIRNESS_RULES, which binds scoring: this binds what may
  * be ASKED. The drafting prompt interpolates it; the server-side check that

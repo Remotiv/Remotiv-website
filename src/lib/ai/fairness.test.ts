@@ -20,10 +20,20 @@ import { join, relative } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
-import { EMPLOYMENT_GAP_NOT_LISTED, EMPLOYMENT_GAP_RULE, FAIRNESS_RULES } from "./fairness.ts";
+import {
+  EMPLOYMENT_GAP_IN_INTERVIEWS,
+  EMPLOYMENT_GAP_NOT_LISTED,
+  EMPLOYMENT_GAP_RULE,
+  FAIRNESS_RULES,
+} from "./fairness.ts";
 
 const SRC = fileURLToPath(new URL("../../", import.meta.url));
-const SHARED = { FAIRNESS_RULES, EMPLOYMENT_GAP_RULE, EMPLOYMENT_GAP_NOT_LISTED };
+const SHARED = {
+  FAIRNESS_RULES,
+  EMPLOYMENT_GAP_RULE,
+  EMPLOYMENT_GAP_NOT_LISTED,
+  EMPLOYMENT_GAP_IN_INTERVIEWS,
+};
 
 /** Every AI prompt that scores or ranks a person: file, and the const holding it. */
 const SCORING_PROMPTS = [
@@ -180,6 +190,7 @@ test("the rules are imported, never copied: no other source file holds their sen
     "Employment gaps must never reduce a candidate's score",
     "must not speculate about its cause",
     "Never list an employment gap",
+    "never guess the cause",
   ];
   const copies = [];
   for (const p of sourceFiles(SRC)) {
@@ -222,8 +233,13 @@ test("no scoring prompt penalises an employment gap; the CV prompt carries the a
   assert.ok(cv.text.includes(approved));
 
   for (const p of SCORING_PROMPTS) {
-    // Everything but the approved block, sentence by sentence.
-    const text = promptOf(p.file, p.name).text.split(approved).join(" ");
+    // Everything but the approved blocks (the CV one, and the interview one
+    // below), sentence by sentence.
+    const text = promptOf(p.file, p.name)
+      .text.split(approved)
+      .join(" ")
+      .split(INTERVIEW_GAP_BLOCK)
+      .join(" ");
     for (const sentence of text.split(/(?<=[.!?])\s+|\n+/)) {
       for (const re of EMPLOYMENT_GAP) {
         assert.doesNotMatch(sentence, re, `${p.what}: "${sentence.trim().slice(0, 140)}"`);
@@ -245,11 +261,47 @@ test("no scoring prompt penalises an employment gap; the CV prompt carries the a
   }
 });
 
+/** The async interview prompts' approved block (#40). */
+const INTERVIEW_GAP_BLOCK = `EMPLOYMENT GAPS. ${EMPLOYMENT_GAP_RULE} ${EMPLOYMENT_GAP_IN_INTERVIEWS}`;
+
+// Negative control: drop ${EMPLOYMENT_GAP_RULE} (or the interview line) from
+// either async interview prompt and this test fails, naming the prompt.
+test("both async interview prompts carry the employment-gap rule and the interview line, from fairness.ts", () => {
+  assert.equal(
+    EMPLOYMENT_GAP_IN_INTERVIEWS,
+    "A career break or employment gap is never listed in concerns and never lowers a score: mention it only neutrally, and never guess the cause.",
+  );
+  const longDashes = new RegExp(`[${String.fromCharCode(0x2013, 0x2014)}]`);
+  assert.doesNotMatch(EMPLOYMENT_GAP_IN_INTERVIEWS, longDashes, "no long dashes");
+  for (const name of ["SYSTEM_PROMPT", "SESSION_SYSTEM_PROMPT"]) {
+    const p = promptOf("lib/ai/interview-scoring.ts", name);
+    for (const shared of [
+      "EMPLOYMENT_GAP_RULE",
+      "EMPLOYMENT_GAP_IN_INTERVIEWS",
+      "FAIRNESS_RULES",
+    ]) {
+      assert.ok(p.used.includes(shared), `${name} interpolates ${shared}`);
+    }
+    assert.ok(p.text.includes(INTERVIEW_GAP_BLOCK), `${name}: the block reaches the model whole`);
+    // Right after the fairness rules, as in the CV prompt's order of reading.
+    assert.ok(
+      p.text.indexOf(FAIRNESS_RULES) < p.text.indexOf(INTERVIEW_GAP_BLOCK),
+      `${name}: after FAIRNESS_RULES`,
+    );
+  }
+  assert.ok(
+    importsShared(readFileSync(join(SRC, "lib/ai/interview-scoring.ts"), "utf8"), [
+      "EMPLOYMENT_GAP_RULE",
+      "EMPLOYMENT_GAP_IN_INTERVIEWS",
+    ]),
+  );
+});
+
 test("the prompt versions moved with the text, in the same scoring generation; nothing re-scores on a version", async () => {
   const cv = readFileSync(join(SRC, "lib/ai/cv-scoring.ts"), "utf8");
   const interview = readFileSync(join(SRC, "lib/ai/interview-scoring.ts"), "utf8");
   assert.match(cv, /export const PROMPT_VERSION = "cv-scoring-v14";/);
-  assert.match(interview, /export const PROMPT_VERSION = "interview-scoring-v10";/);
+  assert.match(interview, /export const PROMPT_VERSION = "interview-scoring-v11";/);
   const live = readFileSync(join(SRC, "lib/ai/live-interview-scoring.ts"), "utf8");
   assert.match(live, /export const LIVE_SCORING_PROMPT_VERSION = "live-interview-scoring-v3";/);
   const { CV_SCORING_GENERATIONS, INTERVIEW_SCORING_GENERATIONS, scoringGeneration } = await import(
@@ -262,6 +314,10 @@ test("the prompt versions moved with the text, in the same scoring generation; n
   assert.equal(
     scoringGeneration(INTERVIEW_SCORING_GENERATIONS, "interview-scoring-v10"),
     scoringGeneration(INTERVIEW_SCORING_GENERATIONS, "interview-scoring-v9"),
+  );
+  assert.equal(
+    scoringGeneration(INTERVIEW_SCORING_GENERATIONS, "interview-scoring-v11"),
+    scoringGeneration(INTERVIEW_SCORING_GENERATIONS, "interview-scoring-v10"),
   );
   // No code compares a stored prompt_version to the current one: a version
   // is a label on new rows, never a trigger to re-score old ones.

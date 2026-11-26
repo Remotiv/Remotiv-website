@@ -95,6 +95,11 @@ export const INTERVIEW_SCORING_GENERATIONS: Record<string, GenerationEntry> = {
     reason:
       "fairness rules (#71) - the speech rules already forbade the same things; bands, rules and sampling unchanged",
   },
+  "interview-scoring-v11": {
+    generation: 1,
+    reason:
+      "employment gaps never listed in concerns and never lower a score (#40) - bands, rules and sampling unchanged",
+  },
 };
 
 /** The generation a stored prompt_version belongs to, or null for a version this map has never heard of. */
