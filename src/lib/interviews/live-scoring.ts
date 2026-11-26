@@ -8,11 +8,7 @@ import {
   scoreLiveQuestion,
 } from "@/lib/ai/live-interview-scoring";
 import { retentionPassed } from "@/lib/interviews/async-score-purge";
-import {
-  CANDIDATE_TAG,
-  type CandidateName,
-  removeCandidateName,
-} from "@/lib/interviews/candidate-name";
+import { type CandidateName, removeCandidateNameFromSpeech } from "@/lib/interviews/candidate-name";
 import { sanitizeCvForInterview } from "@/lib/interviews/cv-sanitize";
 import { type FrozenLiveQuestion, readFrozenQuestionSet } from "@/lib/interviews/frozen-questions";
 import { isOutcomeDecided, type LiveOutcome } from "@/lib/interviews/live-ingest";
@@ -359,24 +355,16 @@ export type ScoringTurn = {
   content_purged_at: string | null;
 };
 
-const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
 /**
  * Contact details and the candidate's name out of any line, the interviewer's
- * included. removeCandidateName takes the full name and surname; the first
- * name alone is taken here too, because the interviewer greets the candidate
- * by it ("Hi Alex"). Capitalised, whole word only, so "will" in a sentence is
- * never touched by a candidate called Will.
+ * included: the full name, the surname and the first name, by the speech
+ * rules in candidate-name.ts (the interviewer greets the candidate by first
+ * name, "Hi Alex"). A name that is also an ordinary word goes only where it
+ * is plainly a name, so "will" in a sentence is never touched by a candidate
+ * called Will. A name the transcription spelt differently is not caught.
  */
 function scrub(text: string, name: CandidateName): string {
-  let out = removeCandidateName(sanitizeCvForInterview(text).text, name).text;
-  for (const given of (name.firstName ?? "").split(/[\s.-]+/).filter((g) => g.length >= 2)) {
-    out = out.replace(
-      new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(given)}(?![\\p{L}\\p{N}])`, "gu"),
-      CANDIDATE_TAG,
-    );
-  }
-  return out.trim();
+  return removeCandidateNameFromSpeech(sanitizeCvForInterview(text).text, name).text.trim();
 }
 
 /**
