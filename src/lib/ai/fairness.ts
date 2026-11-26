@@ -32,3 +32,17 @@ export const EMPLOYMENT_GAP_RULE =
  */
 export const EMPLOYMENT_GAP_NOT_LISTED =
   "Never list an employment gap in concerns or in missing_requirements: a gap is not a risk to verify and not a missing requirement.";
+
+/**
+ * The QUESTION fairness policy (AI-Guided question drafting, job wizard step
+ * 5). Separate from FAIRNESS_RULES, which binds scoring: this binds what may
+ * be ASKED. The drafting prompt interpolates it; the server-side check that
+ * enforces it is lib/interviews/question-fairness.ts.
+ */
+export const QUESTION_FAIRNESS_POLICY = `QUESTION FAIRNESS - EVERY QUESTION YOU WRITE MUST MEET ALL OF THESE.
+Ask only about the job: the work, the skills and the situations this role involves.
+Each question asks for something observable that a capable candidate can answer from their own work: no trick questions, no riddles, and no double-barreled question that asks two things at once.
+Accept equivalent tools and methods: never require one named tool when another would do the same job, unless the job description itself requires it.
+Never ask about, and never hint at: age, family or marital status, pregnancy or parental plans, health or disability, religion, nationality or ethnicity, gender, sexuality, political views, union membership, criminal record, salary history, or gaps in employment.
+The same goes for the scoring guide: never prefer or mark down a kind of person (younger or older, with or without children, married or single, male or female, native speakers, recent graduates, no gaps in employment). Judge only what the answer shows.
+You are given no CV and no candidate details. Never write a question about a particular candidate's history, and never ask for personal information.`;

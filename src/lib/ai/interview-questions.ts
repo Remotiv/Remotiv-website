@@ -1,8 +1,11 @@
 import "server-only";
+import { QUESTION_FAIRNESS_POLICY } from "@/lib/ai/fairness";
 import { extractText, thinkingOffParams } from "@/lib/ai/model-params";
 import { AI_MATCHING_MODEL, getAnthropic } from "@/lib/anthropic";
+import { type FairnessTopic, questionFairnessIssue } from "@/lib/interviews/question-fairness";
 import {
   COMPETENCY_MAX,
+  DRAFT_QUESTION_COUNTS,
   INTERVIEW_LENGTHS,
   type InterviewLengthId,
   MAX_QUESTIONS,
@@ -118,6 +121,36 @@ export type InterviewQuestionsOutcome =
   | { questions: GeneratedQuestion[]; failure: null }
   | { questions: null; failure: InterviewQuestionsFailure };
 
+const RUBRIC_RULES = `═══ THE RUBRIC — THE STRICT PART ═══
+
+The rubric tells a scorer what a good answer looks like. It is applied to every
+candidate, nobody re-reads it after today, and a candidate rejected by it never
+learns why. So it is held to a harder rule than the questions:
+
+A RUBRIC MAY ONLY DESCRIBE A STANDARD THIS JOB DESCRIPTION ALREADY STATES.
+
+  - If the requirements say "experience owning a design system", a rubric may
+    ask for a concrete example of owning one, and may say what a weak answer
+    looks like.
+  - If the requirements say nothing about team size, the rubric MUST NOT ask
+    for "experience leading a team of five".
+  - If the requirements name no tools, the rubric MUST NOT name tools.
+  - NEVER introduce a number the job description does not contain: not years,
+    not team sizes, not counts of projects, not percentages.
+  - NEVER introduce a qualification, certification or degree the job
+    description does not ask for.
+
+You are describing how to recognise the requirements the employer wrote. You are
+not adding requirements of your own. If a question is about something the job
+description covers only loosely, write a loose rubric — that is the honest
+answer, and a vague standard is better than a precise invented one.
+
+Write the rubric as two or three sentences of plain text. No headings, no
+bullets, no scoring scale — the scorer supplies the scale.
+
+Keep each question under ${QUESTION_TEXT_MAX} characters and each rubric under
+${RUBRIC_MAX}.`;
+
 const SYSTEM_PROMPT = `You write questions for a one-way video interview, from a
 job description the employer has already written.
 
@@ -173,35 +206,40 @@ Never ask anything that reveals what a good answer contains.
 "competency" must be EXACTLY one of:
 ${COMPETENCIES.join(", ")}
 
-═══ THE RUBRIC — THE STRICT PART ═══
+${RUBRIC_RULES}`;
 
-The rubric tells a scorer what a good answer looks like. It is applied to every
-candidate, nobody re-reads it after today, and a candidate rejected by it never
-learns why. So it is held to a harder rule than the questions:
+/**
+ * AI-Guided question drafting (job wizard step 5, AI Video Interview in
+ * AI-Guided mode). Its own brief: the interviewer is Sarah, live, and may ask
+ * a follow-up, so the one-way recording rules above do not apply; the rubric
+ * rules and the one-ask rule do. QUESTION_FAIRNESS_POLICY binds what is asked.
+ */
+const AI_GUIDED_DRAFT_PROMPT = `You draft job-based questions for a live AI video
+interview. The interviewer, Sarah, asks each question in a spoken conversation
+and may ask a short follow-up. A recruiter reviews, edits and approves every
+question you write before any candidate hears it.
 
-A RUBRIC MAY ONLY DESCRIBE A STANDARD THIS JOB DESCRIPTION ALREADY STATES.
+Return JSON only, no prose, no code fences:
 
-  - If the requirements say "experience owning a design system", a rubric may
-    ask for a concrete example of owning one, and may say what a weak answer
-    looks like.
-  - If the requirements say nothing about team size, the rubric MUST NOT ask
-    for "experience leading a team of five".
-  - If the requirements name no tools, the rubric MUST NOT name tools.
-  - NEVER introduce a number the job description does not contain: not years,
-    not team sizes, not counts of projects, not percentages.
-  - NEVER introduce a qualification, certification or degree the job
-    description does not ask for.
+{"questions":[{"question":"...","competency":"...","rubric":"..."}]}
 
-You are describing how to recognise the requirements the employer wrote. You are
-not adding requirements of your own. If a question is about something the job
-description covers only loosely, write a loose rubric — that is the honest
-answer, and a vague standard is better than a precise invented one.
+${QUESTION_FAIRNESS_POLICY}
 
-Write the rubric as two or three sentences of plain text. No headings, no
-bullets, no scoring scale — the scorer supplies the scale.
+═══ THE QUESTIONS ═══
 
-Keep each question under ${QUESTION_TEXT_MAX} characters and each rubric under
-${RUBRIC_MAX}.`;
+Ask about what THIS job says: its description, its required skills, its
+seniority, and the hiring challenges the recruiter describes. The hiring
+challenges are the recruiter's private notes on what makes this hire hard; ask
+about the situations they describe, never quote them.
+
+Prefer "tell me about a time you..." over "how would you...". One ask per
+question, ${QUESTION_WORDS_LOW} to ${QUESTION_WORDS_HIGH} words, spoken naturally. Never
+reveal what a good answer contains.
+
+"competency" must be EXACTLY one of:
+${COMPETENCIES.join(", ")}
+
+${RUBRIC_RULES}`;
 
 function section(label: string, value: string | null | undefined): string {
   const v = (value ?? "").trim().slice(0, MAX_SECTION_CHARS);
@@ -263,9 +301,23 @@ export async function generateInterviewQuestions(input: {
   if (!(input.description ?? input.requirements ?? "").trim()) {
     return { questions: null, failure: "no_job_text" };
   }
-  if (!process.env.ANTHROPIC_API_KEY) return { questions: null, failure: "no_key" };
+  const reply = await askModel(
+    SYSTEM_PROMPT,
+    `Write exactly ${preset.questions} questions for this role.\n\n${job}`,
+  );
+  if (reply.failure) return { questions: null, failure: reply.failure };
+  return parseQuestions(reply.raw, preset.questions);
+}
 
-  let raw: string;
+/**
+ * One model call. Never throws: every failure is named, and "no_key" is
+ * answered before any call.
+ */
+async function askModel(
+  system: string,
+  user: string,
+): Promise<{ raw: string; failure: null } | { raw: null; failure: InterviewQuestionsFailure }> {
+  if (!process.env.ANTHROPIC_API_KEY) return { raw: null, failure: "no_key" };
   try {
     const response = await getAnthropic().messages.create(
       {
@@ -275,32 +327,33 @@ export async function generateInterviewQuestions(input: {
         /*
          * Unpinned, like the JD generator and unlike everything that judges.
          * Two roles at the same company should not get the same six questions.
-         * Left at the API default rather than raised — the failure mode of a
+         * Left at the API default rather than raised - the failure mode of a
          * high temperature here is an invented rubric, which is the one thing
          * the prompt above spends its length preventing.
          */
-        system: SYSTEM_PROMPT,
-        messages: [
-          {
-            role: "user",
-            content: `Write exactly ${preset.questions} questions for this role.\n\n${job}`,
-          },
-        ],
+        system,
+        messages: [{ role: "user", content: user }],
       },
       { signal: AbortSignal.timeout(TIMEOUT_MS) },
     );
     // The first text block, past any thinking block; "" when there is none, so
     // the empty / not_json handling below is unchanged.
-    raw = response.content.some((b) => b.type === "text")
-      ? extractText(response, AI_MATCHING_MODEL)
-      : "";
+    return {
+      raw: response.content.some((b) => b.type === "text")
+        ? extractText(response, AI_MATCHING_MODEL)
+        : "",
+      failure: null,
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const timedOut = /abort|timeout/i.test(message);
     console.error(`[interview-questions] ${timedOut ? "timed out" : "model error"}: ${message}`);
-    return { questions: null, failure: timedOut ? "timeout" : "model_error" };
+    return { raw: null, failure: timedOut ? "timeout" : "model_error" };
   }
+}
 
+/** The model's reply as at most `max` usable questions, or the named failure. */
+function parseQuestions(raw: string, max: number): InterviewQuestionsOutcome {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/g, "").trim());
@@ -321,7 +374,7 @@ export async function generateInterviewQuestions(input: {
    * generator making up questions to fill slots.
    */
   const questions: GeneratedQuestion[] = [];
-  for (const entry of list.slice(0, preset.questions)) {
+  for (const entry of list.slice(0, max)) {
     const e = entry as { question?: unknown; competency?: unknown; rubric?: unknown };
     const question = clean(e?.question, QUESTION_TEXT_MAX);
     if (!question) continue;
@@ -338,4 +391,87 @@ export async function generateInterviewQuestions(input: {
   }
 
   return { questions, failure: null };
+}
+
+/* ── AI-Guided drafting (AI Video Interview, job wizard step 5) ── */
+
+export const AI_GUIDED_DRAFT_PROMPT_VERSION = "ai-guided-draft-v1";
+
+/** The counts a recruiter may pick: the existing presets' question counts, 4 to 8. */
+export const DRAFT_COUNTS: readonly number[] = DRAFT_QUESTION_COUNTS.filter(
+  (n) => n >= 1 && n <= MAX_QUESTIONS,
+);
+
+/** A draft, and the protected topic the fairness check found in it, in the question or its guide. */
+export type DraftedQuestion = GeneratedQuestion & {
+  issue: { topic: FairnessTopic; part: "question" | "scoring guide" } | null;
+};
+
+export type DraftOutcome =
+  | { questions: DraftedQuestion[]; failure: null }
+  | { questions: null; failure: InterviewQuestionsFailure | "bad_count" };
+
+/**
+ * The ONLY inputs a draft is made from. No CV, no candidate, no rubric or
+ * scoring criteria: the type has no field for them, and the prompt is built
+ * from these five alone.
+ */
+export type DraftInput = {
+  title: string;
+  description: string;
+  /** "What we're looking for": the job's required skills. */
+  requiredSkills: string;
+  /** The job's experience level. */
+  seniority: string;
+  /** The job's confidential hiring challenges: recruiter notes, never sent to the provider. */
+  hiringChallenges: string;
+  count: number;
+};
+
+/** The model's whole user message for a draft, from DraftInput alone. */
+export function draftJobText(input: DraftInput): string {
+  return [
+    `Job title: ${(input.title ?? "").trim()}`,
+    section("Seniority", input.seniority),
+    section("About the role", input.description),
+    section("Required skills", input.requiredSkills),
+    section("Hiring challenges (private to the recruiter)", input.hiringChallenges),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/**
+ * Draft AI-Guided questions: one model call, 4 to 8 questions, each with a
+ * competency and a private scoring-guide draft. Every draft is run through the
+ * fairness check before it is returned, so the recruiter sees what is blocked
+ * and why. Nothing is saved here. Never throws.
+ */
+export async function draftAiGuidedQuestions(input: DraftInput): Promise<DraftOutcome> {
+  if (!DRAFT_COUNTS.includes(input.count)) return { questions: null, failure: "bad_count" };
+  if (!`${input.description ?? ""}${input.requiredSkills ?? ""}`.trim()) {
+    return { questions: null, failure: "no_job_text" };
+  }
+  const reply = await askModel(
+    AI_GUIDED_DRAFT_PROMPT,
+    `Write exactly ${input.count} questions for this role.\n\n${draftJobText(input)}`,
+  );
+  if (reply.failure) return { questions: null, failure: reply.failure };
+  const parsed = parseQuestions(reply.raw, input.count);
+  if (!parsed.questions) return parsed;
+  return {
+    questions: parsed.questions.map((q) => {
+      const inQuestion = questionFairnessIssue(q.question);
+      const inGuide = inQuestion ? null : questionFairnessIssue(q.rubric);
+      return {
+        ...q,
+        issue: inQuestion
+          ? { topic: inQuestion, part: "question" as const }
+          : inGuide
+            ? { topic: inGuide, part: "scoring guide" as const }
+            : null,
+      };
+    }),
+    failure: null,
+  };
 }

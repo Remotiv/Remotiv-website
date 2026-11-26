@@ -463,11 +463,13 @@ const EXPECTED = [
   "app/api/interview/live/event/route.ts  live-event  interview",
   "app/api/interview/live/video-upload-url/route.ts  live-video-upload  interview",
   "app/api/interview/live/video-confirm/route.ts  live-video-confirm  interview",
+  // The recruiter's AI-Guided question draft (job wizard step 5): 1.
+  "app/ai-dashboard/(gated)/jobs/actions.ts  job-question-draft  security",
 ].sort();
 
-test("census: all 44 limiter call sites have a group, none left ungrouped", () => {
+test("census: all 45 limiter call sites have a group, none left ungrouped", () => {
   const found = census();
-  assert.equal(EXPECTED.length, 44);
+  assert.equal(EXPECTED.length, 45);
   assert.deepEqual(
     found.filter((l) => l.endsWith("UNGROUPED")),
     [],

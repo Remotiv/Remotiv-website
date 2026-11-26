@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { type ReactNode, useId } from "react";
 import {
   hiringChallengesLength,
   LIVE_HIRING_CHALLENGES_MAX,
@@ -19,7 +19,9 @@ import {
 /**
  * The AI Video Interview's mode, length and hiring challenges (#45, #46), on
  * the wizard's Interview questions step. Nothing renders while AI Video
- * Interview is off for the job; the challenges box only in AI-Guided.
+ * Interview is off for the job; the challenges box, and under it "Draft
+ * questions with AI" (draftPanel), only in AI-Guided. Recruiter-Defined has no
+ * AI drafting here.
  *
  * The cards are native radio inputs inside their labels, so arrow keys, Tab
  * and screen readers treat them as one radio group. A focused radio keeps the
@@ -43,6 +45,7 @@ export function LiveInterviewSettings({
   onModeChange,
   onMinutesChange,
   onChallengesChange,
+  draftPanel,
 }: {
   /** AI Video Interview is on for this job. */
   enabled: boolean;
@@ -52,6 +55,8 @@ export function LiveInterviewSettings({
   onModeChange: (mode: LiveInterviewMode) => void;
   onMinutesChange: (minutes: LiveInterviewMinutes) => void;
   onChallengesChange: (text: string) => void;
+  /** AI-Guided only: the draft button and its review panel (_question-draft-panel.tsx). */
+  draftPanel?: ReactNode;
 }) {
   const id = useId();
   if (!enabled) return null;
@@ -146,6 +151,7 @@ export function LiveInterviewSettings({
               {used}/{LIVE_HIRING_CHALLENGES_MAX}
             </span>
           </div>
+          {draftPanel}
         </div>
       )}
     </section>

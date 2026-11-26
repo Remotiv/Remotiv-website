@@ -138,6 +138,12 @@ export const EXCLUDED_DECLARATIONS = [
     note: "system argument of the interview question model call",
   },
   {
+    file: "lib/ai/interview-questions.ts",
+    symbol: "RUBRIC_RULES",
+    reason: "model-prompt",
+    note: "the rubric rules, interpolated into SYSTEM_PROMPT and the AI-Guided draft prompt",
+  },
+  {
     file: "lib/ai/interview-scoring.ts",
     symbol: "SCORE_BANDS",
     reason: "model-prompt",

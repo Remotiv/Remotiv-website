@@ -40,7 +40,7 @@ const STUBS = {
     "export function readJobScope() { return { all: true }; }",
     "export function scopeJobIds() { return null; }",
   ].join("\\n"),
-  "@/lib/ai/interview-questions": fail("generateInterviewQuestions"),
+  "@/lib/ai/interview-questions": [fail("generateInterviewQuestions"), fail("draftAiGuidedQuestions")].join(";"),
   "@/lib/ai/jd-generate": fail("generateJobDescription"),
   "@/lib/ai/jd-split": fail("proposeSplit"),
   "@/lib/ai/scoring-criteria": fail("generateScoringCriteria"),

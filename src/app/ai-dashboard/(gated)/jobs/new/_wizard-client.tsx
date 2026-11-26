@@ -57,10 +57,12 @@ import {
   weightsAreEqual,
 } from "@/app/ai-dashboard/lib/job-types";
 import { useModalFocus } from "@/hooks/use-modal-focus";
+import { DRAFT_FAILED } from "@/lib/interviews/question-fairness";
 import {
   ANSWER_SECONDS_MAX,
   ANSWER_SECONDS_MIN,
   DEFAULT_INTERVIEW_LENGTH,
+  draftAnswerSeconds,
   EMPTY_QUESTION_INPUT,
   INTERVIEW_LENGTHS,
   type InterviewLengthId,
@@ -80,6 +82,7 @@ import { type NumericMode, resolveNumericMode } from "@/lib/screening";
 import { HiringTeamSection } from "../_hiring-team";
 import {
   createCompanyJob,
+  draftInterviewQuestions,
   estimateAutoshortlistReach,
   generateJobDescriptionDraft,
   proposeJobDescriptionSplit,
@@ -89,6 +92,7 @@ import {
   updateCompanyJob,
 } from "../actions";
 import { LiveInterviewSettings } from "./_live-interview-settings";
+import { QuestionDraftPanel } from "./_question-draft-panel";
 import {
   AI_VIDEO_OPTION_DESCRIPTION,
   AI_VIDEO_QUESTION_COUNT_WARNING,
@@ -97,6 +101,12 @@ import {
   aiVideoQuestionsHint,
 } from "./ai-video-copy";
 import { fieldErrorId, fieldErrorProps, firstInvalidFieldId } from "./field-errors";
+import {
+  type DraftsAction,
+  draftsAsJobQuestions,
+  draftsReducer,
+  INITIAL_DRAFTS,
+} from "./question-drafts";
 import { currencySymbol, salaryRange } from "./salary-range";
 
 // ── Constants ────────────────────────────────────────────────
@@ -1127,6 +1137,9 @@ export function WizardClient({
   const [qsGenerating, setQsGenerating] = useState(false);
   const [qsFailed, setQsFailed] = useState(false);
 
+  /** AI-Guided drafts (question-drafts.ts): apart from the job's questions until used. */
+  const [drafts, setDrafts] = useState(INITIAL_DRAFTS);
+
   /**
    * The generate button is asking to confirm a replacement.
    *
@@ -1514,6 +1527,10 @@ export function WizardClient({
   // action's problem, not the form's.
 
   const interviewQs = state.interview_questions;
+  /** AI Video Interview on, in AI-Guided mode: drafting replaces the old suggest panel. */
+  const aiGuided =
+    state.avatar_interview_enabled &&
+    (state.live_interview_mode ?? DEFAULT_LIVE_INTERVIEW_MODE) === "ai_guided";
 
   /*
    * Rows whose competency is being typed freehand.
@@ -1615,6 +1632,52 @@ export function WizardClient({
       setQsFailed(true);
     } finally {
       setQsGenerating(false);
+    }
+  }
+
+  /**
+   * A draft panel action. "Use these questions" (and its confirm) is the only
+   * one that reaches the job: its questions go onto the job here, once, and
+   * the panel closes. Saving the job afterwards is the recruiter's approval.
+   */
+  function onDraftAction(a: DraftsAction): void {
+    const next = draftsReducer(drafts, a);
+    if (next.apply) {
+      set("interview_questions", draftsAsJobQuestions(next.apply, draftAnswerSeconds(next.count)));
+      setDrafts(draftsReducer(next, { t: "applied" }));
+      return;
+    }
+    setDrafts(next);
+  }
+
+  /** One model call; nothing is written. Any failure is the one plain message. */
+  async function draftQuestions(): Promise<void> {
+    if (drafts.busy) return;
+    setDrafts((s) => draftsReducer(s, { t: "start" }));
+    try {
+      const { drafts: got, error } = await draftInterviewQuestions({
+        jobId: jobId ?? null,
+        title: state.title,
+        description: state.description,
+        requiredSkills: state.requirements,
+        seniority: state.experience_level,
+        hiringChallenges: state.live_hiring_challenges ?? "",
+        count: drafts.count,
+      });
+      setDrafts((s) =>
+        got
+          ? draftsReducer(s, {
+              t: "result",
+              drafts: got.map((d) => ({
+                question: d.question,
+                competency: d.competency,
+                rubric: d.rubric,
+              })),
+            })
+          : draftsReducer(s, { t: "failed", error: error ?? DRAFT_FAILED }),
+      );
+    } catch {
+      setDrafts((s) => draftsReducer(s, { t: "failed", error: DRAFT_FAILED }));
     }
   }
 
@@ -2453,9 +2516,20 @@ export function WizardClient({
                     onModeChange={(v) => set("live_interview_mode", v)}
                     onMinutesChange={(v) => set("live_interview_minutes", v)}
                     onChallengesChange={(v) => set("live_hiring_challenges", v)}
+                    draftPanel={
+                      <QuestionDraftPanel
+                        state={drafts}
+                        dispatch={onDraftAction}
+                        ready={Boolean(state.description.trim() || state.requirements.trim())}
+                        existingQuestions={interviewQs.filter((q) => q.question.trim()).length}
+                        onDraft={() => {
+                          void draftQuestions();
+                        }}
+                      />
+                    }
                   />
 
-                  {interviewQs.length === 0 && !qsPanelDismissed && (
+                  {!aiGuided && interviewQs.length === 0 && !qsPanelDismissed && (
                     <QuestionSuggestPanel
                       length={qsLength}
                       onLengthChange={setQsLength}

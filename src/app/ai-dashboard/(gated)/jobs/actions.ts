@@ -46,12 +46,23 @@ import {
   snapWeight,
   suggestCriteria,
 } from "@/app/ai-dashboard/lib/job-types";
-import { type GeneratedQuestion, generateInterviewQuestions } from "@/lib/ai/interview-questions";
+import {
+  type DraftedQuestion,
+  draftAiGuidedQuestions,
+  type GeneratedQuestion,
+  generateInterviewQuestions,
+} from "@/lib/ai/interview-questions";
 import { generateJobDescription, type JdBrief } from "@/lib/ai/jd-generate";
 import { proposeSplit } from "@/lib/ai/jd-split";
 import { generateScoringCriteria } from "@/lib/ai/scoring-criteria";
 import { generateScreeningQuestions } from "@/lib/ai/screening-questions";
 import { parseRules } from "@/lib/calendar/availability";
+import {
+  DRAFT_FAILED,
+  DRAFT_RATE_LIMITED,
+  fairnessBlockMessage,
+  firstFairnessBlock,
+} from "@/lib/interviews/question-fairness";
 import {
   ANSWER_SECONDS_MAX,
   ANSWER_SECONDS_MIN,
@@ -71,8 +82,8 @@ import type { ScreeningQuestion } from "@/lib/jobs";
 import { enqueue, JOB_TYPES } from "@/lib/jobs-queue";
 import { notifyCompany } from "@/lib/notifications/company";
 import { slugify, uniqueSlug } from "@/lib/slug";
-import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { pageAll } from "@/lib/supabase/paging";
+import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 
 // NB: a "use server" module may only export async functions — every export is
@@ -199,6 +210,14 @@ function buildPatch(
       ok: false,
       error: `A job can have at most ${MAX_QUESTIONS} interview questions. Remove ${askedQuestions - MAX_QUESTIONS} to save.`,
     };
+  }
+
+  // The question fairness check (question-fairness.ts), on every question an
+  // AI Video Interview job saves: AI drafts the recruiter used, and their own
+  // edits. Refused before anything is written; the recruiter rewords it.
+  if (avatarOn) {
+    const blocked = firstFairnessBlock(input.interview_questions ?? []);
+    if (blocked) return { ok: false, error: blocked };
   }
 
   // AI Video Interview mode, length and hiring challenges (074). Checked here,
@@ -1571,6 +1590,75 @@ export async function suggestInterviewQuestions(input: {
     length: input?.length ?? "standard",
   });
   return { questions: outcome.questions, failure: outcome.failure };
+}
+
+/** A draft as the review panel shows it: the block message, when the fairness check found one. */
+export type QuestionDraft = Omit<DraftedQuestion, "issue"> & { blocked: string | null };
+
+/**
+ * AI-Guided "Draft questions with AI" (job wizard step 5). The same permission
+ * as editing the job: owner, admin or recruiter, and for a saved job, one the
+ * caller may act on. Rate limited (job-question-draft), one model call per
+ * press. Writes NOTHING: the drafts go to the review panel, and only "Use these
+ * questions" then saving the job puts them on it.
+ *
+ * Inputs are exactly title, description, required skills, seniority and hiring
+ * challenges (DraftInput): never a CV, a candidate or the scoring criteria.
+ */
+export async function draftInterviewQuestions(input: {
+  jobId?: string | null;
+  title: string;
+  description: string;
+  requiredSkills: string;
+  seniority: string;
+  hiringChallenges: string;
+  count: number;
+}): Promise<{ drafts: QuestionDraft[] | null; error: string | null }> {
+  let ctx: Awaited<ReturnType<typeof requireCompanyRole>>;
+  try {
+    ctx = await requireCompanyRole("owner", "admin", "recruiter");
+  } catch {
+    return { drafts: null, error: "You don't have permission to edit this job." };
+  }
+  const jobId = typeof input?.jobId === "string" && input.jobId ? input.jobId : null;
+  if (jobId) {
+    const owned = await assertOwned(createServiceClient(), jobId, ctx.companyId);
+    if (!owned.ok || !(await roleAllowsJobAction(ctx, jobId))) {
+      return { drafts: null, error: "That job isn't in your workspace." };
+    }
+  }
+  // Per recruiter: each press is one model call, and 10 in 10 minutes covers
+  // regenerating while reading. Loaded here, not at the top: the limiter starts
+  // a cleanup timer on import, and no other job action needs it.
+  const { rateLimitByKey } = await import("@/app/api/_lib/rate-limit");
+  const rate = rateLimitByKey(`job-question-draft:${ctx.user.id}`, {
+    max: 10,
+    windowMs: 10 * 60_000,
+    group: "security",
+  });
+  if (!rate.ok) {
+    return { drafts: null, error: DRAFT_RATE_LIMITED };
+  }
+  const text = (v: unknown) => (typeof v === "string" ? v : "");
+  const outcome = await draftAiGuidedQuestions({
+    title: text(input?.title),
+    description: text(input?.description),
+    requiredSkills: text(input?.requiredSkills),
+    seniority: text(input?.seniority),
+    hiringChallenges: text(input?.hiringChallenges),
+    count: Number(input?.count),
+  });
+  if (!outcome.questions) {
+    console.warn(`[jobs] question draft failed (${outcome.failure})`);
+    return { drafts: null, error: DRAFT_FAILED };
+  }
+  return {
+    drafts: outcome.questions.map(({ issue, ...q }, i) => ({
+      ...q,
+      blocked: issue ? fairnessBlockMessage(i + 1, q.question, issue.topic, issue.part) : null,
+    })),
+    error: null,
+  };
 }
 
 /**

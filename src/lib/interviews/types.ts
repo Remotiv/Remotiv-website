@@ -367,6 +367,18 @@ export type InterviewLengthId = (typeof INTERVIEW_LENGTHS)[number]["id"];
 
 export const DEFAULT_INTERVIEW_LENGTH: InterviewLengthId = "standard";
 
+/** The question counts AI-Guided drafting offers: the presets' own counts, 4 to 8. */
+export const DRAFT_QUESTION_COUNTS: readonly number[] = INTERVIEW_LENGTHS.map((l) => l.questions);
+
+/** The answer time of the preset with this many questions. */
+export function draftAnswerSeconds(count: number): number {
+  return (
+    INTERVIEW_LENGTHS.find((l) => l.questions === count) ??
+    INTERVIEW_LENGTHS.find((l) => l.id === DEFAULT_INTERVIEW_LENGTH) ??
+    INTERVIEW_LENGTHS[0]
+  ).answerSeconds;
+}
+
 /** Bounds the builder enforces and the candidate page trusts. */
 export const PREP_SECONDS_MIN = 5;
 export const PREP_SECONDS_MAX = 120;
