@@ -181,6 +181,8 @@ test("the length hint follows the length", () => {
 /* ── where the wizard puts them ────────────────────────────────── */
 
 const WIZARD = readFileSync(new URL("./_wizard-client.tsx", import.meta.url), "utf8");
+/** Step 5's question editor, moved out of the wizard unchanged (#58 commit 2). */
+const EDITOR = readFileSync(new URL("./_interview-question-editor.tsx", import.meta.url), "utf8");
 
 /** The AI Video Interview OptionRow, from its title to its closing tag. */
 function aiVideoRow() {
@@ -200,7 +202,7 @@ test("step 5 opens with the AI Video Interview toggle, then the mode, length and
   );
   const toggle = STEP5.indexOf('title="AI Video Interview"');
   const cards = STEP5.indexOf("<LiveInterviewSettings");
-  const questionsList = STEP5.indexOf("interviewQs.map(");
+  const questionsList = STEP5.indexOf("<InterviewQuestionEditor");
   assert.ok(
     toggle > 0 && toggle < cards && cards < questionsList,
     "toggle, then cards, then questions",
@@ -247,14 +249,24 @@ test("the step's extra line, exactly, and only while AI Video Interview is on", 
 test("the wizard's question list stops at 8: add, AI suggestions and the button all use MAX_QUESTIONS", async () => {
   const { MAX_QUESTIONS } = await import("../../../../../lib/interviews/types.ts");
   assert.equal(MAX_QUESTIONS, 8);
-  assert.match(WIZARD, /if \(interviewQs\.length >= MAX_QUESTIONS\) return;/);
+  // Add and the button live in the editor, capped at maxQuestions, which is
+  // MAX_QUESTIONS unless a caller passes another; step 5 passes none.
+  assert.match(EDITOR, /maxQuestions = MAX_QUESTIONS,/);
+  assert.match(EDITOR, /if \(questions\.length >= maxQuestions\) return;/);
   assert.match(WIZARD, /questions\.slice\(0, MAX_QUESTIONS\)/);
-  assert.match(WIZARD, /disabled=\{interviewQs\.length >= MAX_QUESTIONS\}/);
-  assert.doesNotMatch(
-    WIZARD,
-    /\b6\b[^\n]*question|question[^\n]*\b6\b/i,
-    "no question count of 6 in the wizard",
-  );
+  assert.match(EDITOR, /disabled=\{questions\.length >= maxQuestions\}/);
+  const step5Editor = STEP5.slice(STEP5.indexOf("<InterviewQuestionEditor"));
+  assert.doesNotMatch(step5Editor.slice(0, step5Editor.indexOf("/>")), /maxQuestions/);
+  for (const [name, src] of [
+    ["the wizard", WIZARD],
+    ["the editor", EDITOR],
+  ]) {
+    assert.doesNotMatch(
+      src,
+      /\b6\b[^\n]*question|question[^\n]*\b6\b/i,
+      `no question count of 6 in ${name}`,
+    );
+  }
 });
 
 test("the option row: description, the hint on the chosen length, and the warning on the same count", () => {

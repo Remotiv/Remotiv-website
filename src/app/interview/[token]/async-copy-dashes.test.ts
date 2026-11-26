@@ -68,6 +68,8 @@ const WHOLE_FILES = [
   "./page.tsx",
   "../../ai-dashboard/(gated)/applicants/interview-actions.ts",
   "../../ai-dashboard/(gated)/applicants/_interview-panel.tsx",
+  // Step 5's question editor, moved out of the wizard's step 5 section (#58 commit 2).
+  "../../ai-dashboard/(gated)/jobs/new/_interview-question-editor.tsx",
   "../../ai-dashboard/(gated)/interviews/_interviews-client.tsx",
   "../../ai-dashboard/(gated)/interviews/[sessionId]/_review-client.tsx",
   "../../../lib/email/candidate/interview-reminder.ts",
