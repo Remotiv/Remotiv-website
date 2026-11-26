@@ -112,7 +112,9 @@ import { createServiceClient } from "@/lib/supabase/server";
  * only prompt that row was ever scored with. A kept score is never relabelled
  * with the current version. The row's prompt_version is read from its
  * questions (rowPromptVersion): their one version, or LIVE_SCORING_MIXED_VERSIONS
- * when they differ.
+ * when they differ. The row's ai_model follows the same rule from the
+ * questions' own models (rowAiModel, #52), so a re-run on a newer model never
+ * relabels scores an older model produced.
  *
  * ── After retention ──────────────────────────────────────────
  *
@@ -285,6 +287,24 @@ export function rowPromptVersion(
   const versions = new Set(entries.flatMap((e) => (e.prompt_version ? [e.prompt_version] : [])));
   if (versions.size > 1) return LIVE_SCORING_MIXED_VERSIONS;
   return [...versions][0] ?? fallback;
+}
+
+/** The row's ai_model when its questions were scored by more than one model. */
+export const LIVE_SCORING_MIXED_MODELS = "mixed";
+
+/**
+ * The row's ai_model, by rowPromptVersion's rule (#52): the one model its
+ * questions' AI results came from, or LIVE_SCORING_MIXED_MODELS when they
+ * differ. With no AI result yet, `fallback` (the stored row's model, or the
+ * current one). Pure.
+ */
+export function rowAiModel(
+  entries: readonly Pick<StoredQuestionScore, "model">[],
+  fallback: string,
+): string {
+  const models = new Set(entries.flatMap((e) => (e.model ? [e.model] : [])));
+  if (models.size > 1) return LIVE_SCORING_MIXED_MODELS;
+  return [...models][0] ?? fallback;
 }
 
 /** The weighted average over questions with a score. Null when none has one. Pure. */
@@ -569,7 +589,7 @@ export async function scoreLiveSession(
   for (let attempt = 0; attempt < WRITE_TRIES; attempt++) {
     const { data: rData, error: rErr } = await service
       .from("live_interview_scores")
-      .select("session_id, questions, rev, prompt_version")
+      .select("session_id, questions, rev, prompt_version, ai_model")
       .eq("session_id", sessionId)
       .maybeSingle();
     if (rErr) throw new LiveScoringError("db_error", sessionId);
@@ -577,6 +597,7 @@ export async function scoreLiveSession(
       questions: StoredQuestionScore[];
       rev: number;
       prompt_version: string;
+      ai_model: string;
     } | null;
     const before = new Map((stored?.questions ?? []).map((q) => [q.position, q]));
     // A kept result's own version; one stored before entries had it, the row's.
@@ -739,7 +760,7 @@ export async function scoreLiveSession(
       partial: decided
         ? outcome.outcome !== "completed" || outcome.held_from_ranking === true
         : false,
-      ai_model: model,
+      ai_model: rowAiModel(entries, stored?.ai_model ?? model),
       prompt_version: rowPromptVersion(
         entries,
         stored?.prompt_version ?? LIVE_SCORING_PROMPT_VERSION,
