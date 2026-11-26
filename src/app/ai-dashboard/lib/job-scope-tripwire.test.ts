@@ -154,15 +154,9 @@ export const EXEMPT: {
   kind: (typeof EXEMPT_KINDS)[number];
   reason: string;
 }[] = [
-  {
-    entry: "app/ai-dashboard/(gated)/jobs/actions.ts#createCompanyJob",
-    kind: "self-generated-id",
-    reason:
-      "The interview_questions read by job_id (syncInterviewQuestions) uses row.id, the job this " +
-      "call has just inserted for ctx.companyId, never an id the caller supplied. Creating a job " +
-      "is open to owner, admin and recruiter by role (requireCompanyRole), and a new job is not " +
-      "on anyone's scope yet: there is no job scope to ask.",
-  },
+  // Empty since #58 commit 5: createCompanyJob's one read by job id (the
+  // interview_questions sync, on the row it had just inserted) became a call
+  // to replace_interview_questions, which locks the job by company itself.
 ];
 
 /* ── the analyser ─────────────────────────────────────────── */

@@ -24,6 +24,7 @@ import {
   AUTOSHORTLIST_SOURCES,
   type CompanyJobInput,
   type CompanyJobRow,
+  CV_WEIGHT_DEFAULT,
   CV_WEIGHT_DIMENSIONS,
   CV_WEIGHT_MAX,
   CV_WEIGHT_MIN,
@@ -58,6 +59,11 @@ import { generateScoringCriteria } from "@/lib/ai/scoring-criteria";
 import { generateScreeningQuestions } from "@/lib/ai/screening-questions";
 import { parseRules } from "@/lib/calendar/availability";
 import {
+  LIVE_QUESTION_LIST_NOT_YET,
+  LIVE_QUESTION_LIST_SAVE_ENABLED,
+  QUESTIONS_NOT_UPDATED,
+} from "@/lib/interviews/live-question-list";
+import {
   DRAFT_FAILED,
   DRAFT_RATE_LIMITED,
   fairnessBlockMessage,
@@ -67,6 +73,7 @@ import {
   ANSWER_SECONDS_MAX,
   ANSWER_SECONDS_MIN,
   COMPETENCY_MAX,
+  type InterviewKind,
   type InterviewLengthId,
   type InterviewQuestionInput,
   MAX_QUESTIONS,
@@ -134,6 +141,24 @@ function interviewerName(value: string | undefined, enabled: boolean): string | 
  * columns — ownership/identity columns are stamped by the caller so no client
  * value can ever reach them.
  */
+/**
+ * One question list as the save received it: null when it may be saved, else
+ * the refusal. Left out (undefined) is fine: that list is untouched.
+ */
+function checkQuestionList(list: unknown, noun: string, label: string): string | null {
+  if (list === undefined) return null;
+  if (!Array.isArray(list)) return QUESTIONS_UNREADABLE;
+  const asked = (list as InterviewQuestionInput[]).filter(
+    (q) => (q?.question ?? "").trim().length > 0,
+  ).length;
+  if (asked > MAX_QUESTIONS) {
+    return `A job can have at most ${MAX_QUESTIONS} ${label}. Remove ${asked - MAX_QUESTIONS} to save.`;
+  }
+  return firstFairnessBlock(list as InterviewQuestionInput[], noun);
+}
+
+const QUESTIONS_UNREADABLE = "Those interview questions couldn't be read. Nothing was saved.";
+
 function buildPatch(
   input: CompanyJobInput,
 ): { ok: true; patch: Record<string, unknown> } | { ok: false; error: string } {
@@ -199,25 +224,21 @@ function buildPatch(
   // AI Video Interview needs no name: the interviewer is always Sarah
   // (LIVE_INTERVIEWER_NAME, 24 Nov). jobs.avatar_interviewer_name is no longer
   // written; the column stays, unused.
-  // The interview questions, at most MAX_QUESTIONS that are not blank. Refused
-  // here, before the job is written, rather than cut short in
-  // syncInterviewQuestions, which keeps its slice only as a backstop.
-  const askedQuestions = (input.interview_questions ?? []).filter(
-    (q) => (q?.question ?? "").trim().length > 0,
-  ).length;
-  if (askedQuestions > MAX_QUESTIONS) {
-    return {
-      ok: false,
-      error: `A job can have at most ${MAX_QUESTIONS} interview questions. Remove ${askedQuestions - MAX_QUESTIONS} to save.`,
-    };
+  // The two question lists (082): the async interview's (interview_questions)
+  // and the AI Video Interview's (live_interview_questions). A list left out
+  // is untouched and [] clears it, so each list GIVEN is checked here, before
+  // the job is written: an array, at most MAX_QUESTIONS that are not blank,
+  // and the question fairness check, on both lists, always (#58 commit 5: an
+  // async-only job is checked too).
+  if (input.live_interview_questions !== undefined && !LIVE_QUESTION_LIST_SAVE_ENABLED) {
+    return { ok: false, error: LIVE_QUESTION_LIST_NOT_YET };
   }
-
-  // The question fairness check (question-fairness.ts), on every question an
-  // AI Video Interview job saves: AI drafts the recruiter used, and their own
-  // edits. Refused before anything is written; the recruiter rewords it.
-  if (avatarOn) {
-    const blocked = firstFairnessBlock(input.interview_questions ?? []);
-    if (blocked) return { ok: false, error: blocked };
+  for (const [list, noun, label] of [
+    [input.interview_questions, "Question", "interview questions"],
+    [input.live_interview_questions, "AI Video Interview question", "AI Video Interview questions"],
+  ] as const) {
+    const refused = checkQuestionList(list, noun, label);
+    if (refused) return { ok: false, error: refused };
   }
 
   // AI Video Interview mode, length and hiring challenges (074). Checked here,
@@ -697,97 +718,73 @@ async function seedHiringTeam(
 }
 
 /**
- * Replace a job's interview questions with the list the wizard submitted.
+ * Save a job's two question lists in ONE call to replace_interview_questions
+ * (migration 082), which validates both, locks the job by company, and
+ * replaces each list given in one transaction: any failure keeps both lists
+ * exactly as they were.
  *
- * Delete-then-insert rather than a per-row diff. `position` is what the
- * candidate page orders by and what interview_answers keys against, so a
- * reorder changes almost every row anyway; a diff would be more code for the
- * same writes and a real chance of leaving two rows claiming position 3.
+ * A list left out is passed as NULL and its rows are untouched; [] clears it.
+ * Positions are assigned by the function, 1..n in list order. Blank rows are
+ * dropped here, as before: a recruiter who added a question and changed their
+ * mind. Live questions all count equally in v1, so they are stored at Normal
+ * (2); the live invite freezes weight 1, the live scorer's own unit. A blank
+ * competency or scoring guide is stored as null, which every reader treats as
+ * none.
  *
- * Rows are rebuilt with fresh ids on every save. That is safe TODAY because
- * an answer snapshots its question_text, so an answered interview survives the
- * question being re-saved — see interview_answers.question_text. It would stop
- * being safe the moment anything joins answers back to interview_questions.id
- * for display, and this comment is the warning for whoever does that.
+ * Rows get fresh ids on every save. That is safe because an answer snapshots
+ * its question_text and every invite freezes its questions (see
+ * interview_answers.question_text and loadQuestionsSnapshot).
  *
- * Never throws: a job that saved must not appear to have failed because its
- * question list did. The wizard re-reads the list on the next open.
+ * Never throws, and the job save it follows still succeeds: the job's other
+ * fields are already saved by then, so a failure is a warning, never a failed
+ * save that would make the recruiter redo everything.
  */
 async function syncInterviewQuestions(
   supabase: ReturnType<typeof createServiceClient>,
   jobId: string,
   companyId: string,
-  inputs: InterviewQuestionInput[] | undefined,
+  input: Pick<CompanyJobInput, "interview_questions" | "live_interview_questions">,
 ): Promise<string | null> {
-  if (!Array.isArray(inputs)) return null;
+  const asyncList = rpcQuestions(input.interview_questions, "async");
+  const liveList = rpcQuestions(input.live_interview_questions, "live");
+  if (asyncList === null && liveList === null) return null;
 
-  const clean = inputs
+  try {
+    const { error } = await supabase.rpc("replace_interview_questions", {
+      p_job_id: jobId,
+      p_company_id: companyId,
+      p_async: asyncList,
+      p_live: liveList,
+    });
+    if (error) {
+      // The code only: the database's text names the job and the rule.
+      console.error(`[jobs] interview questions not saved (${error.code ?? "unknown"})`);
+      return QUESTIONS_NOT_UPDATED;
+    }
+  } catch {
+    console.error("[jobs] interview question save threw");
+    return QUESTIONS_NOT_UPDATED;
+  }
+  return null;
+}
+
+/** One list in the function's shape, or null (left out: untouched). */
+function rpcQuestions(inputs: InterviewQuestionInput[] | undefined, kind: InterviewKind) {
+  if (!Array.isArray(inputs)) return null;
+  return inputs
     .map((q) => ({
       question: (q.question ?? "").trim().slice(0, QUESTION_TEXT_MAX),
-      competency: (q.competency ?? "").trim().slice(0, COMPETENCY_MAX),
-      rubric: (q.rubric ?? "").trim().slice(0, RUBRIC_MAX),
+      competency: (q.competency ?? "").trim().slice(0, COMPETENCY_MAX) || null,
+      rubric: (q.rubric ?? "").trim().slice(0, RUBRIC_MAX) || null,
       prep_seconds: clampInt(q.prepSeconds, PREP_SECONDS_MIN, PREP_SECONDS_MAX, 30),
       answer_seconds: clampInt(q.answerSeconds, ANSWER_SECONDS_MIN, ANSWER_SECONDS_MAX, 120),
-      // Snapped to a stop, not clamped to a range — see snapWeight. The range
-      // here was 1-5 against stops of {1,2,4,6}, so "Most" was stored as 5 and
-      // reopened as Normal.
-      weight: snapWeight(q.weight),
+      // Async: snapped to a stop (snapWeight), never clamped to a range. Live:
+      // Normal, every question equal in v1.
+      weight: kind === "live" ? CV_WEIGHT_DEFAULT : snapWeight(q.weight),
       required: q.required !== false,
     }))
-    // A blank row is someone who added a question and changed their mind, not
-    // a question. Dropped rather than stored empty for a candidate to read.
     .filter((q) => q.question.length > 0)
     .slice(0, MAX_QUESTIONS);
-
-  /*
-   * Returns a message instead of swallowing.
-   *
-   * This used to log to the server console and return void, so a recruiter
-   * whose questions failed to save was told the job saved — and only found
-   * out when a candidate opened an interview with no questions in it, or when
-   * sendInterviewInvite refused with "add interview questions first".
-   *
-   * The job save still succeeds: the questions are secondary to the role, and
-   * failing the whole save would lose the rest of the recruiter's work. But
-   * the caller now gets something to show.
-   */
-  try {
-    // The DELETE error was previously not checked at all — a failure here
-    // leaves the OLD questions in place while the insert adds the new ones,
-    // which is worse than either outcome alone.
-    const { error: delErr } = await supabase
-      .from("interview_questions")
-      .delete()
-      .eq("job_id", jobId)
-      .eq("company_id", companyId);
-
-    if (delErr) {
-      console.error("[jobs] interview question delete failed:", delErr.message);
-      return "The role saved, but its interview questions could not be updated. Open the job and save them again.";
-    }
-
-    if (clean.length === 0) return null;
-
-    const { error } = await supabase.from("interview_questions").insert(
-      clean.map((q, i) => ({
-        ...q,
-        job_id: jobId,
-        company_id: companyId,
-        position: i + 1,
-      })),
-    );
-    if (error) {
-      console.error("[jobs] interview question sync failed:", error.message);
-      // The delete succeeded, so the job now has NO questions. Said plainly,
-      // because it changes what the recruiter must do next.
-      return "The role saved, but its interview questions did not. The job currently has no questions - open it and add them again.";
-    }
-  } catch (err) {
-    console.error("[jobs] interview question sync threw:", err);
-    return "The role saved, but its interview questions could not be updated. Open the job and save them again.";
-  }
-
-  return null;
 }
 
 function clampInt(raw: string, min: number, max: number, fallback: number): number {
@@ -901,12 +898,7 @@ export async function createCompanyJob(
 
   const row = data as { id: string; slug: string | null };
   await seedHiringTeam(supabase, ctx, row.id);
-  const questionWarning = await syncInterviewQuestions(
-    supabase,
-    row.id,
-    ctx.companyId,
-    input.interview_questions,
-  );
+  const questionWarning = await syncInterviewQuestions(supabase, row.id, ctx.companyId, input);
 
   revalidateJobSurfaces();
   return {
@@ -1027,12 +1019,7 @@ export async function updateCompanyJob(
     }
   }
 
-  const questionWarning = await syncInterviewQuestions(
-    supabase,
-    jobId,
-    ctx.companyId,
-    input.interview_questions,
-  );
+  const questionWarning = await syncInterviewQuestions(supabase, jobId, ctx.companyId, input);
 
   revalidateJobSurfaces();
   return {
@@ -1182,8 +1169,14 @@ export async function estimateAutoshortlistReach(input: {
   return { matched: matched.size, total };
 }
 
-/** A job's interview questions, for the wizard's edit-mode prefill. */
-export async function fetchInterviewQuestions(jobId: string): Promise<InterviewQuestionInput[]> {
+/**
+ * One of a job's question lists, for the wizard's edit-mode prefill: the
+ * async interview's ('async') or the AI Video Interview's ('live', 082).
+ */
+export async function fetchInterviewQuestions(
+  jobId: string,
+  kind: InterviewKind,
+): Promise<InterviewQuestionInput[]> {
   const ctx = await getCompanyContext();
   if (!jobId || !(await roleAllowsJobAction(ctx, jobId))) return [];
 
@@ -1194,6 +1187,7 @@ export async function fetchInterviewQuestions(jobId: string): Promise<InterviewQ
     )
     .eq("job_id", jobId)
     .eq("company_id", ctx.companyId)
+    .eq("interview_kind", kind)
     .order("position", { ascending: true })
     .limit(MAX_QUESTIONS);
 

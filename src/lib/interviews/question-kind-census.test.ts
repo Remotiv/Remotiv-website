@@ -8,11 +8,8 @@
  * the async scorer's reads are pinned here by their query only: their tests'
  * fakes record queries without applying filters.
  *
- * The save path (jobs/actions.ts: the delete and insert in
- * syncInterviewQuestions, and fetchInterviewQuestions for the edit page) moves
- * to replace_interview_questions and kind-aware reads in #58 commit 5. Until
- * then those three are listed by name below, and no other unfiltered site may
- * exist. No live row can exist before commit 6, the wizard.
+ * The save path writes through replace_interview_questions (082), never this
+ * table directly (#58 commit 5): there is no exception left.
  *
  *   node --test src/lib/interviews/question-kind-census.test.ts
  */
@@ -63,21 +60,15 @@ const FILTERED = [
   [IA, "loadQuestionsSnapshot", "kind"],
   [IA, "loadScoringSnapshot", "kind"],
   [IA, "fetchInterviewPanel", "kind"],
+  [JOBS, "fetchInterviewQuestions", "kind"],
   ["lib/ai/interview-scoring.ts", "handleAiScorecard", '"async"'],
   ["lib/interviews/live-settings.ts", "gateLiveInterviewInvite", '"live"'],
   ["lib/interviews/review.ts", "loadInterviewSession", "kind"],
   ["lib/interviews/session.ts", "loadCandidateQuestions", '"async"'],
 ];
-/** The save path, rebuilt in commit 5. Listed, not filtered, until then. */
-const COMMIT_5 = [
-  [JOBS, "syncInterviewQuestions"],
-  [JOBS, "syncInterviewQuestions"],
-  [JOBS, "fetchInterviewQuestions"],
-];
-
-test("every query on interview_questions is listed: filtered by kind, or the commit 5 save path", () => {
+test("every query on interview_questions is listed and filtered by kind; none is outside the list", () => {
   const all = sites().map((s) => [s.file, s.fn]);
-  const listed = [...FILTERED.map(([f, fn]) => [f, fn]), ...COMMIT_5];
+  const listed = FILTERED.map(([f, fn]) => [f, fn]);
   const key = (x: string[]) => x.join(" :: ");
   assert.deepEqual(all.map(key).sort(), listed.map(key).sort());
 });
@@ -88,6 +79,19 @@ test("each listed read filters interview_kind by the right value", () => {
     const chain = byKey.get(`${file} :: ${fn}`) ?? "";
     assert.ok(chain.includes(`.eq("interview_kind", ${value})`), `${file} ${fn}: ${chain}`);
   }
+});
+
+test("the save path writes both lists through replace_interview_questions only", () => {
+  const jobs = readFileSync(join(SRC, JOBS), "utf8");
+  const sync = jobs.slice(jobs.indexOf("async function syncInterviewQuestions("));
+  const body = sync.slice(0, sync.indexOf("\n}\n"));
+  assert.match(body, /supabase\.rpc\("replace_interview_questions", \{/);
+  assert.match(body, /p_async: asyncList,\s+p_live: liveList,/);
+  assert.doesNotMatch(jobs, /from\("interview_questions"\)\s*\.(insert|delete|update|upsert)/);
+  // The edit page loads both lists, each by its kind.
+  const edit = readFileSync(join(SRC, "app/ai-dashboard/(gated)/jobs/[id]/edit/page.tsx"), "utf8");
+  assert.match(edit, /fetchInterviewQuestions\(job\.id, "async"\)/);
+  assert.match(edit, /fetchInterviewQuestions\(job\.id, "live"\)/);
 });
 
 test("where the filter is a variable, it is the right kind", () => {

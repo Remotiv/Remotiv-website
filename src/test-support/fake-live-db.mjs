@@ -567,6 +567,98 @@ const TURN_DEFAULTS = {
  * `options.now`: the database's clock (now()), for live_ended_at and stamped times. Default the real clock.
  * `options.endRule`: "069" applies migration 069's rule for a written end; default 044's.
  */
+/**
+ * replace_interview_questions (migration 082), as the real function behaves:
+ * every list given is validated before anything changes (a JSON array of 0 to
+ * 8 objects, non-empty question text, each field the right type and in
+ * range); the job must belong to the company; then, per kind given, that
+ * kind's rows are deleted and the list inserted with positions 1..n in array
+ * order (any input position ignored). NULL leaves a kind untouched, [] clears
+ * it. A raise changes nothing, as the function's one transaction does.
+ */
+function replaceInterviewQuestions(tables, args) {
+  const raise = (message) => ({
+    data: null,
+    error: { code: "P0001", message: `IQ082: ${message}` },
+  });
+  const { p_job_id: job, p_company_id: company } = args;
+  if (!job || !company) return raise("job and company are required");
+  const lists = { async: args.p_async ?? null, live: args.p_live ?? null };
+  const isWhole = (v) => typeof v === "number" && Number.isInteger(v);
+  for (const [kind, list] of Object.entries(lists)) {
+    if (list === null) continue;
+    if (!Array.isArray(list)) return raise(`the ${kind} list is not an array`);
+    if (list.length > 8) return raise(`the ${kind} list has ${list.length} questions; at most 8`);
+    for (const [i, q] of list.entries()) {
+      const n = i + 1;
+      if (q === null || typeof q !== "object" || Array.isArray(q)) {
+        return raise(`${kind} question ${n} is not an object`);
+      }
+      if (typeof q.question !== "string" || q.question.trim() === "") {
+        return raise(`${kind} question ${n} has no question text`);
+      }
+      if (q.question.length > 500) return raise(`${kind} question ${n} is over 500 characters`);
+      const textOk = (v, max) =>
+        v === undefined || v === null || (typeof v === "string" && v.length <= max);
+      if (!textOk(q.competency, 80))
+        return raise(`${kind} question ${n} has an invalid competency`);
+      if (!textOk(q.rubric, 1000))
+        return raise(`${kind} question ${n} has an invalid scoring guide`);
+      if (
+        "prep_seconds" in q &&
+        !(isWhole(q.prep_seconds) && q.prep_seconds >= 5 && q.prep_seconds <= 120)
+      ) {
+        return raise(`${kind} question ${n} has an invalid thinking time`);
+      }
+      if (
+        "answer_seconds" in q &&
+        !(isWhole(q.answer_seconds) && q.answer_seconds >= 30 && q.answer_seconds <= 300)
+      ) {
+        return raise(`${kind} question ${n} has an invalid answer limit`);
+      }
+      if ("weight" in q && ![1, 2, 4, 6].includes(q.weight)) {
+        return raise(`${kind} question ${n} has an invalid weight`);
+      }
+      if ("required" in q && typeof q.required !== "boolean") {
+        return raise(`${kind} question ${n} has an invalid required flag`);
+      }
+    }
+  }
+  if (!(tables.jobs ?? []).some((j) => j.id === job && j.company_id === company)) {
+    return raise("job not found in this company");
+  }
+  tables.interview_questions ??= [];
+  const saved = { async: null, live: null };
+  for (const [kind, list] of Object.entries(lists)) {
+    if (list === null) continue;
+    tables.interview_questions = tables.interview_questions.filter(
+      (r) => !(r.job_id === job && r.company_id === company && r.interview_kind === kind),
+    );
+    const blank = (v) => {
+      const t = (v ?? "").trim();
+      return t === "" ? null : t;
+    };
+    for (const [i, q] of list.entries()) {
+      tables.interview_questions.push({
+        id: crypto.randomUUID(),
+        job_id: job,
+        company_id: company,
+        interview_kind: kind,
+        position: i + 1,
+        question: q.question.trim(),
+        competency: blank(q.competency),
+        rubric: blank(q.rubric),
+        prep_seconds: q.prep_seconds ?? 30,
+        answer_seconds: q.answer_seconds ?? 120,
+        weight: q.weight ?? 1,
+        required: q.required ?? true,
+      });
+    }
+    saved[kind] = list.length;
+  }
+  return { data: saved, error: null };
+}
+
 export function fakeLiveDb(initial = {}, options = {}) {
   const clock = options.now ?? Date.now;
   const endRule = options.endRule ?? "044";
@@ -659,6 +751,12 @@ export function fakeLiveDb(initial = {}, options = {}) {
   };
 
   const service = fakeService((table, calls) => {
+    if (table === "rpc:replace_interview_questions") {
+      if (takeFault("replace_interview_questions", "rpc")) {
+        return { data: null, error: { code: "XX000", message: "fault" } };
+      }
+      return replaceInterviewQuestions(tables, calls.find((c) => c[0] === "args")?.[1] ?? {});
+    }
     const rows = tables[table];
     if (!rows) return { data: [], error: null };
     const match = (row) =>

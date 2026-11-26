@@ -62,6 +62,7 @@ import {
   EMPTY_QUESTION_INPUT,
   INTERVIEW_LENGTHS,
   type InterviewLengthId,
+  type InterviewQuestionInput,
   MAX_QUESTIONS,
 } from "@/lib/interviews/types";
 import { applyGroups, mergeJobText, needsModelSplit, parseJobDescription } from "@/lib/jd/parse";
@@ -989,6 +990,12 @@ export function WizardClient({
   jobId?: string;
   /** Prefill for edit mode; create starts from EMPTY_JOB_INPUT. */
   initialState?: CompanyJobInput;
+  /**
+   * The job's AI Video Interview questions (082), edit mode. Not read yet and
+   * deliberately NOT part of initialState, so a save never sends them: #58
+   * commit 6 adds the step that edits this list.
+   */
+  initialLiveQuestions?: InterviewQuestionInput[];
   /**
    * question_id → how many applicants already answered it. Edit mode only;
    * a newly created job has none, and a question added in this session cannot

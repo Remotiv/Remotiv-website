@@ -503,6 +503,16 @@ export type CompanyJobInput = {
    * is not a column cannot leak in.
    */
   interview_questions: InterviewQuestionInput[];
+
+  /**
+   * The AI Video Interview's own questions (interview_kind 'live', migration
+   * 082), saved in the same transaction as interview_questions above.
+   * Optional: left out, the job's live questions are untouched; [] clears
+   * them. Refused by the save until #58 commit 6 (live-question-list.ts), and
+   * never filled by the edit page's prefill before then, so today's wizard
+   * never sends it.
+   */
+  live_interview_questions?: InterviewQuestionInput[];
 };
 
 export const EMPTY_JOB_INPUT: CompanyJobInput = {

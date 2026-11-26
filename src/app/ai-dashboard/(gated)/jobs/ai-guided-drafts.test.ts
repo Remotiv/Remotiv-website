@@ -493,7 +493,7 @@ test("save: a recruiter edit touching a protected topic is refused, naming the q
   assert.equal(created.success, false, "a new job too");
 });
 
-test("save: the false-positive examples save; the check applies only with AI Video Interview on", async () => {
+test("save: the false-positive examples save; the check applies with AI Video Interview off too (#58 commit 5)", async () => {
   const db = world();
   const id = (await quiet(() => createCompanyJob(jobInput()))).data.id;
   for (let i = 0; i < ALLOWED.length; i += 4) {
@@ -504,13 +504,20 @@ test("save: the false-positive examples save; the check applies only with AI Vid
     assert.equal(r.success, true, `${batch.join(" | ")}: ${r.error}`);
     assert.deepEqual(savedQuestions(db, id), batch);
   }
+  const before = savedQuestions(db, id);
   const off = await quiet(() =>
     updateCompanyJob(
       id,
       jobInput({ avatar_interview_enabled: false, interview_questions: [q("Are you married?")] }),
     ),
   );
-  assert.equal(off.success, true, "not an AI Video Interview job: not this check's to refuse");
+  // Both lists are checked always now: an async-only job is refused too.
+  assert.equal(off.success, false, "an async-only job is checked too");
+  assert.match(
+    off.error,
+    /^Question 1 \("Are you married\?"\) touches on family or marital status/,
+  );
+  assert.deepEqual(savedQuestions(db, id), before, "nothing was written");
 });
 
 /* ── a sent invite keeps its frozen questions ─────────────────── */

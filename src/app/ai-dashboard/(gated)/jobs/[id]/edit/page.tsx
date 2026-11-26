@@ -141,7 +141,14 @@ export default async function EditJobPage({ params }: { params: Promise<{ id: st
     }
   }
 
-  const interviewQuestions = await fetchInterviewQuestions(job.id);
+  // Both lists (082). Only the async one goes into the form state, so only it
+  // is sent back on save: the AI Video Interview's list is handed to the
+  // wizard separately and is not in CompanyJobInput's prefill until #58
+  // commit 6 adds the step that edits it.
+  const [interviewQuestions, liveInterviewQuestions] = await Promise.all([
+    fetchInterviewQuestions(job.id, "async"),
+    fetchInterviewQuestions(job.id, "live"),
+  ]);
 
   const initialState: CompanyJobInput = {
     title: job.title ?? "",
@@ -235,6 +242,7 @@ export default async function EditJobPage({ params }: { params: Promise<{ id: st
       mode="edit"
       jobId={job.id}
       initialState={initialState}
+      initialLiveQuestions={liveInterviewQuestions}
       answeredCounts={answeredCounts}
     />
   );

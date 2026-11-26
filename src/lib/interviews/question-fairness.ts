@@ -164,18 +164,21 @@ export function fairnessBlockMessage(
   text: string,
   topic: FairnessTopic,
   part: "question" | "scoring guide" = "question",
+  noun = "Question",
 ): string {
   const where = part === "question" ? "" : "'s scoring guide";
-  return `Question ${position}${where} ("${quote(text)}") touches on ${topic}, which can't be used to judge a candidate. Please reword it to focus on the job.`;
+  return `${noun} ${position}${where} ("${quote(text)}") touches on ${topic}, which can't be used to judge a candidate. Please reword it to focus on the job.`;
 }
 
 /**
  * The first block among these questions, in order, or null when all are fine.
  * Blank questions are skipped (they are dropped on save). The scoring guide is
- * checked too: it is how every answer is marked.
+ * checked too: it is how every answer is marked. `noun` names the list in the
+ * message ("Question 3", or "AI Video Interview question 3" for the live list).
  */
 export function firstFairnessBlock(
   questions: readonly { question?: string | null; rubric?: string | null }[],
+  noun = "Question",
 ): string | null {
   let position = 0;
   for (const q of questions) {
@@ -183,10 +186,10 @@ export function firstFairnessBlock(
     if (!text) continue;
     position += 1;
     const topic = questionFairnessIssue(text);
-    if (topic) return fairnessBlockMessage(position, text, topic);
+    if (topic) return fairnessBlockMessage(position, text, topic, "question", noun);
     const guide = (q?.rubric ?? "").trim();
     const guideTopic = questionFairnessIssue(guide);
-    if (guideTopic) return fairnessBlockMessage(position, text, guideTopic, "scoring guide");
+    if (guideTopic) return fairnessBlockMessage(position, text, guideTopic, "scoring guide", noun);
   }
   return null;
 }
