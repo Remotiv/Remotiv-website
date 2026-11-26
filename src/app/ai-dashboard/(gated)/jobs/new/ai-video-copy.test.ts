@@ -192,34 +192,41 @@ function aiVideoRow() {
   return WIZARD.slice(start, end);
 }
 
-const STEP5 = WIZARD.slice(WIZARD.indexOf("{step === 5 && ("), WIZARD.indexOf("{step === 9 && ("));
-const STEP9 = WIZARD.slice(WIZARD.indexOf("{step === 9 && ("), WIZARD.indexOf("{step === 6 && ("));
+/*
+ * #58 commit 6: the AI Video Interview moved from step 5 to its own step 6,
+ * and Review from 9 to 10. The step bodies, in source order: 5, 6, 10, then 7.
+ */
+const between = (a, b) => WIZARD.slice(WIZARD.indexOf(a), WIZARD.indexOf(b));
+const STEP5 = between("{step === 5 && (", "{step === 6 && (");
+const STEP6 = between("{step === 6 && (", "{step === 10 && (");
+const STEP10 = between("{step === 10 && (", "{step === 7 && (");
 
-test("step 5 opens with the AI Video Interview toggle, then the mode, length and challenges", () => {
+test("step 6 opens with the AI Video Interview toggle, then the mode, length and challenges", () => {
   assert.match(
-    STEP5,
-    /^\{step === 5 && \(\s*<>\s*\{\/\*[\s\S]*?\*\/\}\s*<div className="mb-5">\s*<OptionRow\s+title="AI Video Interview"/,
+    STEP6,
+    /^\{step === 6 && \(\s*<>\s*\{\/\*[\s\S]*?\*\/\}\s*<div className="mb-5">\s*<OptionRow\s+title="AI Video Interview"/,
   );
-  const toggle = STEP5.indexOf('title="AI Video Interview"');
-  const cards = STEP5.indexOf("<LiveInterviewSettings");
-  const questionsList = STEP5.indexOf("<InterviewQuestionEditor");
+  assert.ok(!STEP5.includes('title="AI Video Interview"'), "not on step 5 any more");
+  const toggle = STEP6.indexOf('title="AI Video Interview"');
+  const cards = STEP6.indexOf("<LiveInterviewSettings");
+  const questionsList = STEP6.indexOf("<InterviewQuestionEditor");
   assert.ok(
     toggle > 0 && toggle < cards && cards < questionsList,
     "toggle, then cards, then questions",
   );
   // The same saved field, toggled here.
   assert.match(
-    STEP5,
+    STEP6,
     /on=\{state\.avatar_interview_enabled\}\s*onToggle=\{\(\) =>\s*set\("avatar_interview_enabled", !state\.avatar_interview_enabled\)\s*\}/,
   );
-  assert.match(STEP5, /<LiveInterviewSettings\s+enabled=\{state\.avatar_interview_enabled\}/);
+  assert.match(STEP6, /<LiveInterviewSettings\s+enabled=\{state\.avatar_interview_enabled\}/);
   for (const k of ["live_interview_mode", "live_interview_minutes", "live_hiring_challenges"]) {
-    assert.ok(STEP5.includes(`set("${k}", v)`), k);
+    assert.ok(STEP6.includes(`set("${k}", v)`), k);
   }
 });
 
-test("step 9 no longer has the AI Video Interview toggle, and no interviewer name anywhere", () => {
-  assert.ok(!STEP9.includes('title="AI Video Interview"'));
+test("Review (step 10) has no AI Video Interview toggle, and no interviewer name anywhere", () => {
+  assert.ok(!STEP10.includes('title="AI Video Interview"'));
   assert.equal((WIZARD.match(/title="AI Video Interview"/g) ?? []).length, 1);
   assert.doesNotMatch(
     WIZARD,
@@ -229,15 +236,16 @@ test("step 9 no longer has the AI Video Interview toggle, and no interviewer nam
   assert.doesNotMatch(aiVideoRow(), /^<OptionRow[^>]*\blive\b/);
 });
 
-test("the step's extra line, exactly, and only while AI Video Interview is on", () => {
+test("the line, exactly, is step 6's own description now; step 5 no longer adds it", () => {
   assert.equal(
     copy.AI_VIDEO_STEP_LINE,
     "With AI Video Interview on, Sarah asks these questions live, in this order.",
   );
   assert.match(
     WIZARD,
-    /\{meta\.desc\}<\/p>\s*\{step === 5 && state\.avatar_interview_enabled && \(\s*<p[^>]*>\s*\{AI_VIDEO_STEP_LINE\}\s*<\/p>\s*\)\}/,
+    /n: 6,\s*label: "AI Video Interview",\s*title: "AI Video Interview",\s*\/\/[^\n]*\n\s*desc: AI_VIDEO_STEP_LINE,/,
   );
+  assert.doesNotMatch(WIZARD, /\{step === 5 && state\.avatar_interview_enabled/);
   // The async description stays as it was.
   assert.ok(
     WIZARD.includes(
@@ -278,8 +286,10 @@ test("the option row: description, the hint on the chosen length, and the warnin
   );
   assert.match(
     row,
-    /\{aiVideoQuestionCountOutOfRange\(\s*state\.interview_questions\.filter\(\(q\) => q\.question\.trim\(\)\)\.length,\s*\) && \(\s*<p className="[^"]+">\s*\{AI_VIDEO_QUESTION_COUNT_WARNING\}\s*<\/p>\s*\)\}/,
+    /\{aiVideoQuestionCountOutOfRange\(askedCount\(liveQs\)\) && \(\s*<p className="[^"]+">\s*\{AI_VIDEO_QUESTION_COUNT_WARNING\}\s*<\/p>\s*\)\}/,
   );
+  // The live list only (082): the async questions never move the warning.
+  assert.match(WIZARD, /const liveQs = questionsOf\(state, "live"\);/);
 });
 
 test("no CV promise and no 'the first 4' left in the option or the wizard's AI Video copy", () => {
@@ -301,4 +311,200 @@ test("no CV promise and no 'the first 4' left in the option or the wizard's AI V
     copy.AI_VIDEO_CHALLENGES_HELPER,
   ];
   for (const s of strings) assert.doesNotMatch(s, /CV|first 4|[\u2013\u2014]/, s);
+});
+
+/* ── #58 commit 6: two steps, two lists, ten steps, the Review cards ── */
+
+const lists = await import("./question-lists.ts");
+
+test("ten steps: 1-4 unchanged, 5 Async, 6 AI Video Interview, 7-9 scoring, 10 Review", () => {
+  const steps = [...WIZARD.matchAll(/\{\s*n: (\d+),\s*label: "([^"]+)",\s*title: "([^"]+)"/g)].map(
+    (m) => [Number(m[1]), m[2], m[3]],
+  );
+  assert.deepEqual(steps, [
+    [1, "Basics", "Basics"],
+    [2, "Description", "Description"],
+    [3, "Compensation", "Compensation"],
+    [4, "Screening", "Screening"],
+    [5, "Async Video Interview", "Async Video Interview"],
+    [6, "AI Video Interview", "AI Video Interview"],
+    [7, "AI scoring", "AI scoring criteria"],
+    [8, "Answer weighting", "Answer weighting"],
+    [9, "Auto-shortlist", "Auto-shortlist"],
+    [10, "Review", "Review"],
+  ]);
+  // Each body is on its own number, once.
+  for (const n of [1, 2, 3, 4, 5, 6, 7, 8, 10]) {
+    assert.equal(
+      (WIZARD.match(new RegExp(`\\{step === ${n} && \\(`, "g")) ?? []).length,
+      1,
+      `${n}`,
+    );
+  }
+  assert.equal((WIZARD.match(/\{step === 9 && <AutoshortlistStep/g) ?? []).length, 1);
+  // Step 8's question weights are the async list's.
+  assert.match(WIZARD, />\s*Async interview questions\s*<\/h3>/);
+});
+
+test("step 5 edits only the async list; step 6 only the live list", () => {
+  const editor = (step) => {
+    const at = step.indexOf("<InterviewQuestionEditor");
+    return step.slice(at, step.indexOf("/>", at));
+  };
+  const five = editor(STEP5);
+  assert.match(five, /questions=\{interviewQs\}/);
+  assert.match(five, /set\("interview_questions", next\)/);
+  assert.match(five, /otherCompetencyIds=\{otherCompetency\.async\}/);
+  assert.match(five, /setOtherCompetencyFor\("async", id, on\)/);
+  assert.doesNotMatch(STEP5, /live_interview_questions|liveQs/);
+  const six = editor(STEP6);
+  assert.match(six, /variant="live"/);
+  assert.match(six, /questions=\{liveQs\}/);
+  assert.match(six, /set\("live_interview_questions", next\)/);
+  assert.match(six, /otherCompetencyIds=\{otherCompetency\.live\}/);
+  assert.match(six, /setOtherCompetencyFor\("live", id, on\)/);
+  assert.match(six, /showWeightAndTiming=\{false\}/);
+  assert.match(six, /maxQuestions=\{MAX_JOB_QUESTIONS\}/);
+  assert.doesNotMatch(STEP6, /"interview_questions"|interviewQs/);
+  assert.match(WIZARD, /const interviewQs = questionsOf\(state, "async"\);/);
+});
+
+test("the drafting panel fills the live list, counts it, and lives on step 6 only", () => {
+  const handler = WIZARD.slice(WIZARD.indexOf("function onDraftAction("));
+  const body = handler.slice(0, handler.indexOf("\n  }\n"));
+  assert.match(body, /set\(\s*"live_interview_questions",\s*draftsAsJobQuestions\(next\.apply/);
+  assert.doesNotMatch(body, /"interview_questions"/);
+  assert.match(STEP6, /<QuestionDraftPanel[\s\S]*?existingQuestions=\{askedCount\(liveQs\)\}/);
+  assert.doesNotMatch(STEP5, /QuestionDraftPanel/);
+  // Step 5's suggest panel is no longer hidden in AI-Guided mode.
+  assert.match(
+    STEP5,
+    /\{interviewQs\.length === 0 && !qsPanelDismissed && \(\s*<QuestionSuggestPanel/,
+  );
+  assert.doesNotMatch(WIZARD, /aiGuided/);
+});
+
+test("step 5: the async switch and its name first, re-recording under it, then the questions; team call fields always", () => {
+  const sw = STEP5.indexOf('title="Async video interview"');
+  const name = STEP5.indexOf('label="Async interview name"');
+  const rerecord = STEP5.indexOf('title="Allow re-recording"');
+  const off = STEP5.indexOf("asyncOffLine(");
+  const list = STEP5.indexOf("<InterviewQuestionEditor");
+  const team = STEP5.indexOf("<TeamCallFields state={state} set={set} />");
+  assert.ok(sw > 0 && sw < name && name < rerecord && rerecord < off && off < list && list < team);
+  // The team call fields sit at the step's top level, under no switch.
+  assert.match(STEP5, /\/>\s*<TeamCallFields state=\{state\} set=\{set\} \/>\s*<\/>\s*\)\}\s*$/);
+  assert.doesNotMatch(EDITOR, /Leave this empty to skip the video round/);
+});
+
+test("the off lines: exactly, and shown only while that interview is off", () => {
+  assert.equal(
+    lists.asyncOffLine(0),
+    "Async video interview is off - turn it on to send recorded interviews.",
+  );
+  assert.equal(
+    lists.asyncOffLine(5),
+    "Async video interview is off - your 5 questions and the re-recording setting are saved but not sent to candidates.",
+  );
+  assert.equal(
+    lists.asyncOffLine(1),
+    "Async video interview is off - your 1 question and the re-recording setting are saved but not sent to candidates.",
+  );
+  assert.equal(
+    lists.liveOffLine(0),
+    "AI Video Interview is off - turn it on to set up Sarah's questions.",
+  );
+  assert.equal(
+    lists.liveOffLine(4),
+    "AI Video Interview is off - your 4 questions are saved but Sarah won't ask them until you turn it on.",
+  );
+  assert.match(
+    STEP5,
+    /\{!state\.async_interview_enabled && \(\s*<p className=\{OFF_LINE_CLS\} data-interview-off="async">\s*\{asyncOffLine\(askedCount\(interviewQs\)\)\}/,
+  );
+  assert.match(
+    STEP6,
+    /\{!state\.avatar_interview_enabled && \(\s*<p className=\{OFF_LINE_CLS\} data-interview-off="live">\s*\{liveOffLine\(askedCount\(liveQs\)\)\}/,
+  );
+  assert.equal(
+    lists.LIVE_EQUAL_WEIGHT_LINE,
+    "Each question counts equally and is marked against its own scoring guide.",
+  );
+  for (const line of [lists.asyncOffLine(2), lists.liveOffLine(2), lists.LIVE_EQUAL_WEIGHT_LINE]) {
+    assert.doesNotMatch(line, /[–—]/);
+  }
+});
+
+test("the Review cards: the right values, both Off when neither is on, each with its Edit link", () => {
+  const q = (question) => ({ id: question, question, competency: "", rubric: "" });
+  const base = {
+    async_interview_enabled: true,
+    allow_rerecord: true,
+    avatar_interview_enabled: true,
+    interview_questions: [q("a1"), q("a2"), q("   ")],
+    live_interview_questions: [q("l1"), q("l2"), q("l3"), q("l4"), q("l5")],
+  };
+  assert.deepEqual(lists.interviewReviewLines(base, { mode: "ai_guided", minutes: 60 }), {
+    async: ["On", "Re-recording allowed", "2 questions"],
+    live: ["On", "AI-Guided", "60 minutes", "5 questions"],
+  });
+  assert.deepEqual(
+    lists.interviewReviewLines(
+      {
+        ...base,
+        async_interview_enabled: false,
+        allow_rerecord: false,
+        avatar_interview_enabled: false,
+      },
+      { mode: "structured", minutes: 30 },
+    ),
+    {
+      async: ["Off", "No re-recording", "2 questions"],
+      live: ["Off", "Recruiter-Defined", "30 minutes", "5 questions"],
+    },
+  );
+  assert.match(
+    STEP10,
+    /<ReviewCard label="Async Video Interview" onEdit=\{\(\) => setStep\(5\)\}>\s*<span data-review-interview="async">\{reviewLines\.async\.join\(" · "\)\}<\/span>/,
+  );
+  assert.match(
+    STEP10,
+    /<ReviewCard label="AI Video Interview" onEdit=\{\(\) => setStep\(6\)\}>\s*<span data-review-interview="live">\{reviewLines\.live\.join\(" · "\)\}<\/span>/,
+  );
+});
+
+test("Review's More options keeps only AI CV scoring, Measure response relevancy and Automated rejection email", () => {
+  // From the panel's own toggle: "More options" is also named in a comment above it.
+  const more = STEP10.slice(STEP10.indexOf("onClick={() => setMoreOpen("));
+  const titles = [...more.matchAll(/<OptionRow\s+title="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(titles, [
+    "AI CV scoring",
+    "Measure response relevancy",
+    "Automated rejection email",
+  ]);
+  assert.doesNotMatch(STEP10, /title="Allow re-recording"|title="Async video interview"/);
+});
+
+test("the two editors' Other... state is separate: an edit on one list cannot touch the other", () => {
+  const start = lists.NO_OTHER_COMPETENCY;
+  const live = lists.setOtherCompetency(start, "live", "q-1", true);
+  assert.deepEqual([...live.live], ["q-1"]);
+  assert.equal(live.async, start.async, "the async set is the same object, untouched");
+  assert.deepEqual([...live.async], []);
+  const both = lists.setOtherCompetency(live, "async", "q-1", true);
+  const offLive = lists.setOtherCompetency(both, "live", "q-1", false);
+  assert.deepEqual([...offLive.async], ["q-1"], "turning live off leaves async on");
+  assert.deepEqual([...offLive.live], []);
+  // And the lists themselves: replacing one leaves the other as it was.
+  const state = { interview_questions: [{ id: "a" }], live_interview_questions: [{ id: "l" }] };
+  const next = lists.withQuestions(state, "live", []);
+  assert.equal(next.interview_questions, state.interview_questions);
+  assert.deepEqual(next.live_interview_questions, []);
+  assert.deepEqual(lists.questionsOf({ interview_questions: [] }, "live"), []);
+});
+
+test("switching mode on step 6 only sets the mode: no list is touched", () => {
+  assert.match(STEP6, /onModeChange=\{\(v\) => set\("live_interview_mode", v\)\}/);
+  const settings = readFileSync(new URL("./_live-interview-settings.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(settings, /interview_questions|onQuestions|setQuestions/);
 });

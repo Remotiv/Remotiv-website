@@ -193,11 +193,14 @@ const jobInput = (over = {}) => ({
   live_interview_mode: "ai_guided",
   live_hiring_challenges: "First-response times slipped.",
   interview_questions: SAVED.map((t) => q(t)),
+  // With AI Video Interview on, a save needs 4 to 8 live questions (#58 commit 6).
+  live_interview_questions: SAVED.map((t) => q(`Live: ${t}`)),
   ...over,
 });
+/** The job's async list, the one these tests edit (082: the live list is step 6's). */
 const savedQuestions = (db, jobId) =>
   db.tables.interview_questions
-    .filter((r) => r.job_id === jobId)
+    .filter((r) => r.job_id === jobId && r.interview_kind === "async")
     .sort((a, b) => a.position - b.position)
     .map((r) => r.question);
 const drafted = (over = {}) =>

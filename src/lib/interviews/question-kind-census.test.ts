@@ -61,6 +61,8 @@ const FILTERED = [
   [IA, "loadScoringSnapshot", "kind"],
   [IA, "fetchInterviewPanel", "kind"],
   [JOBS, "fetchInterviewQuestions", "kind"],
+  // The stored live count, when AI Video Interview is on and no live list was sent.
+  [JOBS, "liveCountRefusal", '"live"'],
   ["lib/ai/interview-scoring.ts", "handleAiScorecard", '"async"'],
   ["lib/interviews/live-settings.ts", "gateLiveInterviewInvite", '"live"'],
   ["lib/interviews/review.ts", "loadInterviewSession", "kind"],

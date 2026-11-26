@@ -135,3 +135,16 @@ test("weight: a question at 6 shows Most; one that is not a stop shows Normal, a
   assert.deepEqual(at("5"), ["Normal"]);
   assert.deepEqual(at(""), ["Normal"]);
 });
+
+test("the live variant (step 6): Sarah's empty-state line and the equal-weight line; the async copy is not shown", () => {
+  const empty = render({ questions: [], variant: "live", showWeightAndTiming: false });
+  assert.match(empty, /Add 4-8\. Sarah asks each one live, in\s+this order\./);
+  assert.doesNotMatch(empty, /on camera in their own time|Leave this empty/);
+  const full = render({ questions: qs(4), variant: "live", showWeightAndTiming: false });
+  assert.match(full, /Each question counts equally and is marked against its own scoring guide\./);
+  assert.doesNotMatch(full, /questions works best|practice round/);
+  // The async variant (step 5, the default) keeps its own lines, and no longer says "leave this empty".
+  const asyncEmpty = render({ questions: [] });
+  assert.match(asyncEmpty, /on camera in their\s+own time - there&#x27;s no call to schedule\./);
+  assert.doesNotMatch(asyncEmpty, /Leave this empty/);
+});

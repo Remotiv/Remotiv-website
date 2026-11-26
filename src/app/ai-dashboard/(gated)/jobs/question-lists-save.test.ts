@@ -1,17 +1,22 @@
 /**
- * #58 commit 5: the job save writes both question lists through
- * replace_interview_questions (migration 082) in one call, checks each list it
- * is given first, and cannot create a live list before commit 6.
+ * #58 commits 5 and 6: the job save writes both question lists through
+ * replace_interview_questions (migration 082) in one call and checks each list
+ * it is given first. Since commit 6 the live list saves (the switch is on);
+ * with AI Video Interview on it must hold 4 to 8 questions.
  *
- *   - async only (today's wizard): the async list is replaced, live untouched;
- *   - both lists (with the switch on, as commit 6 will): both replaced,
- *     positions 1..n, live weight 2;
+ *   - async only (a client from before step 6): the async list is replaced,
+ *     live untouched;
+ *   - both lists (the wizard since commit 6): both replaced, positions 1..n,
+ *     live weight 2;
+ *   - AI Video Interview on: 4 to 8 live questions, sent or stored; off: any
+ *     number kept, none included; switching mode keeps the questions;
  *   - left out vs [] for each list; a list that is not an array is refused;
  *   - 9 questions, or a fairness block, in either list: refused, nothing written;
- *   - the function fails: the failure copy, and both lists unchanged;
+ *   - the function fails: the edit's or the new job's failure copy, and both
+ *     lists unchanged;
  *   - another company's job: refused, nothing written;
- *   - while the switch is off (as shipped): a hand-built live list is refused
- *     and no live row is created;
+ *   - with the switch turned off: a live list is refused and no live row is
+ *     created;
  *   - the edit page's fetch returns each list by its kind.
  *
  *   node --test "src/app/ai-dashboard/(gated)/jobs/question-lists-save.test.ts"
@@ -160,8 +165,13 @@ const q = (question, over = {}) => ({
 });
 const qs = (prefix, n) =>
   Array.from({ length: n }, (_, i) => q(`${prefix} synthetic question ${i + 1}?`));
+/**
+ * AI Video Interview OFF unless a test turns it on, and no live list unless a
+ * test sends one: a client from before step 6, whose save leaves live rows alone.
+ */
+const { live_interview_questions: _noLiveList, ...EMPTY_BEFORE_STEP_6 } = EMPTY_JOB_INPUT;
 const jobInput = (over = {}) => ({
-  ...structuredClone(EMPTY_JOB_INPUT),
+  ...structuredClone(EMPTY_BEFORE_STEP_6),
   title: "Synthetic Support Lead",
   country: "Pakistan",
   city: "Lahore",
@@ -169,7 +179,7 @@ const jobInput = (over = {}) => ({
   description: "Lead a synthetic support team.",
   requirements: "Ticket triage.",
   experience_level: "Senior",
-  avatar_interview_enabled: true,
+  avatar_interview_enabled: false,
   interview_questions: qs("Async", 4),
   ...over,
 });
@@ -191,13 +201,18 @@ async function jobWithBoth() {
 }
 const NOT_UPDATED =
   "The role saved, but its interview questions were not updated. Your previous questions are kept.";
+const NOT_SAVED =
+  "The role saved, but its interview questions were not saved. Open the job to add them.";
+const COUNT_REFUSAL =
+  "AI Video Interview needs 4 to 8 questions. Add them on the AI Video Interview step, or turn AI Video Interview off to save without them.";
 
-test("as shipped, the switch is off: live lists cannot be saved yet", () => {
-  assert.equal(SHIPPED.LIVE_QUESTION_LIST_SAVE_ENABLED, false);
+test("as shipped since #58 commit 6, the switch is on: the live list saves", () => {
+  assert.equal(SHIPPED.LIVE_QUESTION_LIST_SAVE_ENABLED, true);
 });
 
-test("switch off: a hand-built live list is refused before anything is written, and no live row is created", async () => {
+test("switch turned off: a live list is refused before anything is written, and no live row is created", async () => {
   const db = world();
+  globalThis.__setLiveListSave(false);
   const made = await quiet(() =>
     createCompanyJob(jobInput({ live_interview_questions: qs("Live", 4) })),
   );
@@ -206,6 +221,7 @@ test("switch off: a hand-built live list is refused before anything is written, 
   assert.equal(db.tables.interview_questions.length, 0, "no question written");
   // On an existing job too, and [] (clear) is refused the same way.
   const id = (await quiet(() => createCompanyJob(jobInput()))).data.id;
+  globalThis.__setLiveListSave(false);
   for (const live of [qs("Live", 4), []]) {
     const r = await quiet(() => updateCompanyJob(id, jobInput({ live_interview_questions: live })));
     assert.deepEqual(r, { success: false, error: SHIPPED.LIVE_QUESTION_LIST_NOT_YET });
@@ -214,7 +230,7 @@ test("switch off: a hand-built live list is refused before anything is written, 
   assert.equal(rows(db, id, "async").length, 4);
 });
 
-test("save async only (today's wizard): the async list is replaced, positions 1..n; live rows untouched", async () => {
+test("save async only (a client from before step 6): the async list is replaced, positions 1..n; live rows untouched", async () => {
   const db = world();
   const id = await jobWithBoth();
   const live = structuredClone(
@@ -237,7 +253,7 @@ test("save async only (today's wizard): the async list is replaced, positions 1.
   );
 });
 
-test("save both (switch on, as commit 6 will): both replaced, positions 1..n, live weight 2 whatever was sent", async () => {
+test("save both (the wizard since commit 6): both replaced, positions 1..n, live weight 2 whatever was sent", async () => {
   const db = world();
   const id = await jobWithBoth();
   globalThis.__setLiveListSave(true);
@@ -384,4 +400,146 @@ test("the edit page's fetch returns each list by its kind, in order", async () =
     qs("Live", 5).map((x) => x.question),
   );
   assert.equal(db.tables.interview_questions.length, 9);
+});
+
+/* ── #58 commit 6: the 4 to 8 rule, the new job's failure copy, mode switches ── */
+
+test("AI Video Interview on: a sent live list outside 4 to 8 is refused, nothing written; 4 and 8 save", async () => {
+  const db = world();
+  for (const n of [0, 3]) {
+    const r = await quiet(() =>
+      createCompanyJob(
+        jobInput({ avatar_interview_enabled: true, live_interview_questions: qs("Live", n) }),
+      ),
+    );
+    assert.deepEqual(r, { success: false, error: COUNT_REFUSAL }, `${n}`);
+  }
+  assert.deepEqual([db.tables.jobs.length, db.tables.interview_questions.length], [0, 0]);
+  for (const n of [4, 8]) {
+    const r = await quiet(() =>
+      createCompanyJob(
+        jobInput({ avatar_interview_enabled: true, live_interview_questions: qs("Live", n) }),
+      ),
+    );
+    assert.equal(r.success, true, `${n}: ${r.error}`);
+    assert.equal(rows(db, r.data.id, "live").length, n);
+  }
+});
+
+test("AI Video Interview on with no live list sent: a new job is refused; an edit is checked against the stored list", async () => {
+  const db = world();
+  const create = await quiet(() => createCompanyJob(jobInput({ avatar_interview_enabled: true })));
+  assert.deepEqual(create, { success: false, error: COUNT_REFUSAL });
+  assert.equal(db.tables.jobs.length, 0);
+  // 5 stored live questions: an edit that sends none saves, and keeps them.
+  const id = await jobWithBoth();
+  const kept = await quiet(() =>
+    updateCompanyJob(id, jobInput({ avatar_interview_enabled: true })),
+  );
+  assert.equal(kept.success, true, kept.error);
+  assert.equal(rows(db, id, "live").length, 5);
+  // 0 stored: refused, nothing written.
+  const bare = (await quiet(() => createCompanyJob(jobInput()))).data.id;
+  const before = structuredClone(db.tables);
+  const on = await quiet(() =>
+    updateCompanyJob(bare, jobInput({ avatar_interview_enabled: true })),
+  );
+  assert.deepEqual(on, { success: false, error: COUNT_REFUSAL });
+  assert.deepEqual(db.tables, before);
+});
+
+test("AI Video Interview off: any number of live questions is allowed, none included, and a save keeps them", async () => {
+  const db = world();
+  const id = await jobWithBoth();
+  for (const live of [[], qs("Live", 2)]) {
+    const r = await quiet(() => updateCompanyJob(id, jobInput({ live_interview_questions: live })));
+    assert.equal(r.success, true, r.error);
+    assert.equal(rows(db, id, "live").length, live.length);
+  }
+  // Turning it off with the list sent as it was keeps the list (kept, not sent).
+  const r = await quiet(() =>
+    updateCompanyJob(id, jobInput({ live_interview_questions: qs("Kept", 4) })),
+  );
+  assert.equal(r.success, true, r.error);
+  assert.deepEqual(
+    rows(db, id, "live").map(([, word]) => word),
+    ["Kept", "Kept", "Kept", "Kept"],
+  );
+});
+
+test("a new job whose questions fail to save gets the new job's copy; an edit gets the edit's", async () => {
+  const db = world();
+  db.failNext("replace_interview_questions", "rpc");
+  const made = await quiet(() => createCompanyJob(jobInput()));
+  assert.equal(made.success, true, "the role saved");
+  assert.equal(made.warning, NOT_SAVED);
+  assert.deepEqual(rows(db, made.data.id, "async"), []);
+  db.failNext("replace_interview_questions", "rpc");
+  const edit = await quiet(() => updateCompanyJob(made.data.id, jobInput()));
+  assert.equal(edit.warning, NOT_UPDATED);
+});
+
+test("switching mode keeps the approved questions, and an invitation already sent stays frozen", async () => {
+  const db = world();
+  const id = await jobWithBoth();
+  const frozen = {
+    id: "s-frozen",
+    company_id: CO,
+    job_id: id,
+    kind: "live",
+    status: "invited",
+    questions_snapshot: [{ id: "q-old", position: 1, question: "Frozen question?" }],
+    scoring_snapshot: [
+      { position: 1, question_id: "q-old", competency: null, rubric: null, weight: 1 },
+    ],
+  };
+  db.tables.interview_sessions = [structuredClone(frozen)];
+  const live = rows(db, id, "live");
+  const asyncList = rows(db, id, "async");
+  for (const mode of ["ai_guided", "structured", "ai_guided"]) {
+    const sentLive = (await fetchInterviewQuestions(id, "live")).map((x) => ({ ...x }));
+    const sentAsync = await fetchInterviewQuestions(id, "async");
+    const r = await quiet(() =>
+      updateCompanyJob(
+        id,
+        jobInput({
+          avatar_interview_enabled: true,
+          live_interview_mode: mode,
+          interview_questions: sentAsync,
+          live_interview_questions: sentLive,
+        }),
+      ),
+    );
+    assert.equal(r.success, true, `${mode}: ${r.error}`);
+    assert.deepEqual(rows(db, id, "live"), live, `${mode}: live kept`);
+    assert.deepEqual(rows(db, id, "async"), asyncList, `${mode}: async kept`);
+  }
+  assert.deepEqual(db.tables.interview_sessions, [frozen], "the invitation is byte-equal");
+});
+
+test("save round-trips both lists: what the edit page loads is what was saved", async () => {
+  world();
+  const id = await jobWithBoth();
+  const loaded = {
+    async: await fetchInterviewQuestions(id, "async"),
+    live: await fetchInterviewQuestions(id, "live"),
+  };
+  const r = await quiet(() =>
+    updateCompanyJob(
+      id,
+      jobInput({
+        avatar_interview_enabled: true,
+        interview_questions: loaded.async,
+        live_interview_questions: loaded.live,
+      }),
+    ),
+  );
+  assert.equal(r.success, true, r.error);
+  const again = {
+    async: await fetchInterviewQuestions(id, "async"),
+    live: await fetchInterviewQuestions(id, "live"),
+  };
+  const shape = (list) => list.map(({ id: _id, ...rest }) => rest);
+  assert.deepEqual(shape(again.async), shape(loaded.async));
+  assert.deepEqual(shape(again.live), shape(loaded.live));
 });

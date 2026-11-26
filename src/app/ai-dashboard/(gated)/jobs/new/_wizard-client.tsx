@@ -56,13 +56,14 @@ import {
 } from "@/app/ai-dashboard/lib/job-types";
 import { useModalFocus } from "@/hooks/use-modal-focus";
 import { DRAFT_FAILED } from "@/lib/interviews/question-fairness";
+import { MAX_JOB_QUESTIONS } from "@/lib/interviews/question-mix";
 import {
   DEFAULT_INTERVIEW_LENGTH,
   draftAnswerSeconds,
   EMPTY_QUESTION_INPUT,
   INTERVIEW_LENGTHS,
+  type InterviewKind,
   type InterviewLengthId,
-  type InterviewQuestionInput,
   MAX_QUESTIONS,
 } from "@/lib/interviews/types";
 import { applyGroups, mergeJobText, needsModelSplit, parseJobDescription } from "@/lib/jd/parse";
@@ -100,6 +101,16 @@ import {
   draftsReducer,
   INITIAL_DRAFTS,
 } from "./question-drafts";
+import {
+  askedCount,
+  asyncOffLine,
+  interviewReviewLines,
+  liveOffLine,
+  NO_OTHER_COMPETENCY,
+  type OtherCompetency,
+  questionsOf,
+  setOtherCompetency,
+} from "./question-lists";
 import { currencySymbol, salaryRange } from "./salary-range";
 
 // ── Constants ────────────────────────────────────────────────
@@ -132,8 +143,8 @@ const STEPS = [
   },
   {
     n: 5,
-    label: "Interview",
-    title: "Interview questions",
+    label: "Async Video Interview",
+    title: "Async Video Interview",
     /*
      * "In their own time" reads as scheduling flexibility and never says that
      * nobody is there. Naming the absent interviewer is the point.
@@ -145,6 +156,13 @@ const STEPS = [
      */
     desc: "The candidate records their answers alone, with no interviewer on the call.",
   },
+  {
+    n: 6,
+    label: "AI Video Interview",
+    title: "AI Video Interview",
+    // Its own step and its own questions since #58 (26 Nov).
+    desc: AI_VIDEO_STEP_LINE,
+  },
 ] as const;
 
 /**
@@ -153,19 +171,19 @@ const STEPS = [
  */
 const SCORING_STEPS = [
   {
-    n: 6,
+    n: 7,
     label: "AI scoring",
     title: "AI scoring criteria",
     desc: "Name the things that matter most. The scorer reports on each one.",
   },
   {
-    n: 7,
+    n: 8,
     label: "Answer weighting",
     title: "Answer weighting",
     desc: "Decide what counts most when the AI scores someone.",
   },
   {
-    n: 8,
+    n: 9,
     label: "Auto-shortlist",
     title: "Auto-shortlist",
     desc: "Flag the strongest applicants automatically. You still decide.",
@@ -189,7 +207,7 @@ const SCORING_STEPS = [
  * separator says that before the label is read.
  */
 const REVIEW_STEPS = [
-  { n: 9, label: "Review", title: "Review", desc: "One last look before it goes live." },
+  { n: 10, label: "Review", title: "Review", desc: "One last look before it goes live." },
 ] as const;
 
 /** Every step, in rail order. The list a new step gets added to. */
@@ -456,7 +474,7 @@ const JD_WANTED_MAX = 2000;
  *
  * ── `confirm`, for a step where the offer destroys work ──────
  *
- * Step 6 is available even when the step is already filled, so its button can
+ * Step 7 is available even when the step is already filled, so its button can
  * replace criteria the recruiter wrote. `confirm` swaps the button row for a
  * "replace what's there?" row — the same two-step the JD draft uses on step 2,
  * inline rather than a modal. Steps 4 and 5 pass nothing and are unchanged.
@@ -617,7 +635,7 @@ function QuestionSuggestPanel({
 }
 
 /**
- * What step 6 says when the criteria offer comes back with nothing to apply.
+ * What step 7 says when the criteria offer comes back with nothing to apply.
  *
  * `below_heuristic` is the one that matters. The floor in
  * `suggestScoringCriteria` discards a result that is thinner than the criteria
@@ -698,6 +716,9 @@ const PILL_SOON = `${PILL} bg-[var(--ai-amber-tint)] text-[var(--ai-amber-ink)]`
 const PILL_LIVE = `${PILL} bg-[var(--ai-mint-tint)] text-[var(--ai-mint-ink)]`;
 const SOON_LABEL = "Not yet active";
 const LIVE_LABEL = "Active now";
+/** The line a switched-off interview step shows above its saved questions. */
+const OFF_LINE_CLS =
+  "mb-4 rounded-[12px] border border-[var(--ai-line)] bg-[var(--ai-inset)] px-3.5 py-2.5 text-xs leading-relaxed text-[var(--ai-t2)]";
 
 const QUESTION_TYPES: ReadonlyArray<{ value: ScreeningQuestion["type"]; label: string }> = [
   { value: "yesno", label: "Yes / No" },
@@ -990,12 +1011,6 @@ export function WizardClient({
   jobId?: string;
   /** Prefill for edit mode; create starts from EMPTY_JOB_INPUT. */
   initialState?: CompanyJobInput;
-  /**
-   * The job's AI Video Interview questions (082), edit mode. Not read yet and
-   * deliberately NOT part of initialState, so a save never sends them: #58
-   * commit 6 adds the step that edits this list.
-   */
-  initialLiveQuestions?: InterviewQuestionInput[];
   /**
    * question_id → how many applicants already answered it. Edit mode only;
    * a newly created job has none, and a question added in this session cannot
@@ -1368,8 +1383,8 @@ export function WizardClient({
       return;
     }
     /*
-     * Walk the SEQUENCE, not the raw numbers: step 7 is locked, so counting
-     * upward would validate a step the user can never reach or fix.
+     * Walk the SEQUENCE, not the raw numbers, so a step that is ever taken
+     * out of the flow is never validated on the way past.
      */
     const from = positionOf(step);
     const to = positionOf(target);
@@ -1484,11 +1499,13 @@ export function WizardClient({
   // rows land in their own table rather than a JSONB column, but that is the
   // action's problem, not the form's.
 
-  const interviewQs = state.interview_questions;
-  /** AI Video Interview on, in AI-Guided mode: drafting replaces the old suggest panel. */
-  const aiGuided =
-    state.avatar_interview_enabled &&
-    (state.live_interview_mode ?? DEFAULT_LIVE_INTERVIEW_MODE) === "ai_guided";
+  const interviewQs = questionsOf(state, "async");
+  /** The AI Video Interview's own list (082), edited on step 6 only. */
+  const liveQs = questionsOf(state, "live");
+  const reviewLines = interviewReviewLines(state, {
+    mode: state.live_interview_mode ?? DEFAULT_LIVE_INTERVIEW_MODE,
+    minutes: state.live_interview_minutes ?? DEFAULT_LIVE_INTERVIEW_MINUTES,
+  });
 
   /*
    * Rows whose competency is being typed freehand.
@@ -1499,15 +1516,11 @@ export function WizardClient({
    * in the suggestion list opens in free-text mode on its own, so a company's
    * existing wording survives the list changing under it.
    */
-  const [otherCompetency, setOtherCompetencyIds] = useState<Set<string>>(new Set());
+  const [otherCompetency, setOtherCompetencyIds] = useState<OtherCompetency>(NO_OTHER_COMPETENCY);
 
-  function setOtherCompetency(id: string, on: boolean) {
-    setOtherCompetencyIds((prev) => {
-      const next = new Set(prev);
-      if (on) next.add(id);
-      else next.delete(id);
-      return next;
-    });
+  /** Per list: the async and live editors never share this state. */
+  function setOtherCompetencyFor(kind: InterviewKind, id: string, on: boolean) {
+    setOtherCompetencyIds((prev) => setOtherCompetency(prev, kind, id, on));
   }
 
   /**
@@ -1601,7 +1614,11 @@ export function WizardClient({
   function onDraftAction(a: DraftsAction): void {
     const next = draftsReducer(drafts, a);
     if (next.apply) {
-      set("interview_questions", draftsAsJobQuestions(next.apply, draftAnswerSeconds(next.count)));
+      // The AI Video Interview's own list: drafting is step 6's, never step 5's.
+      set(
+        "live_interview_questions",
+        draftsAsJobQuestions(next.apply, draftAnswerSeconds(next.count)),
+      );
       setDrafts(draftsReducer(next, { t: "applied" }));
       return;
     }
@@ -1823,7 +1840,7 @@ export function WizardClient({
               {/*
                 THREE GROUPS, and the hairline is the point.
 
-                1-5 collect the role, 6-8 set up how it is scored, 9 confirms.
+                1-6 collect the role, 7-9 set up how it is scored, 10 confirms.
                 Review used to be step 6 with three steps behind it, so the
                 summary described a state the user had not reached and Publish
                 sat on Auto-shortlist. It is last now, and separated: appending
@@ -1858,11 +1875,6 @@ export function WizardClient({
                   {meta.title}
                 </h2>
                 <p className="text-[13px] leading-relaxed text-[var(--ai-t3)]">{meta.desc}</p>
-                {step === 5 && state.avatar_interview_enabled && (
-                  <p className="text-[13px] leading-relaxed text-[var(--ai-t3)]">
-                    {AI_VIDEO_STEP_LINE}
-                  </p>
-                )}
               </div>
               <span className="shrink-0 whitespace-nowrap rounded-full bg-[var(--ai-purple-tint)] px-[11px] py-[5px] text-[10.5px] font-extrabold uppercase tracking-[0.08em] text-[var(--ai-purple-ink)]">
                 Step {step} of {HIGHEST_STEP}
@@ -2401,56 +2413,53 @@ export function WizardClient({
 
               {step === 5 && (
                 <>
-                  {/* Stored in avatar_interview_enabled; the column name
-                      is historical - Phase 1 has no avatar, and no copy here
-                      may promise one. On this step, above the mode cards,
-                      since 24 Nov: the questions below are what Sarah asks. */}
-                  <div className="mb-5">
+                  {/* The gate on sending. With this off,
+                      sendInterviewInvite refuses and the applicant
+                      drawer disables its button, so the toggle decides
+                      whether this job uses async interviews at all. On this
+                      step, above its questions, since #58 (26 Nov). */}
+                  <div className="mb-3">
                     <OptionRow
-                      title="AI Video Interview"
-                      desc={AI_VIDEO_OPTION_DESCRIPTION}
-                      on={state.avatar_interview_enabled}
+                      title="Async video interview"
+                      desc="Candidates record answers in their own time, with no interviewer on the call."
+                      live
+                      on={state.async_interview_enabled}
                       onToggle={() =>
-                        set("avatar_interview_enabled", !state.avatar_interview_enabled)
+                        set("async_interview_enabled", !state.async_interview_enabled)
                       }
                     >
-                      <p className={HINT_CLS}>
-                        {aiVideoQuestionsHint(
-                          state.live_interview_minutes ?? DEFAULT_LIVE_INTERVIEW_MINUTES,
-                        )}
-                      </p>
-                      {aiVideoQuestionCountOutOfRange(
-                        state.interview_questions.filter((q) => q.question.trim()).length,
-                      ) && (
-                        <p className="mt-1.5 text-xs text-[#C4362F]">
-                          {AI_VIDEO_QUESTION_COUNT_WARNING}
-                        </p>
-                      )}
+                      <InterviewerNameField
+                        id="async-interview-name"
+                        label="Async interview name"
+                        placeholder="e.g. First-round questions"
+                        hint="Saved with the job. Nothing shows it to candidates yet."
+                        value={state.async_interview_name}
+                        onChange={(v) => set("async_interview_name", v)}
+                      />
                     </OptionRow>
                   </div>
 
-                  <LiveInterviewSettings
-                    enabled={state.avatar_interview_enabled}
-                    mode={state.live_interview_mode ?? DEFAULT_LIVE_INTERVIEW_MODE}
-                    minutes={state.live_interview_minutes ?? DEFAULT_LIVE_INTERVIEW_MINUTES}
-                    challenges={state.live_hiring_challenges ?? ""}
-                    onModeChange={(v) => set("live_interview_mode", v)}
-                    onMinutesChange={(v) => set("live_interview_minutes", v)}
-                    onChallengesChange={(v) => set("live_hiring_challenges", v)}
-                    draftPanel={
-                      <QuestionDraftPanel
-                        state={drafts}
-                        dispatch={onDraftAction}
-                        ready={Boolean(state.description.trim() || state.requirements.trim())}
-                        existingQuestions={interviewQs.filter((q) => q.question.trim()).length}
-                        onDraft={() => {
-                          void draftQuestions();
-                        }}
-                      />
-                    }
-                  />
+                  {/* Read at send time and frozen onto the session, so the
+                      candidate's page offers Re-record under exactly the rule
+                      that was in force when they were invited: a later edit
+                      cannot change an interview already in flight. */}
+                  <div className="mb-5">
+                    <OptionRow
+                      title="Allow re-recording"
+                      desc="Candidates can re-record their interview before submitting."
+                      live
+                      on={state.allow_rerecord}
+                      onToggle={() => set("allow_rerecord", !state.allow_rerecord)}
+                    />
+                  </div>
 
-                  {!aiGuided && interviewQs.length === 0 && !qsPanelDismissed && (
+                  {!state.async_interview_enabled && (
+                    <p className={OFF_LINE_CLS} data-interview-off="async">
+                      {asyncOffLine(askedCount(interviewQs))}
+                    </p>
+                  )}
+
+                  {interviewQs.length === 0 && !qsPanelDismissed && (
                     <QuestionSuggestPanel
                       length={qsLength}
                       onLengthChange={setQsLength}
@@ -2467,15 +2476,82 @@ export function WizardClient({
                   <InterviewQuestionEditor
                     questions={interviewQs}
                     onChange={(next) => set("interview_questions", next)}
-                    otherCompetencyIds={otherCompetency}
-                    onOtherCompetency={setOtherCompetency}
+                    otherCompetencyIds={otherCompetency.async}
+                    onOtherCompetency={(id, on) => setOtherCompetencyFor("async", id, on)}
                   />
 
                   <TeamCallFields state={state} set={set} />
                 </>
               )}
 
-              {step === 9 && (
+              {step === 6 && (
+                <>
+                  {/* Stored in avatar_interview_enabled; the column name
+                      is historical - Phase 1 has no avatar, and no copy here
+                      may promise one. Its own step and its own questions
+                      since #58 (26 Nov): the list below is what Sarah asks. */}
+                  <div className="mb-5">
+                    <OptionRow
+                      title="AI Video Interview"
+                      desc={AI_VIDEO_OPTION_DESCRIPTION}
+                      on={state.avatar_interview_enabled}
+                      onToggle={() =>
+                        set("avatar_interview_enabled", !state.avatar_interview_enabled)
+                      }
+                    >
+                      <p className={HINT_CLS}>
+                        {aiVideoQuestionsHint(
+                          state.live_interview_minutes ?? DEFAULT_LIVE_INTERVIEW_MINUTES,
+                        )}
+                      </p>
+                      {aiVideoQuestionCountOutOfRange(askedCount(liveQs)) && (
+                        <p className="mt-1.5 text-xs text-[#C4362F]">
+                          {AI_VIDEO_QUESTION_COUNT_WARNING}
+                        </p>
+                      )}
+                    </OptionRow>
+                  </div>
+
+                  {!state.avatar_interview_enabled && (
+                    <p className={OFF_LINE_CLS} data-interview-off="live">
+                      {liveOffLine(askedCount(liveQs))}
+                    </p>
+                  )}
+
+                  <LiveInterviewSettings
+                    enabled={state.avatar_interview_enabled}
+                    mode={state.live_interview_mode ?? DEFAULT_LIVE_INTERVIEW_MODE}
+                    minutes={state.live_interview_minutes ?? DEFAULT_LIVE_INTERVIEW_MINUTES}
+                    challenges={state.live_hiring_challenges ?? ""}
+                    onModeChange={(v) => set("live_interview_mode", v)}
+                    onMinutesChange={(v) => set("live_interview_minutes", v)}
+                    onChallengesChange={(v) => set("live_hiring_challenges", v)}
+                    draftPanel={
+                      <QuestionDraftPanel
+                        state={drafts}
+                        dispatch={onDraftAction}
+                        ready={Boolean(state.description.trim() || state.requirements.trim())}
+                        existingQuestions={askedCount(liveQs)}
+                        onDraft={() => {
+                          void draftQuestions();
+                        }}
+                      />
+                    }
+                  />
+
+                  <InterviewQuestionEditor
+                    variant="live"
+                    questions={liveQs}
+                    onChange={(next) => set("live_interview_questions", next)}
+                    otherCompetencyIds={otherCompetency.live}
+                    onOtherCompetency={(id, on) => setOtherCompetencyFor("live", id, on)}
+                    showWeightAndTiming={false}
+                    maxQuestions={MAX_JOB_QUESTIONS}
+                  />
+                </>
+              )}
+
+              {step === 10 && (
                 <>
                   <div className="mb-3 grid grid-cols-1 gap-3 min-[525px]:grid-cols-2">
                     <ReviewCard label="Role" onEdit={() => setStep(1)}>
@@ -2559,6 +2635,18 @@ export function WizardClient({
                     )}
                   </ReviewCard>
 
+                  {/* The two interviews, read-only: each is set on its own
+                      step (#58). Both read Off when neither is on, which is
+                      allowed: the job is screened and CV-scored only. */}
+                  <div className="mt-3 grid grid-cols-1 gap-3 min-[525px]:grid-cols-2">
+                    <ReviewCard label="Async Video Interview" onEdit={() => setStep(5)}>
+                      <span data-review-interview="async">{reviewLines.async.join(" · ")}</span>
+                    </ReviewCard>
+                    <ReviewCard label="AI Video Interview" onEdit={() => setStep(6)}>
+                      <span data-review-interview="live">{reviewLines.live.join(" · ")}</span>
+                    </ReviewCard>
+                  </div>
+
                   {/* Hiring team.
                       Editing an existing job manages the real team; a job that
                       does not exist yet has no rows to manage, so the create
@@ -2631,7 +2719,7 @@ export function WizardClient({
                           More options
                         </span>
                         <span className="mt-0.5 block text-xs leading-relaxed text-[var(--ai-t3)]">
-                          Interview and scoring behaviour for this job.
+                          Scoring and email behaviour for this job.
                         </span>
                       </span>
                       <ChevronDown
@@ -2653,19 +2741,6 @@ export function WizardClient({
                         </p>
 
                         <div className="grid gap-2.5">
-                          {/* Read at send time and frozen onto the session,
-                              so the candidate's page offers Re-record under
-                              exactly the rule that was in force when they were
-                              invited — a later edit cannot change an interview
-                              already in flight. */}
-                          <OptionRow
-                            title="Allow re-recording"
-                            desc="Candidates can re-record their interview before submitting."
-                            live
-                            on={state.allow_rerecord}
-                            onToggle={() => set("allow_rerecord", !state.allow_rerecord)}
-                          />
-
                           <OptionRow
                             title="AI CV scoring"
                             desc="Score each CV against this job when someone applies."
@@ -2697,30 +2772,6 @@ export function WizardClient({
                               set("send_rejection_email", !state.send_rejection_email)
                             }
                           />
-
-                          {/* The gate on sending. With this off,
-                              sendInterviewInvite refuses and the applicant
-                              drawer disables its button — so the toggle is now
-                              the thing that decides whether this job uses
-                              interviews at all. */}
-                          <OptionRow
-                            title="Async video interview"
-                            desc="Candidates record answers in their own time, with no interviewer on the call."
-                            live
-                            on={state.async_interview_enabled}
-                            onToggle={() =>
-                              set("async_interview_enabled", !state.async_interview_enabled)
-                            }
-                          >
-                            <InterviewerNameField
-                              id="async-interview-name"
-                              label="Async interview name"
-                              placeholder="e.g. First-round questions"
-                              hint="Saved with the job. Nothing shows it to candidates yet."
-                              value={state.async_interview_name}
-                              onChange={(v) => set("async_interview_name", v)}
-                            />
-                          </OptionRow>
                         </div>
                       </div>
                     )}
@@ -2767,7 +2818,7 @@ export function WizardClient({
                 </>
               )}
 
-              {step === 6 && (
+              {step === 7 && (
                 <ScoringCriteriaStep
                   state={state}
                   onChange={(next) => set("scoring_must_haves", next)}
@@ -2782,7 +2833,7 @@ export function WizardClient({
                 />
               )}
 
-              {step === 7 && (
+              {step === 8 && (
                 <WeightingStep
                   state={state}
                   onCvWeight={(key, stored) => setState((prev) => ({ ...prev, [key]: stored }))}
@@ -2815,7 +2866,7 @@ export function WizardClient({
                 />
               )}
 
-              {step === 8 && <AutoshortlistStep state={state} set={set} />}
+              {step === 9 && <AutoshortlistStep state={state} set={set} />}
             </div>
 
             <div className="flex items-center justify-between gap-4 border-t border-[var(--ai-line)] bg-[var(--ai-inset)] px-[26px] py-4">
@@ -3215,7 +3266,7 @@ function WeightingStep({
 
       <section>
         <h3 className="mb-1 font-heading text-[15px] font-extrabold tracking-[-0.02em]">
-          Interview questions
+          Async interview questions
         </h3>
         <p className="mb-4 text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
           A question set to <b>Most</b> counts three times as much as a <b>Normal</b> one;{" "}

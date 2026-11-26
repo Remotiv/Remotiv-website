@@ -4,6 +4,7 @@ import {
   ANSWER_SECONDS_MIN,
   EMPTY_QUESTION_INPUT,
   type InterviewQuestionInput,
+  LIVE_INTERVIEWER_NAME,
   MAX_QUESTIONS,
   MIN_QUESTIONS,
   PREP_SECONDS_MAX,
@@ -11,6 +12,7 @@ import {
   QUESTION_TEXT_MAX,
 } from "@/lib/interviews/types";
 import { snapWeight, WEIGHT_STOPS } from "@/lib/weights";
+import { LIVE_EQUAL_WEIGHT_LINE } from "./question-lists";
 
 /**
  * The job wizard's interview question editor: the empty state, one card per
@@ -73,6 +75,7 @@ export function InterviewQuestionEditor({
   onOtherCompetency,
   showWeightAndTiming = true,
   maxQuestions = MAX_QUESTIONS,
+  variant = "async",
 }: {
   /** The list this editor edits. */
   questions: InterviewQuestionInput[];
@@ -84,6 +87,12 @@ export function InterviewQuestionEditor({
   /** Weight, thinking time and answer limit. Shown by default, as on step 5. */
   showWeightAndTiming?: boolean;
   maxQuestions?: number;
+  /**
+   * Which interview the list is for: only the empty state's line and the line
+   * under the list differ. "async" (step 5) is today's wording; "live" (step 6,
+   * the AI Video Interview's own list) names Sarah and the equal weighting.
+   */
+  variant?: "async" | "live";
 }) {
   function usesOtherCompetency(q: InterviewQuestionInput): boolean {
     if (otherCompetencyIds.has(q.id)) return true;
@@ -122,9 +131,17 @@ export function InterviewQuestionEditor({
             No interview questions yet
           </p>
           <p className="m-0 mt-1.5 text-xs leading-relaxed text-[var(--ai-t3)]">
-            Add {MIN_QUESTIONS}-{maxQuestions}. Candidates answer each one on camera in their own
-            time - there&apos;s no call to schedule. Leave this empty to skip the video round for
-            this job.
+            {variant === "live" ? (
+              <>
+                Add {MIN_QUESTIONS}-{maxQuestions}. {LIVE_INTERVIEWER_NAME} asks each one live, in
+                this order.
+              </>
+            ) : (
+              <>
+                Add {MIN_QUESTIONS}-{maxQuestions}. Candidates answer each one on camera in their
+                own time - there&apos;s no call to schedule.
+              </>
+            )}
           </p>
         </div>
       )}
@@ -342,9 +359,15 @@ export function InterviewQuestionEditor({
       </button>
 
       <p className="mt-3 text-xs leading-relaxed text-[var(--ai-t3)]">
-        {MIN_QUESTIONS}-{maxQuestions} questions works best - long enough to judge, short enough
-        that people finish. Candidates get a practice round first, which is never recorded or
-        shared.
+        {variant === "live" ? (
+          LIVE_EQUAL_WEIGHT_LINE
+        ) : (
+          <>
+            {MIN_QUESTIONS}-{maxQuestions} questions works best - long enough to judge, short enough
+            that people finish. Candidates get a practice round first, which is never recorded or
+            shared.
+          </>
+        )}
       </p>
     </>
   );

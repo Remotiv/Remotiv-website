@@ -116,6 +116,15 @@ function world(extra = {}) {
   return db;
 }
 
+/**
+ * AI Video Interview's own list (082, #58 commit 6): with it on, a save needs
+ * 4 to 8 of these, so every input below carries 4.
+ */
+const LIVE_QUESTIONS = Array.from({ length: 4 }, (_, i) => ({
+  ...EMPTY_QUESTION_INPUT,
+  question: `Synthetic live question ${i + 1}?`,
+}));
+
 /** A complete wizard input, as the browser sends it. */
 const input = (over = {}) => ({
   ...structuredClone(EMPTY_JOB_INPUT),
@@ -124,8 +133,11 @@ const input = (over = {}) => ({
   city: "Lahore",
   status: "on_hold",
   avatar_interview_enabled: true,
+  live_interview_questions: structuredClone(LIVE_QUESTIONS),
   ...over,
 });
+/** The async list's rows: the list these tests count. */
+const asyncRows = (db) => db.tables.interview_questions.filter((q) => q.interview_kind === "async");
 
 const LIVE = ["live_interview_mode", "live_interview_minutes", "live_hiring_challenges"];
 const stored = (db, id) => {
@@ -405,12 +417,12 @@ test("7 and 8 interview questions save, on create and on edit; all of them are k
     const db = world();
     const id = await create({ interview_questions: questions(n) });
     assert.deepEqual(
-      db.tables.interview_questions.map((q) => q.question),
+      asyncRows(db).map((q) => q.question),
       Array.from({ length: n }, (_, i) => `Synthetic question ${i + 1}?`),
     );
     const r = await quiet(() => updateCompanyJob(id, input({ interview_questions: questions(n) })));
     assert.equal(r.success, true, r.error);
-    assert.equal(db.tables.interview_questions.length, n);
+    assert.equal(asyncRows(db).length, n);
   }
 });
 

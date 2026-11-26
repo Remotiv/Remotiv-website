@@ -59,8 +59,10 @@ import { generateScoringCriteria } from "@/lib/ai/scoring-criteria";
 import { generateScreeningQuestions } from "@/lib/ai/screening-questions";
 import { parseRules } from "@/lib/calendar/availability";
 import {
+  LIVE_QUESTION_COUNT_REFUSAL,
   LIVE_QUESTION_LIST_NOT_YET,
   LIVE_QUESTION_LIST_SAVE_ENABLED,
+  QUESTIONS_NOT_SAVED,
   QUESTIONS_NOT_UPDATED,
 } from "@/lib/interviews/live-question-list";
 import {
@@ -69,6 +71,7 @@ import {
   fairnessBlockMessage,
   firstFairnessBlock,
 } from "@/lib/interviews/question-fairness";
+import { MAX_JOB_QUESTIONS, MIN_JOB_QUESTIONS } from "@/lib/interviews/question-mix";
 import {
   ANSWER_SECONDS_MAX,
   ANSWER_SECONDS_MIN,
@@ -148,9 +151,7 @@ function interviewerName(value: string | undefined, enabled: boolean): string | 
 function checkQuestionList(list: unknown, noun: string, label: string): string | null {
   if (list === undefined) return null;
   if (!Array.isArray(list)) return QUESTIONS_UNREADABLE;
-  const asked = (list as InterviewQuestionInput[]).filter(
-    (q) => (q?.question ?? "").trim().length > 0,
-  ).length;
+  const asked = askedIn(list as InterviewQuestionInput[]);
   if (asked > MAX_QUESTIONS) {
     return `A job can have at most ${MAX_QUESTIONS} ${label}. Remove ${asked - MAX_QUESTIONS} to save.`;
   }
@@ -158,6 +159,37 @@ function checkQuestionList(list: unknown, noun: string, label: string): string |
 }
 
 const QUESTIONS_UNREADABLE = "Those interview questions couldn't be read. Nothing was saved.";
+
+/** Questions with text: what a save keeps. */
+function askedIn(list: readonly InterviewQuestionInput[]): number {
+  return list.filter((q) => (q?.question ?? "").trim().length > 0).length;
+}
+
+/**
+ * AI Video Interview on and no live list sent (a client from before step 6):
+ * the job's STORED live questions must already be 4 to 8. Read for a job the
+ * caller's company owns and may act on (updateCompanyJob checks both first).
+ */
+async function liveCountRefusal(
+  supabase: ReturnType<typeof createServiceClient>,
+  jobId: string,
+  companyId: string,
+  input: CompanyJobInput,
+): Promise<string | null> {
+  if (input.avatar_interview_enabled !== true || input.live_interview_questions !== undefined) {
+    return null;
+  }
+  const { data, error } = await supabase
+    .from("interview_questions")
+    .select("id")
+    .eq("job_id", jobId)
+    .eq("company_id", companyId)
+    .eq("interview_kind", "live")
+    .limit(50);
+  if (error) return actionFailed("save those changes", error);
+  const n = (data ?? []).length;
+  return n >= MIN_JOB_QUESTIONS && n <= MAX_JOB_QUESTIONS ? null : LIVE_QUESTION_COUNT_REFUSAL;
+}
 
 function buildPatch(
   input: CompanyJobInput,
@@ -239,6 +271,15 @@ function buildPatch(
   ] as const) {
     const refused = checkQuestionList(list, noun, label);
     if (refused) return { ok: false, error: refused };
+  }
+  // AI Video Interview on: 4 to 8 live questions, the range the live invite
+  // accepts. Off: any number is kept, none included. A save that sends no
+  // live list is checked against what is stored (liveCountRefusal).
+  if (avatarOn && Array.isArray(input.live_interview_questions)) {
+    const n = askedIn(input.live_interview_questions);
+    if (n < MIN_JOB_QUESTIONS || n > MAX_JOB_QUESTIONS) {
+      return { ok: false, error: LIVE_QUESTION_COUNT_REFUSAL };
+    }
   }
 
   // AI Video Interview mode, length and hiring challenges (074). Checked here,
@@ -744,6 +785,8 @@ async function syncInterviewQuestions(
   jobId: string,
   companyId: string,
   input: Pick<CompanyJobInput, "interview_questions" | "live_interview_questions">,
+  /** The warning if it fails: a new job's (none kept) or an edit's (previous kept). */
+  failure: string,
 ): Promise<string | null> {
   const asyncList = rpcQuestions(input.interview_questions, "async");
   const liveList = rpcQuestions(input.live_interview_questions, "live");
@@ -759,11 +802,11 @@ async function syncInterviewQuestions(
     if (error) {
       // The code only: the database's text names the job and the rule.
       console.error(`[jobs] interview questions not saved (${error.code ?? "unknown"})`);
-      return QUESTIONS_NOT_UPDATED;
+      return failure;
     }
   } catch {
     console.error("[jobs] interview question save threw");
-    return QUESTIONS_NOT_UPDATED;
+    return failure;
   }
   return null;
 }
@@ -862,6 +905,11 @@ export async function createCompanyJob(
 
   const built = buildPatch(await splitIfNeeded(input));
   if (!built.ok) return { success: false, error: built.error };
+  // A new job stores no live questions, so AI Video Interview on with none
+  // sent is 0: refused, as buildPatch refuses a sent list outside 4 to 8.
+  if (input.avatar_interview_enabled === true && input.live_interview_questions === undefined) {
+    return { success: false, error: LIVE_QUESTION_COUNT_REFUSAL };
+  }
 
   const supabase = createServiceClient();
   const slug = await buildSlug(supabase, ctx.company.name, built.patch.title as string);
@@ -898,7 +946,13 @@ export async function createCompanyJob(
 
   const row = data as { id: string; slug: string | null };
   await seedHiringTeam(supabase, ctx, row.id);
-  const questionWarning = await syncInterviewQuestions(supabase, row.id, ctx.companyId, input);
+  const questionWarning = await syncInterviewQuestions(
+    supabase,
+    row.id,
+    ctx.companyId,
+    input,
+    QUESTIONS_NOT_SAVED,
+  );
 
   revalidateJobSurfaces();
   return {
@@ -958,6 +1012,8 @@ export async function updateCompanyJob(
   if (!(await roleAllowsJobAction(ctx, jobId))) {
     return { success: false, error: "That job isn't in your workspace." };
   }
+  const liveRefused = await liveCountRefusal(supabase, jobId, ctx.companyId, input);
+  if (liveRefused) return { success: false, error: liveRefused };
 
   // Bump criteria_version when anything the SCORER reads changed.
   //
@@ -1019,7 +1075,13 @@ export async function updateCompanyJob(
     }
   }
 
-  const questionWarning = await syncInterviewQuestions(supabase, jobId, ctx.companyId, input);
+  const questionWarning = await syncInterviewQuestions(
+    supabase,
+    jobId,
+    ctx.companyId,
+    input,
+    QUESTIONS_NOT_UPDATED,
+  );
 
   revalidateJobSurfaces();
   return {

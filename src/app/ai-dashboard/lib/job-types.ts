@@ -78,7 +78,7 @@ export const JOB_INTERVIEWER_NAME_MAX = 60;
 
 /**
  * AI Video Interview settings on each job (migration 074, decided 24 Nov).
- * Shown on the wizard's Interview questions step while AI Video Interview is
+ * Shown on the wizard's AI Video Interview step (6) while AI Video Interview is
  * on, saved through buildPatch (jobs/actions.ts) via liveInterviewPatch below,
  * loaded by the edit page and copied by duplicate. Not on CompanyJobRow: the
  * job list does not show them. Not yet read by the invite or the freeze.
@@ -376,8 +376,8 @@ export type CompanyJobInput = {
    */
   send_rejection_email: boolean;
   /**
-   * AI Video Interview settings (migration 074), on the Interview questions
-   * step while AI Video Interview is on. Optional: a field a client does not
+   * AI Video Interview settings (migration 074), on the AI Video Interview
+   * step (6) while AI Video Interview is on. Optional: a field a client does not
    * send is left as it is on edit (liveInterviewPatch). The wizard always
    * sends all three.
    */
@@ -508,9 +508,8 @@ export type CompanyJobInput = {
    * The AI Video Interview's own questions (interview_kind 'live', migration
    * 082), saved in the same transaction as interview_questions above.
    * Optional: left out, the job's live questions are untouched; [] clears
-   * them. Refused by the save until #58 commit 6 (live-question-list.ts), and
-   * never filled by the edit page's prefill before then, so today's wizard
-   * never sends it.
+   * them. Edited on the wizard's step 6; the edit page prefills it and a new
+   * job starts with [].
    */
   live_interview_questions?: InterviewQuestionInput[];
 };
@@ -566,6 +565,7 @@ export const EMPTY_JOB_INPUT: CompanyJobInput = {
   interview_duration_minutes: null,
   booking_hours_override: null,
   interview_questions: [],
+  live_interview_questions: [],
 };
 
 /**
