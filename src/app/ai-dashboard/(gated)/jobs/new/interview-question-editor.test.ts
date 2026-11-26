@@ -94,3 +94,44 @@ test("maxQuestions lowers the cap", () => {
 test("empty list: the empty state", () => {
   assert.match(render({ questions: [] }), /No interview questions yet/);
 });
+
+/* ── Weight: the four stops step 8 uses, shown as the save rounds ── */
+
+const { WEIGHT_STOPS } = await import("../../../../../lib/weights.ts");
+
+/** The weight select's options for question 1, as [value, label, selected]. */
+function weightOptions(html) {
+  const at = html.indexOf('aria-label="Weight for question 1"');
+  const select = html.slice(at, html.indexOf("</select>", at));
+  return [...select.matchAll(/<option value="(\d+)"( selected="")?>([^<]*)<\/option>/g)].map(
+    (m) => [m[1], m[3], Boolean(m[2])],
+  );
+}
+
+test("weight: every option is a real stop, labelled as on step 8 (Less / Normal / More / Most)", () => {
+  const options = weightOptions(render({ questions: qs(1) }));
+  assert.deepEqual(
+    options.map(([value, label]) => [value, label]),
+    WEIGHT_STOPS.map((s) => [String(s.stored), s.label]),
+  );
+  assert.deepEqual(
+    options.map(([, label]) => label),
+    ["Less", "Normal", "More", "Most"],
+  );
+});
+
+test("weight: a new question shows Normal", () => {
+  const selected = weightOptions(render({ questions: qs(1) })).filter(([, , on]) => on);
+  assert.deepEqual(selected, [["2", "Normal", true]]);
+});
+
+test("weight: a question at 6 shows Most; one that is not a stop shows Normal, as it would save", () => {
+  const at = (weight) =>
+    weightOptions(render({ questions: [{ ...qs(1)[0], weight }] }))
+      .filter(([, , on]) => on)
+      .map(([, label]) => label);
+  assert.deepEqual(at("6"), ["Most"]);
+  assert.deepEqual(at("1"), ["Less"]);
+  assert.deepEqual(at("5"), ["Normal"]);
+  assert.deepEqual(at(""), ["Normal"]);
+});

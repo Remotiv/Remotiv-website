@@ -10,6 +10,7 @@ import {
   PREP_SECONDS_MIN,
   QUESTION_TEXT_MAX,
 } from "@/lib/interviews/types";
+import { snapWeight, WEIGHT_STOPS } from "@/lib/weights";
 
 /**
  * The job wizard's interview question editor: the empty state, one card per
@@ -234,15 +235,19 @@ export function InterviewQuestionEditor({
                 <span className="mb-1.5 block text-[11px] font-semibold text-[var(--ai-t3)]">
                   Weight
                 </span>
+                {/* The four stops step 8 uses (weights.ts), with its labels.
+                    Shown rounded the way the save rounds (snapWeight), so a
+                    question at Most reads Most here, and a value that is not
+                    a stop reads Normal, which is what it would save as. */}
                 <select
-                  value={q.weight}
+                  value={String(snapWeight(q.weight))}
                   onChange={(e) => patchInterviewQ(i, { weight: e.target.value })}
                   aria-label={`Weight for question ${i + 1}`}
                   className={`${INPUT_CLS} cursor-pointer appearance-none`}
                 >
-                  {["1", "2", "3", "4", "5"].map((w) => (
-                    <option key={w} value={w}>
-                      {w === "1" ? "1 - normal" : w === "5" ? "5 - critical" : w}
+                  {WEIGHT_STOPS.map((stop) => (
+                    <option key={stop.stored} value={String(stop.stored)}>
+                      {stop.label}
                     </option>
                   ))}
                 </select>
