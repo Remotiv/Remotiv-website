@@ -44,7 +44,7 @@ const CO = "c0000000-0000-4000-8000-000000000019";
 const APP = "a0000000-0000-4000-8000-000000000019";
 const JOB = "b0000000-0000-4000-8000-000000000019";
 const TEXT =
-  "This job needs 4 to 8 interview questions for an AI Video Interview. Please update the questions and try again.";
+  "This job needs 4 to 8 AI Video Interview questions. Add them on the AI Video Interview step (step 6) of the job's settings, then send again.";
 
 function world(questionCount) {
   const w = fakeLiveDb({

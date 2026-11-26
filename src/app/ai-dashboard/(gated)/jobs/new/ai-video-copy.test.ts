@@ -1,7 +1,7 @@
 /**
  * #12, #45, #46: the job wizard's AI Video Interview words, as approved on
  * 23 and 24 Nov, and the mode, length and hiring challenges controls on the
- * Interview questions step, rendered with react-dom/server.
+ * AI Video Interview step (6), rendered with react-dom/server.
  *
  *   node --test "src/app/ai-dashboard/(gated)/jobs/new/ai-video-copy.test.ts"
  */
@@ -40,7 +40,7 @@ test("the approved option strings, exactly, with the hint following the length",
   );
   assert.equal(
     AI_VIDEO_QUESTION_COUNT_WARNING,
-    "AI Video Interview requires 4 to 8 questions. Please update the job's interview questions to continue.",
+    "AI Video Interview requires 4 to 8 questions. Add or remove questions on this step to continue.",
   );
 });
 

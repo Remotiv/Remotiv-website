@@ -69,11 +69,11 @@ export const FOLLOW_UP_RULES: LiveSettings["follow_up_rules"] = {
 
 /** The send's refusal for a job with fewer than 4 or more than 8 questions (#19). */
 export const LIVE_QUESTION_COUNT_ERROR =
-  "This job needs 4 to 8 interview questions for an AI Video Interview. Please update the questions and try again.";
+  "This job needs 4 to 8 AI Video Interview questions. Add them on the AI Video Interview step (step 6) of the job's settings, then send again.";
 
 /** The send's refusal for a job whose mode or length is not one the interview allows. */
 export const LIVE_SETTINGS_UNREADABLE_ERROR =
-  "This job's AI Video Interview mode or length could not be read. Open the job, check them on the Interview questions step, and save it again.";
+  "This job's AI Video Interview mode or length could not be read. Open the job, check them on the AI Video Interview step (step 6), and save it again.";
 
 /** Interviews are conducted in English; the transcriber is pinned to it too. */
 const LIVE_LANGUAGE = "en";
@@ -156,7 +156,7 @@ export async function gateLiveInterviewInvite(
     return {
       ok: false,
       error:
-        "AI Video Interviews are switched off for this job. Turn them on in the Interview questions step of the job's settings, then send again.",
+        "AI Video Interviews are switched off for this job. Turn them on in the AI Video Interview step (step 6) of the job's settings, then send again.",
     };
   }
 

@@ -591,11 +591,11 @@ function AsyncSection({
               href={`/ai-dashboard/jobs/${state.jobId}/edit`}
               className="font-semibold text-remotiv-purple underline underline-offset-2"
             >
-              Turn them on under More options
+              Turn them on in the Async Video Interview step (step 5)
             </Link>
           ) : (
             <span className="font-semibold">
-              Turn them on under More options in the job&apos;s settings
+              Turn them on in the Async Video Interview step (step 5) of the job&apos;s settings
             </span>
           )}{" "}
           to send one.

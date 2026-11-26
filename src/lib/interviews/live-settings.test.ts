@@ -126,7 +126,7 @@ test("#19: fewer than 4 or more than 8 questions: the gate refuses with the appr
       {
         ok: false,
         error:
-          "This job needs 4 to 8 interview questions for an AI Video Interview. Please update the questions and try again.",
+          "This job needs 4 to 8 AI Video Interview questions. Add them on the AI Video Interview step (step 6) of the job's settings, then send again.",
       },
       `${n} questions`,
     );
@@ -293,7 +293,7 @@ test("24 Nov: the interviewer is always Sarah, whatever name the job once stored
   assert.equal(LIVE_INTERVIEWER_NAME, "Sarah");
 });
 
-test("the switched-off refusal points at the Interview questions step, where the toggle now is", async () => {
+test("the switched-off refusal points at the AI Video Interview step (6), where the toggle now is", async () => {
   const before = process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS;
   process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS = CO;
   try {
@@ -301,7 +301,7 @@ test("the switched-off refusal points at the Interview questions step, where the
     assert.deepEqual(await gateLiveInterviewInvite(service, { jobId: JOB, companyId: CO }), {
       ok: false,
       error:
-        "AI Video Interviews are switched off for this job. Turn them on in the Interview questions step of the job's settings, then send again.",
+        "AI Video Interviews are switched off for this job. Turn them on in the AI Video Interview step (step 6) of the job's settings, then send again.",
     });
   } finally {
     if (before === undefined) delete process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS;

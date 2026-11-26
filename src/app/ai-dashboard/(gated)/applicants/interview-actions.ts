@@ -78,7 +78,7 @@ export async function sendInterviewInvite(
   /*
    * ── The job's own switch ──
    *
-   * async_interview_enabled is set in the job wizard's More options. Until
+   * async_interview_enabled is set on the job wizard's step 5. Until
    * now nothing read it: the toggle stored a value and sending checked only
    * whether questions existed, so a company that had deliberately left async
    * interviews OFF could still send one from the drawer.
@@ -98,7 +98,7 @@ export async function sendInterviewInvite(
     return {
       success: false,
       error:
-        "Async video interviews are switched off for this job. Turn them on under More options in the job's settings, then send again.",
+        "Async video interviews are switched off for this job. Turn them on in the Async Video Interview step (step 5) of the job's settings, then send again.",
     };
   }
 

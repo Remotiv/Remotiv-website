@@ -4347,7 +4347,7 @@ function ScoringCriteriaStep({
       {/* ── Second list, same step ──
           Same step rather than a tenth, because both come from ONE split of the
           same step-2 text and separating them would hide that. Step 8 already
-          reads "CV score" then "Interview questions", so this is the shape the
+          reads "CV score" then "Async interview questions", so this is the shape the
           wizard already uses for exactly this pair of sources. */}
       <div className="mt-8 border-t border-[var(--ai-line)] pt-6">
         <p className={LABEL_CLS}>
