@@ -60,7 +60,8 @@ const FILTERED = [
   [IA, "loadQuestionsSnapshot", "kind"],
   [IA, "loadScoringSnapshot", "kind"],
   [IA, "fetchInterviewPanel", "kind"],
-  [JOBS, "fetchInterviewQuestions", "kind"],
+  // The edit page's fetch and the duplicate both read through loadQuestionList.
+  [JOBS, "loadQuestionList", "kind"],
   // The stored live count, when AI Video Interview is on and no live list was sent.
   [JOBS, "liveCountRefusal", '"live"'],
   ["lib/ai/interview-scoring.ts", "handleAiScorecard", '"async"'],
@@ -85,7 +86,8 @@ test("each listed read filters interview_kind by the right value", () => {
 
 test("the save path writes both lists through replace_interview_questions only", () => {
   const jobs = readFileSync(join(SRC, JOBS), "utf8");
-  const sync = jobs.slice(jobs.indexOf("async function syncInterviewQuestions("));
+  // The one call, shared by saves and the duplicate (replaceQuestionLists).
+  const sync = jobs.slice(jobs.indexOf("async function replaceQuestionLists("));
   const body = sync.slice(0, sync.indexOf("\n}\n"));
   assert.match(body, /supabase\.rpc\("replace_interview_questions", \{/);
   assert.match(body, /p_async: asyncList,\s+p_live: liveList,/);

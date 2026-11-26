@@ -82,9 +82,8 @@ export async function resolve(specifier, context, next) {
 }`)}`,
 );
 
-const { createCompanyJob, updateCompanyJob, fetchInterviewQuestions } = await import(
-  "./actions.ts"
-);
+const { createCompanyJob, updateCompanyJob, fetchInterviewQuestions, duplicateCompanyJob } =
+  await import("./actions.ts");
 const { EMPTY_JOB_INPUT } = await import("../../lib/job-types.ts");
 const { EMPTY_QUESTION_INPUT } = await import("../../../../lib/interviews/types.ts");
 const SHIPPED = await import("../../../../lib/interviews/live-question-list.ts");
@@ -114,8 +113,11 @@ function world() {
         return (...args) => {
           if (prop === "single") single = true;
           else if (prop === "insert") {
+            // The database makes the id, always: this fake returns whole rows
+            // (no column projection), so a duplicate's copied row carries the
+            // source's id, which a real insert would never be sent.
             target.insert(
-              { id: crypto.randomUUID(), deleted_at: null, archived_at: null, ...args[0] },
+              { deleted_at: null, archived_at: null, ...args[0], id: crypto.randomUUID() },
               ...args.slice(1),
             );
             return chain;
@@ -542,4 +544,181 @@ test("save round-trips both lists: what the edit page loads is what was saved", 
   const shape = (list) => list.map(({ id: _id, ...rest }) => rest);
   assert.deepEqual(shape(again.async), shape(loaded.async));
   assert.deepEqual(shape(again.live), shape(loaded.live));
+});
+
+/* ── #58 commit 8: duplicating a job copies both lists ─────────── */
+
+/** A source job: async weights Less, More, Most, Normal; 5 live questions. */
+async function sourceJob() {
+  const weights = ["1", "4", "6", "2"];
+  globalThis.__setLiveListSave(true);
+  const made = await quiet(() =>
+    createCompanyJob(
+      jobInput({
+        interview_questions: weights.map((w, i) =>
+          q(`Async synthetic question ${i + 1}?`, { weight: w }),
+        ),
+        live_interview_questions: qs("Live", 5),
+      }),
+    ),
+  );
+  assert.equal(made.success, true, made.error);
+  return made.data.id;
+}
+/** Every row of one job's list, without ids: [position, question, weight, competency, rubric]. */
+const copied = (db, jobId, kind) =>
+  db.tables.interview_questions
+    .filter((r) => r.job_id === jobId && r.interview_kind === kind)
+    .sort((a, b) => a.position - b.position)
+    .map((r) => [r.position, r.question, r.weight, r.competency, r.rubric]);
+
+test("duplicate: both lists copied in order, with their kinds and weights (async as stored, live Normal), new ids; On hold", async () => {
+  const db = world();
+  const id = await sourceJob();
+  const r = await quiet(() => duplicateCompanyJob(id));
+  assert.equal(r.success, true, r.error);
+  const copy = r.data.id;
+  assert.notEqual(copy, id);
+  assert.deepEqual(copied(db, copy, "async"), copied(db, id, "async"));
+  assert.deepEqual(
+    copied(db, copy, "async").map(([, , w]) => w),
+    [1, 4, 6, 2],
+  );
+  assert.deepEqual(copied(db, copy, "live"), copied(db, id, "live"));
+  assert.deepEqual(
+    copied(db, copy, "live").map(([, , w]) => w),
+    [2, 2, 2, 2, 2],
+  );
+  const ids = (jobId) =>
+    db.tables.interview_questions.filter((x) => x.job_id === jobId).map((x) => x.id);
+  assert.equal(ids(copy).filter((x) => ids(id).includes(x)).length, 0, "new ids");
+  const row = db.tables.jobs.find((j) => j.id === copy);
+  assert.deepEqual([row.status, row.company_id], ["on_hold", CO]);
+});
+
+test("duplicate: the source job and its questions are unchanged; no session, invite or score is copied", async () => {
+  const db = world();
+  const id = await sourceJob();
+  db.tables.interview_sessions = [
+    {
+      id: "s-src",
+      company_id: CO,
+      job_id: id,
+      kind: "async",
+      status: "submitted",
+      questions_snapshot: [],
+    },
+  ];
+  db.tables.interview_session_scores = [{ session_id: "s-src", company_id: CO, overall_score: 70 }];
+  const before = structuredClone({
+    job: db.tables.jobs.find((j) => j.id === id),
+    questions: db.tables.interview_questions.filter((x) => x.job_id === id),
+    sessions: db.tables.interview_sessions,
+    scores: db.tables.interview_session_scores,
+  });
+  const r = await quiet(() => duplicateCompanyJob(id));
+  assert.equal(r.success, true, r.error);
+  assert.deepEqual(
+    {
+      job: db.tables.jobs.find((j) => j.id === id),
+      questions: db.tables.interview_questions.filter((x) => x.job_id === id),
+      sessions: db.tables.interview_sessions,
+      scores: db.tables.interview_session_scores,
+    },
+    before,
+  );
+});
+
+test("duplicate: a fairness block in either list refuses with the save's message, and nothing is written", async () => {
+  for (const [kind, text, message] of [
+    [
+      "async",
+      "Are you married?",
+      /^Question 2 \("Are you married\?"\) touches on family or marital status/,
+    ],
+    [
+      "live",
+      "Do you have children?",
+      /^AI Video Interview question 2 \("Do you have children\?"\) touches on family or marital status/,
+    ],
+  ]) {
+    const db = world();
+    const id = await sourceJob();
+    // Stored before the check existed: put straight into the table.
+    db.tables.interview_questions.find(
+      (x) => x.job_id === id && x.interview_kind === kind && x.position === 2,
+    ).question = text;
+    const before = structuredClone(db.tables);
+    const r = await quiet(() => duplicateCompanyJob(id));
+    assert.equal(r.success, false, kind);
+    assert.match(r.error, message);
+    assert.deepEqual(db.tables, before, `${kind}: no job row, no question`);
+  }
+});
+
+test("duplicate: another company's job is refused and nothing is written", async () => {
+  const db = world();
+  const id = await sourceJob();
+  const before = structuredClone(db.tables);
+  globalThis.__jobsCtx = {
+    ...globalThis.__jobsCtx,
+    companyId: OTHER_CO,
+    company: { id: OTHER_CO, name: "Other Co" },
+  };
+  const r = await quiet(() => duplicateCompanyJob(id));
+  assert.deepEqual(r, { success: false, error: "Job not found in your workspace." });
+  assert.deepEqual(db.tables, before);
+});
+
+test("duplicate: an empty list stays empty; AI Video Interview on with under 4 live questions is copied (On hold)", async () => {
+  const db = world();
+  const made = await quiet(() =>
+    createCompanyJob(
+      jobInput({ interview_questions: [], live_interview_questions: qs("Live", 2) }),
+    ),
+  );
+  const id = made.data.id;
+  db.tables.jobs.find((j) => j.id === id).avatar_interview_enabled = true;
+  const r = await quiet(() => duplicateCompanyJob(id));
+  assert.equal(r.success, true, r.error);
+  assert.deepEqual(copied(db, r.data.id, "async"), []);
+  assert.equal(copied(db, r.data.id, "live").length, 2);
+  const bare = (await quiet(() => createCompanyJob(jobInput()))).data.id;
+  const none = await quiet(() => duplicateCompanyJob(bare));
+  assert.deepEqual(copied(db, none.data.id, "live"), []);
+});
+
+test("duplicate: if the questions fail to copy, the copy is removed again; nothing half-made is left", async () => {
+  const db = world();
+  const id = await sourceJob();
+  const before = structuredClone(db.tables);
+  db.failNext("replace_interview_questions", "rpc");
+  const r = await quiet(() => duplicateCompanyJob(id));
+  assert.deepEqual(r, { success: false, error: "Couldn't duplicate that job - please try again." });
+  assert.deepEqual(db.tables.jobs, before.jobs, "no copy left");
+  assert.deepEqual(db.tables.interview_questions, before.interview_questions);
+  assert.deepEqual(db.tables.job_hiring_team, before.job_hiring_team, "no team seeded");
+});
+
+test("duplicate: the copy fails AND its removal fails - the log names the job and both codes, nothing else", async () => {
+  const db = world();
+  const id = await sourceJob();
+  db.tables.interview_questions.find((x) => x.job_id === id).question =
+    "Synthetic question SECRET-TEXT?";
+  db.failNext("replace_interview_questions", "rpc");
+  db.failNext("jobs", "delete");
+  const lines = [];
+  const saved = { error: console.error, warn: console.warn, log: console.log };
+  console.error = console.warn = console.log = (...a) => lines.push(a.join(" "));
+  const r = await duplicateCompanyJob(id).finally(() => Object.assign(console, saved));
+  assert.deepEqual(r, { success: false, error: "Couldn't duplicate that job - please try again." });
+  const left = db.tables.jobs.find((j) => j.id !== id);
+  assert.ok(left, "the copy is still there: its removal failed");
+  const line = lines.find((l) => l.includes("duplicate left a job with no questions"));
+  assert.equal(
+    line,
+    `[jobs] duplicate left a job with no questions: job ${left.id} (questions XX000, delete XX000)`,
+  );
+  assert.ok(!lines.join("\n").includes("SECRET-TEXT"), "no question text logged");
+  assert.ok(!lines.join("\n").includes("candidate"), "no candidate data logged");
 });

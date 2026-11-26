@@ -159,6 +159,8 @@ function checkQuestionList(list: unknown, noun: string, label: string): string |
 }
 
 const QUESTIONS_UNREADABLE = "Those interview questions couldn't be read. Nothing was saved.";
+/** A duplicate whose questions could not be copied: the copy is removed again. */
+const DUPLICATE_QUESTIONS_FAILED = "Couldn't duplicate that job - please try again.";
 
 /** Questions with text: what a save keeps. */
 function askedIn(list: readonly InterviewQuestionInput[]): number {
@@ -788,10 +790,27 @@ async function syncInterviewQuestions(
   /** The warning if it fails: a new job's (none kept) or an edit's (previous kept). */
   failure: string,
 ): Promise<string | null> {
+  const code = await replaceQuestionLists(supabase, jobId, companyId, input);
+  if (code === null) return null;
+  // The code only: the database's text names the job and the rule.
+  console.error(`[jobs] interview questions not saved (${code})`);
+  return failure;
+}
+
+/**
+ * The one call to replace_interview_questions. Null when it saved (or there
+ * was nothing to save), else the error code: "unknown" when the database gave
+ * none, "threw" when the call itself threw. Logs nothing; callers do.
+ */
+async function replaceQuestionLists(
+  supabase: ReturnType<typeof createServiceClient>,
+  jobId: string,
+  companyId: string,
+  input: Pick<CompanyJobInput, "interview_questions" | "live_interview_questions">,
+): Promise<string | null> {
   const asyncList = rpcQuestions(input.interview_questions, "async");
   const liveList = rpcQuestions(input.live_interview_questions, "live");
   if (asyncList === null && liveList === null) return null;
-
   try {
     const { error } = await supabase.rpc("replace_interview_questions", {
       p_job_id: jobId,
@@ -799,16 +818,10 @@ async function syncInterviewQuestions(
       p_async: asyncList,
       p_live: liveList,
     });
-    if (error) {
-      // The code only: the database's text names the job and the rule.
-      console.error(`[jobs] interview questions not saved (${error.code ?? "unknown"})`);
-      return failure;
-    }
+    return error ? (error.code ?? "unknown") : null;
   } catch {
-    console.error("[jobs] interview question save threw");
-    return failure;
+    return "threw";
   }
-  return null;
 }
 
 /** One list in the function's shape, or null (left out: untouched). */
@@ -1241,14 +1254,26 @@ export async function fetchInterviewQuestions(
 ): Promise<InterviewQuestionInput[]> {
   const ctx = await getCompanyContext();
   if (!jobId || !(await roleAllowsJobAction(ctx, jobId))) return [];
+  return loadQuestionList(createServiceClient(), jobId, ctx.companyId, kind);
+}
 
-  const { data } = await createServiceClient()
+/**
+ * One list of a job, in order, as the wizard edits it. The caller has already
+ * checked the job is the company's and the caller may act on it.
+ */
+async function loadQuestionList(
+  supabase: ReturnType<typeof createServiceClient>,
+  jobId: string,
+  companyId: string,
+  kind: InterviewKind,
+): Promise<InterviewQuestionInput[]> {
+  const { data } = await supabase
     .from("interview_questions")
     .select(
       "id, position, question, competency, rubric, prep_seconds, answer_seconds, weight, required",
     )
     .eq("job_id", jobId)
-    .eq("company_id", ctx.companyId)
+    .eq("company_id", companyId)
     .eq("interview_kind", kind)
     .order("position", { ascending: true })
     .limit(MAX_QUESTIONS);
@@ -1524,6 +1549,25 @@ export async function duplicateCompanyJob(jobId: string): Promise<MutationResult
     return { success: false, error: "Job not found in your workspace." };
   }
 
+  /*
+   * Both question lists (082), read and checked BEFORE anything is written:
+   * the 8 limit and the fairness check, as a save runs them. A list that
+   * fails refuses the duplicate with the save's own message, and no job row
+   * is made. Sessions, invites, frozen snapshots and scores are never read,
+   * so none is copied.
+   */
+  const lists = {
+    interview_questions: await loadQuestionList(supabase, jobId, ctx.companyId, "async"),
+    live_interview_questions: await loadQuestionList(supabase, jobId, ctx.companyId, "live"),
+  };
+  for (const [list, noun, label] of [
+    [lists.interview_questions, "Question", "interview questions"],
+    [lists.live_interview_questions, "AI Video Interview question", "AI Video Interview questions"],
+  ] as const) {
+    const refused = checkQuestionList(list, noun, label);
+    if (refused) return { success: false, error: refused };
+  }
+
   const title = `${source.title as string} (copy)`;
   const slug = await buildSlug(supabase, ctx.company.name, title);
   const { company_id: _ignored, ...copyable } = source;
@@ -1549,6 +1593,34 @@ export async function duplicateCompanyJob(jobId: string): Promise<MutationResult
   if (error) return { success: false, error: actionFailed("duplicate that job", error) };
 
   const copyId = (created as { id: string }).id;
+
+  /*
+   * The questions, in one call for both lists (replace_interview_questions),
+   * on the copy only. Async weights as stored, live at Normal (2), the same
+   * mapping a save uses. The job row has to exist first (the function locks
+   * it by company), so a failure here removes that row again before anything
+   * else is attached to it: no half-made copy is left behind. The copy is On
+   * hold, so a live list outside 4 to 8 is allowed here; the send refuses it.
+   */
+  const questionsCode = await replaceQuestionLists(supabase, copyId, ctx.companyId, lists);
+  if (questionsCode !== null) {
+    const { error: undoError } = await supabase
+      .from("jobs")
+      .delete()
+      .eq("id", copyId)
+      .eq("company_id", ctx.companyId);
+    if (undoError) {
+      // Both failed: the copy is left with no questions. Its id and the two
+      // codes, so it can be found and removed; no candidate data, no question text.
+      console.error(
+        `[jobs] duplicate left a job with no questions: job ${copyId} (questions ${questionsCode}, delete ${undoError.code ?? "unknown"})`,
+      );
+    } else {
+      console.error(`[jobs] duplicate questions not copied, copy removed (${questionsCode})`);
+    }
+    return { success: false, error: DUPLICATE_QUESTIONS_FAILED };
+  }
+
   await seedHiringTeam(supabase, ctx, copyId);
 
   revalidateJobSurfaces();
