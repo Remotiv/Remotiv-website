@@ -22,6 +22,7 @@ register(new URL("../../../../test-support/interview-invite-test-hook.mjs", impo
 const { sendInterviewInvite, sendLiveInterviewInvite } = await import("./interview-actions.ts");
 const { liveSummaryCallBegan } = await import("../../../../lib/interviews/live-call.ts");
 const { fakeLiveDb } = await import("../../../../test-support/fake-live-db.mjs");
+const { withLiveCopies } = await import("../../../../test-support/question-kinds.mjs");
 
 const CO = "c0000000-0000-4000-8000-000000000001";
 const APP = "a0000000-0000-4000-8000-000000000001";
@@ -94,7 +95,7 @@ function world(sessions) {
         async_interview_enabled: true,
       },
     ],
-    interview_questions: [
+    interview_questions: withLiveCopies([
       {
         id: "q1",
         job_id: JOB,
@@ -108,7 +109,7 @@ function world(sessions) {
         rubric: null,
         weight: null,
       },
-    ],
+    ]),
     companies: [{ id: CO, name: "Test Co", candidate_reply_email: null }],
   });
   w.service.rpc = async (name) =>

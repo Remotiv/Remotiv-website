@@ -422,6 +422,15 @@ const SCORING_TABLES = [
   "live_interview_actions",
 ];
 
+/**
+ * Column defaults the real tables apply to a row written without them.
+ * interview_questions.interview_kind defaults to 'async' (migration 082), so a
+ * question row that names no kind is an async question, here as in Postgres.
+ */
+const COLUMN_DEFAULTS = {
+  interview_questions: { interview_kind: "async" },
+};
+
 const SCORING_DEFAULTS = {
   live_interview_scores: {
     status: "pending",
@@ -579,6 +588,9 @@ export function fakeLiveDb(initial = {}, options = {}) {
     live_session_events: [],
     ...structuredClone(initial),
   };
+  for (const [table, defaults] of Object.entries(COLUMN_DEFAULTS)) {
+    if (tables[table]) tables[table] = tables[table].map((r) => ({ ...defaults, ...r }));
+  }
   /**
    * A delete, with the schema's rules as the real database applies them: a
    * session's children go with it (ON DELETE CASCADE), a restart's first
@@ -681,7 +693,11 @@ export function fakeLiveDb(initial = {}, options = {}) {
           const row =
             table === "interview_turns"
               ? { ...TURN_DEFAULTS, ...structuredClone(r) }
-              : { ...(SCORING_DEFAULTS[table] ?? {}), ...structuredClone(r) };
+              : {
+                  ...(COLUMN_DEFAULTS[table] ?? {}),
+                  ...(SCORING_DEFAULTS[table] ?? {}),
+                  ...structuredClone(r),
+                };
           // Set by the database, as migration 042's trigger does: never the caller's.
           if (table === "live_interview_actions") {
             actionClock += 1000;

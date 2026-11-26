@@ -872,6 +872,7 @@ export async function loadInterviewSession(
   if (isEmptyScope(scope)) return null;
   const allowed = scopeJobIds(scope);
   if (allowed && (!row.job_id || !allowed.includes(row.job_id))) return null;
+  const kind = readInterviewKind(row.kind, row.id);
 
   /*
    * ── Wave 1 (#41): every read that needs only the session row ──
@@ -913,6 +914,9 @@ export async function loadInterviewSession(
             .select("id, position, question, competency, rubric, weight")
             .eq("job_id", row.job_id)
             .eq("company_id", ctx.companyId)
+            // This session's own list (082): a live session never reads the
+            // async questions, nor an async one the live list.
+            .eq("interview_kind", kind)
             .limit(50)
         : Promise.resolve({ data: [] }),
       fetchSessionScores(
@@ -994,7 +998,6 @@ export async function loadInterviewSession(
 
   const status = deriveStatus(row.status, row.expires_at);
   const totalQuestions = snapshotLength(row.questions_snapshot) ?? answers.length;
-  const kind = readInterviewKind(row.kind, row.id);
 
   /*
    * Criteria quotes are PLACED here, not in fetchSessionScores.

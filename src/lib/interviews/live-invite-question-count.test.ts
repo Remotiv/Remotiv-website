@@ -38,6 +38,7 @@ const { sendInterviewInvite, sendLiveInterviewInvite } = await import(
 );
 const { LIVE_QUESTION_COUNT_ERROR } = await import("./live-settings.ts");
 const { fakeLiveDb } = await import("../../test-support/fake-live-db.mjs");
+const { withLiveCopies } = await import("../../test-support/question-kinds.mjs");
 
 const CO = "c0000000-0000-4000-8000-000000000019";
 const APP = "a0000000-0000-4000-8000-000000000019";
@@ -73,19 +74,21 @@ function world(questionCount) {
         live_interview_minutes: 30,
       },
     ],
-    interview_questions: Array.from({ length: questionCount }, (_, i) => ({
-      id: `q${i + 1}`,
-      job_id: JOB,
-      company_id: CO,
-      position: i + 1,
-      question: `Synthetic question ${i + 1}?`,
-      prep_seconds: 30,
-      answer_seconds: 120,
-      required: true,
-      competency: null,
-      rubric: null,
-      weight: null,
-    })),
+    interview_questions: withLiveCopies(
+      Array.from({ length: questionCount }, (_, i) => ({
+        id: `q${i + 1}`,
+        job_id: JOB,
+        company_id: CO,
+        position: i + 1,
+        question: `Synthetic question ${i + 1}?`,
+        prep_seconds: 30,
+        answer_seconds: 120,
+        required: true,
+        competency: null,
+        rubric: null,
+        weight: null,
+      })),
+    ),
     companies: [{ id: CO, name: "Test Co", candidate_reply_email: null }],
   });
   w.rpcs = [];
@@ -183,12 +186,15 @@ test("a live re-send to a job now outside 4..8 is refused, and the open invite i
   const w = world(4);
   assert.equal((await allowlisted(() => sendLiveInterviewInvite(APP))).success, true);
   // The recruiter then adds a fifth to ninth question and presses Send again.
+  // To both lists, as the fixture holds both (082): the live one is what counts.
+  const [asyncRow, liveRow] = ["async", "live"].map((k) =>
+    w.tables.interview_questions.find((q) => q.interview_kind === k),
+  );
   for (let i = 5; i <= 9; i += 1) {
-    w.tables.interview_questions.push({
-      ...w.tables.interview_questions[0],
-      id: `q${i}`,
-      position: i,
-    });
+    w.tables.interview_questions.push(
+      { ...asyncRow, id: `q${i}`, position: i },
+      { ...liveRow, id: `live-q${i}`, position: i },
+    );
   }
   const sent = structuredClone(w.tables.interview_sessions);
   w.emails.length = 0;

@@ -164,11 +164,14 @@ export async function gateLiveInterviewInvite(
   // asked. Read the way the invite reads its questions_snapshot. A job saved
   // between the two reads can make them differ; the freeze compares them and
   // refuses a mismatch (live-question-freeze.ts), so neither is trusted alone.
+  // The AI Video Interview's own list only (082): the async questions are
+  // never asked live and never counted here.
   const { data: questions, error: questionsErr } = await service
     .from("interview_questions")
     .select("id")
     .eq("job_id", input.jobId)
     .eq("company_id", input.companyId)
+    .eq("interview_kind", "live")
     .limit(50);
   if (questionsErr) return { ok: false, error: "Couldn't send - please try again." };
 

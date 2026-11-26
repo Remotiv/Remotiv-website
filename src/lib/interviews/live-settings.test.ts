@@ -137,7 +137,7 @@ test("#19: fewer than 4 or more than 8 questions: the gate refuses with the appr
   }
 });
 
-test("the count is read for this job in this company only; a failed read refuses the send", async () => {
+test("the count is read for this job in this company, live questions only (082); a failed read refuses the send", async () => {
   const { service } = await gateFor(6);
   const q = service.queries.find((x) => x.table === "interview_questions");
   assert.ok(q, "the job's questions are counted");
@@ -146,6 +146,7 @@ test("the count is read for this job in this company only; a failed read refuses
     [
       ["eq", "job_id", JOB],
       ["eq", "company_id", CO],
+      ["eq", "interview_kind", "live"],
     ],
   );
   const failed = await gateFor(6, { message: "boom" });

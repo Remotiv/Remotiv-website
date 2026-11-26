@@ -37,6 +37,7 @@ export async function resolve(specifier, context, next) {
 const { sendLiveInterviewInvite, fetchInterviewPanel } = await import("./interview-actions.ts");
 const { liveSendControls } = await import("./_interview-panel.tsx");
 const { fakeLiveDb } = await import("../../../../test-support/fake-live-db.mjs");
+const { withLiveCopies } = await import("../../../../test-support/question-kinds.mjs");
 
 const CO = "c0000000-0000-4000-8000-0000000000a6";
 const OTHER_CO = "c0000000-0000-4000-8000-0000000000a7";
@@ -135,7 +136,7 @@ function world({ sessions = [], actions = [] } = {}) {
         avatar_interview_enabled: true,
       },
     ],
-    interview_questions: [
+    interview_questions: withLiveCopies([
       {
         id: "q1",
         job_id: JOB,
@@ -149,7 +150,7 @@ function world({ sessions = [], actions = [] } = {}) {
         rubric: null,
         weight: null,
       },
-    ],
+    ]),
     companies: [{ id: CO, name: "Test Co", candidate_reply_email: null }],
   });
   w.emails = [];

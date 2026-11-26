@@ -335,6 +335,9 @@ async function loadCandidateQuestions(
         .select("id, position, question, prep_seconds, answer_seconds, required")
         .eq("job_id", row.job_id ?? "")
         .eq("company_id", row.company_id)
+        // Only async sessions reach here (see the caller), and they ask only
+        // the async list (082).
+        .eq("interview_kind", "async")
         .order("position", { ascending: true })
         .limit(50)
     ).data;

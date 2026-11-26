@@ -1387,6 +1387,9 @@ export async function handleAiScorecard(
         .select("id, position, question, competency, rubric, weight")
         .eq("job_id", session.job_id)
         .eq("company_id", session.company_id)
+        // This scorer is async only (a live session went to its own above), so its
+        // fallback reads the async list only (082).
+        .eq("interview_kind", "async")
         .limit(50)
     : { data: [] };
 

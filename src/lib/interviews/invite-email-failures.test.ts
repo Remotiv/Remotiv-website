@@ -45,6 +45,7 @@ const { sendInterviewInvite, sendLiveInterviewInvite } = await import(
 const { sendInviteEmail } = await import("./invite-delivery.ts");
 const { resendRestartLink } = await import("./live-restart-flow.ts");
 const { fakeLiveDb } = await import("../../test-support/fake-live-db.mjs");
+const { withLiveCopies } = await import("../../test-support/question-kinds.mjs");
 
 const NOW = Date.now();
 const DAY = 24 * 60 * 60 * 1000;
@@ -119,7 +120,7 @@ function world({ sessions = [], deliver = () => ACCEPTED } = {}) {
         async_interview_enabled: true,
       },
     ],
-    interview_questions: [
+    interview_questions: withLiveCopies([
       {
         id: "q1",
         job_id: JOB,
@@ -130,7 +131,7 @@ function world({ sessions = [], deliver = () => ACCEPTED } = {}) {
         answer_seconds: 120,
         required: true,
       },
-    ],
+    ]),
     companies: [{ id: CO, name: "Test Co", candidate_reply_email: null }],
   });
   w.rpcNames = [];

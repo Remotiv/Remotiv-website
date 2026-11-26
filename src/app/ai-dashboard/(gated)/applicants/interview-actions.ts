@@ -102,8 +102,8 @@ export async function sendInterviewInvite(
     };
   }
 
-  const questionsSnapshot = await loadQuestionsSnapshot(service, jobId, ctx.companyId);
-  const scoringSnapshot = await loadScoringSnapshot(service, jobId, ctx.companyId);
+  const questionsSnapshot = await loadQuestionsSnapshot(service, jobId, ctx.companyId, "async");
+  const scoringSnapshot = await loadScoringSnapshot(service, jobId, ctx.companyId, "async");
   // No questions, no interview. Sending a link to an empty interview wastes
   // the candidate's time and looks broken from their side.
   if (questionsSnapshot.length === 0) {
@@ -348,10 +348,10 @@ export async function sendLiveInterviewInvite(
     return { ...LIVE_RESTARTED, error: restart.restarted ? RESTARTED_TEXT : DECIDED_TEXT };
   }
 
-  const questionsSnapshot = await loadQuestionsSnapshot(service, jobId, ctx.companyId);
-  const scoringSnapshot = await loadScoringSnapshot(service, jobId, ctx.companyId);
+  const questionsSnapshot = await loadQuestionsSnapshot(service, jobId, ctx.companyId, "live");
+  const scoringSnapshot = await loadScoringSnapshot(service, jobId, ctx.companyId, "live");
   if (questionsSnapshot.length === 0) {
-    return { success: false, error: NO_QUESTIONS };
+    return { success: false, error: NO_LIVE_QUESTIONS };
   }
 
   // Live sessions only. An async interview this candidate was already sent is
@@ -469,6 +469,12 @@ type Service = ReturnType<typeof createServiceClient>;
 type CompanyCtx = Awaited<ReturnType<typeof getCompanyContext>>;
 
 const NO_QUESTIONS = "Add interview questions to this job first - there's nothing to ask yet.";
+/**
+ * The live invite's version. The gate (gateLiveInterviewInvite) already
+ * refuses fewer than 4 live questions with its own message, so this is seen
+ * only if the list is emptied between the gate's count and this read.
+ */
+const NO_LIVE_QUESTIONS = "Add AI Video Interview questions to this job first.";
 
 /**
  * The application, re-fetched and checked: company, then hiring team, then an
@@ -523,13 +529,22 @@ async function loadInviteTarget(
  * rubric, competency and weight are NOT selected. That is the marking
  * scheme, and this array becomes the candidate payload — see the
  * SnapshotQuestion comment in lib/interviews/session.ts. Do not add them.
+ *
+ * `kind` picks the list (082): the async invite freezes the async questions
+ * only, the live invite the AI Video Interview's own list only.
  */
-async function loadQuestionsSnapshot(service: Service, jobId: string, companyId: string) {
+async function loadQuestionsSnapshot(
+  service: Service,
+  jobId: string,
+  companyId: string,
+  kind: InterviewKind,
+) {
   const { data: questionRows } = await service
     .from("interview_questions")
     .select("id, position, question, prep_seconds, answer_seconds, required")
     .eq("job_id", jobId)
     .eq("company_id", companyId)
+    .eq("interview_kind", kind)
     .order("position", { ascending: true })
     .limit(50);
 
@@ -554,13 +569,24 @@ async function loadQuestionsSnapshot(service: Service, jobId: string, companyId:
  * scoring could grade an answer with a different question's rubric and weight
  * (Phase 4, AI-6). Positions match questions_snapshot's, which is how the
  * scorer joins the two halves.
+ *
+ * `kind` picks the list, as loadQuestionsSnapshot's does. Live questions all
+ * count equally in v1: every one is frozen with weight 1, the live scorer's
+ * own unit (live-scoring.ts reads `weight ?? 1` as the multiplier), whatever
+ * the row holds. Async weights are frozen as stored, as before.
  */
-async function loadScoringSnapshot(service: Service, jobId: string, companyId: string) {
+async function loadScoringSnapshot(
+  service: Service,
+  jobId: string,
+  companyId: string,
+  kind: InterviewKind,
+) {
   const { data } = await service
     .from("interview_questions")
     .select("id, position, competency, rubric, weight")
     .eq("job_id", jobId)
     .eq("company_id", companyId)
+    .eq("interview_kind", kind)
     .order("position", { ascending: true })
     .limit(50);
 
@@ -575,8 +601,16 @@ async function loadScoringSnapshot(service: Service, jobId: string, companyId: s
     question_id: q.id,
     competency: (q.competency ?? "").trim() || null,
     rubric: (q.rubric ?? "").trim() || null,
-    weight: typeof q.weight === "number" && q.weight > 0 ? q.weight : null,
+    weight: kind === "live" ? LIVE_QUESTION_WEIGHT : storedWeight(q.weight),
   }));
+}
+
+/** Every live question's frozen weight in v1: the live scorer's Normal (multiplier 1). */
+const LIVE_QUESTION_WEIGHT = 1;
+
+/** An async question's stored weight, or null (Normal) when it holds none. */
+function storedWeight(weight: number | null): number | null {
+  return typeof weight === "number" && weight > 0 ? weight : null;
 }
 
 /**
@@ -1064,11 +1098,13 @@ export async function fetchInterviewPanel(
     : null;
 
   if (total === null) {
+    // This session's own list (082): the session was read by this kind above.
     const { count } = await service
       .from("interview_questions")
       .select("id", { count: "exact", head: true })
       .eq("job_id", app.job_id ?? "")
-      .eq("company_id", ctx.companyId);
+      .eq("company_id", ctx.companyId)
+      .eq("interview_kind", kind);
     total = count ?? 0;
   }
 

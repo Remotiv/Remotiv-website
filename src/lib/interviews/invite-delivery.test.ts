@@ -32,6 +32,7 @@ const { sendInterviewInvite, sendLiveInterviewInvite } = await import(
 );
 const { scheduleInterviewJobs, sendInviteEmail } = await import("./invite-delivery.ts");
 const { fakeLiveDb } = await import("../../test-support/fake-live-db.mjs");
+const { withLiveCopies } = await import("../../test-support/question-kinds.mjs");
 
 const NOW = Date.parse("2026-11-02T09:00:00.000Z");
 const DAY = 24 * 60 * 60 * 1000;
@@ -96,7 +97,7 @@ function world({
         async_interview_enabled: true,
       },
     ],
-    interview_questions: [
+    interview_questions: withLiveCopies([
       {
         id: "q1",
         job_id: JOB,
@@ -110,7 +111,7 @@ function world({
         rubric: null,
         weight: null,
       },
-    ],
+    ]),
     companies: [{ id: CO, name: "Test Co", candidate_reply_email: "hiring@testco.example" }],
   });
   const steps = [];
