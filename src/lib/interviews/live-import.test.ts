@@ -159,16 +159,6 @@ const BROKEN = [
       }),
     {},
   ],
-  // Two follow-ups with one index on the same question.
-  [
-    "a duplicate index",
-    "too_many_follow_ups",
-    () =>
-      exportWith((r) => {
-        followUpTurn(r, 2, 2).follow_up_index = 1;
-      }),
-    {},
-  ],
   ["unreadable JSON", "bad_json", () => '{"session_id": "x", "turns": [', {}],
   // A turn type nobody has agreed (#16: only repeat_offer and not_answered were added).
   [
@@ -229,6 +219,37 @@ test("the evidence is stored BEFORE parsing: a crash mid-parse still leaves it",
     new TextDecoder().decode(db.objects.get(path).bytes),
     JSON.stringify({ ...FIXTURE, turns }),
   );
+});
+
+test("#56: a follow-up number used twice is not a broken export: imported, held for a person, no failure, no evidence kept", async () => {
+  const { db, deps, transcriptions } = world();
+  const raw = exportWith((r) => {
+    followUpTurn(r, 2, 2).follow_up_index = 1;
+  });
+  const { result } = await quiet(() => importLiveExport(SESSION, raw, deps));
+  assert.equal(result.saved, true);
+  assert.equal(result.refused, undefined);
+  const o = session(db).live_outcome;
+  assert.equal(isImportFailure(o), false);
+  assert.notEqual(o.outcome, "technical_failure");
+  assert.equal(o.questions.find((q) => q.position === 2).follow_up_check, "index_reused");
+  assert.deepEqual(
+    o.follow_up_renumbered.map((r) => [r.provider_index, r.stored_index]),
+    [
+      [1, 1],
+      [1, 2],
+    ],
+  );
+  assert.deepEqual(
+    db.tables.interview_turns
+      .filter((t) => t.kind === "follow_up" && t.question_position === 2)
+      .sort((a, b) => a.sequence - b.sequence)
+      .map((t) => t.follow_up_index),
+    [1, 2],
+  );
+  assert.equal(db.tables.interview_turns.length, raw.turns.length, "every turn is kept");
+  assert.deepEqual(evidenceFiles(db), [], "kept only for a refused export");
+  assert.equal(transcriptions.length, 1, "transcription is asked for, like any saved interview");
 });
 
 /* ── a broken export ───────────────────────────────────────────── */

@@ -1946,6 +1946,39 @@ test("#48 two reasons on one question: both are shown, each on its own card with
   );
 });
 
+test("#56 the follow-up flag says why: over the limit, or a number used twice", () => {
+  const over =
+    "Maya asked more follow-up questions on question 2 than this interview allows. It is not scored until a person checks the recording.";
+  const reused =
+    "Question 2: a follow-up number was used twice in the provider's record. It is not scored until a person checks the recording.";
+  assert.equal(followUpReason("Maya", 2, "over_limit"), over);
+  assert.equal(
+    followUpReason("Maya", 2),
+    over,
+    "an outcome saved before v10 reads as over the limit",
+  );
+  assert.equal(followUpReason("Maya", 2, "index_reused"), reused);
+  assert.doesNotMatch(reused, /[\u2012-\u2015]/);
+
+  for (const [check, text] of [
+    ["over_limit", over],
+    ["index_reused", reused],
+  ]) {
+    const input = bothReasonsInput();
+    input.session.live_outcome.questions[1].wording_check = null;
+    input.session.live_outcome.questions[1].follow_up_check = check;
+    const v = buildLiveReviewView(input);
+    const q2 = byPos(v, 2);
+    assert.deepEqual(
+      q2.flags.map((f) => [f.kind, f.reason, f.resolved]),
+      [["follow_up", text, null]],
+      check,
+    );
+    assert.equal(q2.status, "waiting_review", check);
+    assert.deepEqual(v.header.reviewReasons, [text], check);
+  }
+});
+
 test("#48 resolving one reason keeps the question held for the other; resolving both releases it", () => {
   const input = bothReasonsInput();
   input.actions = [resolveAt("resolve_wording_check")];

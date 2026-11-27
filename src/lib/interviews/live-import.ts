@@ -41,8 +41,10 @@ import { INTERVIEW_BUCKET } from "@/lib/interviews/session";
  *   3. A fully successful save (or one already stored, or an export not final
  *      yet) deletes the evidence: it is kept only for a refused export.
  *   4. An export refused as BROKEN (BROKEN_CODES: unreadable JSON, any parse
- *      rule, two base questions, more than 10 follow-ups or two with one
- *      index, missing or bad audio) is recorded as a technical failure: a
+ *      rule, a position outside the frozen questions, more than 10 follow-ups
+ *      on one question, missing or bad audio) is recorded as a technical
+ *      failure. A follow-up number used twice is NOT broken: it is imported,
+ *      renumbered and held for a person (#56, live-ingest.ts). The failure is a
  *      reason code, never the provider's text; final, so it is restart-eligible
  *      under F10; nothing is queued, so nothing is scored. Never "Completed".
  *   5. Nothing already saved is ever wiped. An interview whose outcome a good

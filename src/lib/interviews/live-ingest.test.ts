@@ -229,7 +229,7 @@ test("what the fixture produced: statuses, follow-ups, timing_suspect; candidate
     ["ending_unconfirmed", 5, 1, 2, 8, 63],
   );
   assert.deepEqual(outcome.end_check, { reason: "exit_unconfirmed", never_asked: 2 });
-  assert.equal(outcome.v, 9);
+  assert.equal(outcome.v, 10);
   // Provisional until every answer is transcribed: no restart decision yet.
   assert.deepEqual([outcome.final, outcome.restart_allowed], [false, null]);
   assert.equal(isOutcomeDecided(outcome), false);
@@ -355,7 +355,7 @@ test("unknown question positions are refused; a question asked twice is kept and
   assert.ok(held.order_check_turns.includes(twice.turns[3].sequence));
 });
 
-test("procedural turns never count as follow-ups; more than 2 follow-ups is refused", () => {
+test("procedural turns never count as follow-ups; a third follow-up reusing a number is kept and held (#56)", () => {
   const p = parsedFixture();
   // A silence reminder on question 2, then a repeat of it: both procedural.
   const base = p.turns.find((t) => t.kind === "base_question" && t.question_position === 2);
@@ -383,10 +383,9 @@ test("procedural turns never count as follow-ups; more than 2 follow-ups is refu
   const three = parsedFixture();
   const fu = three.turns.find((t) => t.kind === "follow_up" && t.question_position === 2);
   three.turns.push({ ...fu, provider_turn_id: "third", sequence: 33 });
-  assert.throws(
-    () => assessLiveExport(three, frozenOf(), 1),
-    (e) => e.code === "too_many_follow_ups",
-  );
+  const held = assessLiveExport(three, frozenOf(), 1).questions[1];
+  assert.equal(held.follow_ups, 3);
+  assert.equal(held.follow_up_check, "over_limit");
 });
 
 test("timing: an interrupted turn with overlap is fine; overlap without the mark is suspect", () => {
@@ -704,7 +703,7 @@ test("both real exports (candidate_ended) are never completed, even once every a
   }
 });
 
-test("needs_review includes the ending, a repeat check and a wording check; the outcome version is 9; the shipped exit list is empty", () => {
+test("needs_review includes the ending, a repeat check and a wording check; the outcome version is 10; the shipped exit list is empty", () => {
   assert.equal(
     needsReview([{ needs_check: false }], [], { reason: "ending_unknown", never_asked: 0 }),
     true,
@@ -725,7 +724,7 @@ test("needs_review includes the ending, a repeat check and a wording check; the 
   }
   // Nor before version 4.
   assert.equal(needsReview([{ needs_check: false, wording_check: undefined }], [], null), false);
-  assert.equal(LIVE_OUTCOME_VERSION, 9);
+  assert.equal(LIVE_OUTCOME_VERSION, 10);
   assert.equal(CONFIRMED_EXIT_CODES.size, 0, "D10 unconfirmed: no status is a confirmed exit");
 });
 
@@ -1743,12 +1742,198 @@ test("the save reads the session's frozen limit: a Recruiter-Defined interview w
   assert.ok(second.outcome.questions.every((q) => q.follow_up_check === null));
 });
 
-test("two follow-ups with the same index are broken data: still refused", () => {
-  const dup = parsedFixture();
-  const fu = dup.turns.find((t) => t.kind === "follow_up" && t.question_position === 2);
-  dup.turns.push({ ...fu, provider_turn_id: "same-index", sequence: 33 });
+/* ── #56: a follow-up number used twice is kept, renumbered and held ── */
+
+/**
+ * The fixture's question with two follow-ups, with their numbers set to
+ * `first`, and one more follow-up after them per number in `more`. With
+ * `reAsk`, an unmarked second base question sits before the added ones.
+ */
+function withReusedFollowUps({ first = [1, 2], more = [], reAsk = false } = {}) {
+  const p = parsedFixture();
+  const [position, followUps] = [...followUpsByPosition(p)].find(([, f]) => f.length === 2);
+  const [one, two] = [...followUps].sort((a, b) => a.sequence - b.sequence);
+  one.follow_up_index = first[0];
+  two.follow_up_index = first[1];
+  const added = more.length + (reAsk ? 1 : 0);
+  for (const t of p.turns) if (t.sequence > two.sequence) t.sequence += added;
+  let sequence = two.sequence;
+  if (reAsk) {
+    const base = p.turns.find(
+      (t) => t.kind === "base_question" && t.question_position === position,
+    );
+    sequence += 1;
+    p.turns.push({ ...base, provider_turn_id: "asked-again", sequence });
+  }
+  for (const [i, index] of more.entries()) {
+    sequence += 1;
+    p.turns.push({ ...two, provider_turn_id: `again-${i}`, sequence, follow_up_index: index });
+  }
+  const sequences = p.turns
+    .filter((t) => t.kind === "follow_up" && t.question_position === position)
+    .map((t) => t.sequence)
+    .sort((a, b) => a - b);
+  return { parsed: p, position, sequences };
+}
+
+const aiGuidedWorld = () =>
+  world({ session: frozenRow({ live_settings: settingsV4("ai_guided") }) });
+const storedIndexes = (w, sequences) =>
+  sequences.map((s) => w.db.tables.interview_turns.find((t) => t.sequence === s).follow_up_index);
+
+test("#56: numbers 1, 2, 1, 2 on one question (limit 2) are saved as 1 to 4, held as over the limit, every turn and its audio kept", async () => {
+  const { parsed, position, sequences } = withReusedFollowUps({ more: [1, 2] });
+  const w = aiGuidedWorld();
+  const { saved, outcome } = await save(w, parsed);
+  assert.equal(saved, true, "never refused for a reused number");
+  assert.equal(w.db.tables.interview_turns.length, parsed.turns.length);
+  assert.deepEqual(storedIndexes(w, sequences), [1, 2, 3, 4]);
+  for (const s of sequences) {
+    const row = w.db.tables.interview_turns.find((t) => t.sequence === s);
+    assert.ok(row.media_path && w.db.objects.has(row.media_path), `turn ${s} has its audio`);
+  }
+  const q = outcome.questions.find((x) => x.position === position);
+  assert.equal(q.follow_ups, 4);
+  assert.equal(q.follow_up_check, "over_limit", "past the limit outranks the reused number");
+  assert.deepEqual(outcome.follow_up_check_turns, sequences.slice(2));
+  assert.equal(outcome.needs_review, true);
+});
+
+test("#56: the provider's own numbers are kept in the outcome, beside the stored ones", () => {
+  const { parsed, sequences } = withReusedFollowUps({ more: [1, 2] });
+  const facts = assessLiveExport(parsed, frozenOf(), 1, null, 2);
+  assert.deepEqual(
+    facts.follow_up_renumbered,
+    sequences.map((sequence, i) => ({
+      sequence,
+      provider_index: [1, 2, 1, 2][i],
+      stored_index: i + 1,
+    })),
+  );
+  assert.equal(facts.v, 10);
+});
+
+test("#56: numbers 1, 1 within the limit are saved as 1, 2 and held as index_reused; scored only on a person's decision", async () => {
+  const { parsed, position, sequences } = withReusedFollowUps({ first: [1, 1] });
+  const w = aiGuidedWorld();
+  const { saved, outcome } = await save(w, parsed);
+  assert.equal(saved, true);
+  assert.deepEqual(storedIndexes(w, sequences), [1, 2]);
+  const q = outcome.questions.find((x) => x.position === position);
+  assert.equal(q.follow_up_check, "index_reused");
+  assert.deepEqual(
+    outcome.follow_up_check_turns,
+    [sequences[1]],
+    "the turn that reused the number",
+  );
+  assert.deepEqual(
+    outcome.follow_up_renumbered.map((r) => [r.provider_index, r.stored_index]),
+    [
+      [1, 1],
+      [1, 2],
+    ],
+  );
+  // Only that question is held for it.
+  for (const other of outcome.questions.filter((x) => x.position !== position)) {
+    assert.equal(other.follow_up_check, null, `question ${other.position}`);
+  }
+
+  const frozen = frozenOf();
+  const decided = { ...outcome, ...outcomeFrom(outcome.questions, "completed", 1, true, true) };
+  const timingDone = new Map(outcome.questions.map((x) => [x.position, "score"]));
+  const plan = (followUpCheck) =>
+    planLiveScoring(decided, frozen.questions, {
+      needsCheck: timingDone,
+      repeatCheck: new Map(),
+      wordingCheck: new Map(),
+      followUpCheck,
+      excludedPositions: new Set(),
+    }).find((x) => x.position === position);
+  assert.deepEqual(plan(new Map()), { position, decision: "wait", reason: "follow_up_check" });
+  assert.deepEqual(plan(new Map([[position, "exclude"]])), {
+    position,
+    decision: "left_out",
+    reason: "follow_up_excluded",
+  });
+  assert.notEqual(plan(new Map([[position, "score"]])).reason, "follow_up_check");
+});
+
+test("#56: asked twice AND its follow-ups numbered from 1 again: two holds, each with its own decision", () => {
+  const { parsed, position } = withReusedFollowUps({ more: [1], reAsk: true });
+  const frozen = frozenOf();
+  const f = assessLiveExport(parsed, frozen, 1, null, 2);
+  const q = f.questions.find((x) => x.position === position);
+  assert.deepEqual([q.order_check, q.follow_up_check], ["asked_twice", "over_limit"]);
+  assert.equal(q.follow_ups, 3);
+  const outcome = { ...f, ...outcomeFrom(f.questions, f.provider_status_code, 1, true, true) };
+  const timingDone = new Map(f.questions.map((x) => [x.position, "score"]));
+  const plan = (followUpCheck, orderCheck) =>
+    planLiveScoring(outcome, frozen.questions, {
+      needsCheck: timingDone,
+      repeatCheck: new Map(),
+      wordingCheck: new Map(),
+      followUpCheck,
+      orderCheck,
+      excludedPositions: new Set(),
+    }).find((x) => x.position === position).reason;
+  const yes = new Map([[position, "score"]]);
+  const none = new Map();
+  assert.equal(plan(none, none), "follow_up_check");
+  assert.equal(plan(yes, none), "order_check", "the follow-up decision alone keeps it held");
+  assert.equal(plan(none, yes), "follow_up_check", "the order decision alone keeps it held");
+  assert.ok(!["follow_up_check", "order_check"].includes(plan(yes, yes)), "both: released");
+});
+
+test("#56: an export with no reused number is saved as before: the provider's numbers, nothing renumbered, nothing held for it", async () => {
+  const p = parsedFixture();
+  const w = aiGuidedWorld();
+  const { outcome } = await save(w, p);
+  assert.deepEqual(outcome.follow_up_renumbered, []);
+  for (const t of p.turns) {
+    const row = w.db.tables.interview_turns.find((r) => r.sequence === t.sequence);
+    assert.equal(row.follow_up_index, t.follow_up_index, `turn ${t.sequence}`);
+  }
+  assert.ok(outcome.questions.every((q) => q.follow_up_check === null));
+  assert.deepEqual(outcome.follow_up_check_turns, []);
+  // Numbers with a gap but no reuse (1, 3) are the provider's too: never renumbered.
+  const gap = withReusedFollowUps({ first: [1, 3] });
+  const facts = assessLiveExport(gap.parsed, frozenOf(), 1, null, 2);
+  assert.deepEqual(facts.follow_up_renumbered, []);
+  assert.equal(
+    facts.questions.find((q) => q.position === gap.position).follow_up_check,
+    "over_limit",
+    "as before #56: number 3 is past a limit of 2",
+  );
+});
+
+test("#56: saving the renumbered export again changes nothing; after a crash before the outcome it finishes with no new rows", async () => {
+  const { parsed, sequences } = withReusedFollowUps({ more: [1, 2] });
+  const w = aiGuidedWorld();
+  const first = await save(w, parsed);
+  const rows = structuredClone(w.db.tables.interview_turns);
+  const objects = w.db.objects.size;
+  const again = await save(w, parsed);
+  assert.equal(again.saved, false);
+  assert.deepEqual(again.outcome, first.outcome);
+  assert.deepEqual(w.db.tables.interview_turns, rows);
+  assert.equal(w.db.objects.size, objects);
+
+  // The turns landed, the outcome did not: the same export completes it.
+  w.db.tables.interview_sessions[0].live_outcome = null;
+  const finished = await save(w, parsed);
+  assert.equal(finished.saved, true);
+  assert.deepEqual(w.db.tables.interview_turns, rows);
+  assert.deepEqual(storedIndexes(w, sequences), [1, 2, 3, 4]);
+  assert.deepEqual(finished.outcome.follow_up_renumbered, first.outcome.follow_up_renumbered);
+});
+
+test("#56: more than 10 follow-ups on one question is still broken data, reused numbers or not", () => {
+  const ten = withReusedFollowUps({ more: [1, 2, 1, 2, 1, 2, 1, 2] });
+  assert.equal(ten.sequences.length, 10);
+  assert.doesNotThrow(() => assessLiveExport(ten.parsed, frozenOf(), 1, null, 2));
+  const eleven = withReusedFollowUps({ more: [1, 2, 1, 2, 1, 2, 1, 2, 1] });
   assert.throws(
-    () => assessLiveExport(dup, frozenOf(), 1, null, 2),
+    () => assessLiveExport(eleven.parsed, frozenOf(), 1, null, 2),
     (e) => e.code === "too_many_follow_ups",
   );
 });

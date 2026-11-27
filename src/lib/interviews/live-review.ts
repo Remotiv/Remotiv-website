@@ -11,6 +11,7 @@ import { readFrozenQuestionSet } from "@/lib/interviews/frozen-questions";
 import {
   type EndCheck,
   type EndCheckReason,
+  type FollowUpCheck,
   type InterruptionCheck,
   interruptionCheckOf,
   type LiveOutcome,
@@ -322,7 +323,14 @@ export function orderReason(check: OrderCheck, interviewer: string, position: nu
 }
 
 /** Why a question is held for its follow-ups (live-ingest.ts FollowUpCheck), with the interviewer's name. */
-export function followUpReason(interviewer: string, position: number): string {
+export function followUpReason(
+  interviewer: string,
+  position: number,
+  check: FollowUpCheck = "over_limit",
+): string {
+  if (check === "index_reused") {
+    return `Question ${position}: a follow-up number was used twice in the provider's record. It is not scored until a person checks the recording.`;
+  }
   return `${interviewer} asked more follow-up questions on question ${position} than this interview allows. It is not scored until a person checks the recording.`;
 }
 
@@ -647,7 +655,7 @@ export function buildLiveReviewView(input: {
     if (followUpCheck !== null) {
       flags.push({
         kind: "follow_up",
-        reason: followUpReason(interviewer, fq.position),
+        reason: followUpReason(interviewer, fq.position, followUpCheck),
         resolved: followUp.get(fq.position) ?? null,
         turnId: null,
       });

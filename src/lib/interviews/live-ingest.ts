@@ -152,8 +152,9 @@ type Service = ReturnType<typeof createServiceClient>;
  * 8: time_limit_check and time_limit_check_turns (#50); import_failure (#51).
  * 9: order_check and order_check_turns (#15); moved_on_after, not_answered_turns,
  *    repeat_offer_turns and offer_reply_turns (#16, F15c). 26 Nov.
+ * 10: follow_up_check "index_reused" and follow_up_renumbered (#56). 27 Nov.
  */
-export const LIVE_OUTCOME_VERSION = 9;
+export const LIVE_OUTCOME_VERSION = 10;
 /** One turn's audio, at most: Whisper's limit, and far above a spoken turn. */
 export const MAX_TURN_AUDIO_BYTES = 25 * 1024 * 1024;
 
@@ -232,13 +233,60 @@ export type WordingCheck =
   | "follow_up_over_limit";
 
 /**
- * Why a question's follow-ups need a person (#48, 25 Nov): more than the
- * session's frozen limit (0 for Recruiter-Defined, 2 for AI-Guided). Every
- * turn is kept, audio included; the question is held from scoring until a
- * person resolves it (resolve_follow_up_check), independently of every other
- * check: one decision never clears another.
+ * Why a question's follow-ups need a person:
+ *
+ *   over_limit     more than the session's frozen limit (0 for
+ *                  Recruiter-Defined, 2 for AI-Guided). #48, 25 Nov.
+ *   index_reused   the provider used one follow-up number twice on the
+ *                  question (it asked again and started at 1 again). The
+ *                  follow-ups are stored renumbered 1..n in turn order
+ *                  (follow_up_renumbered keeps the provider's numbers), and
+ *                  the count is within the limit: past it, over_limit is the
+ *                  reason shown. #56, 27 Nov.
+ *
+ * Every turn is kept, audio included; the question is held from scoring until
+ * a person resolves it (resolve_follow_up_check), independently of every
+ * other check: one decision never clears another.
  */
-export type FollowUpCheck = "over_limit";
+export type FollowUpCheck = "over_limit" | "index_reused";
+
+/**
+ * One follow-up on a question whose follow-up numbers the provider reused
+ * (#56): the number it sent, and the one stored in interview_turns.
+ */
+export type FollowUpRenumbered = {
+  sequence: number;
+  provider_index: number;
+  stored_index: number;
+};
+
+/**
+ * The follow-ups to store under another number than the provider's (#56).
+ * interview_turns keeps one row per (session, question, follow-up number)
+ * (migration 021), so a question whose follow-ups reuse a number is stored
+ * 1..n in turn-sequence order: every follow-up of THAT question is listed,
+ * changed or not. A question with no reused number is not listed, and keeps
+ * the provider's numbers. Pure.
+ */
+export function renumberReusedFollowUps(turns: readonly LiveTurn[]): FollowUpRenumbered[] {
+  const byPosition = new Map<number, LiveTurn[]>();
+  for (const t of [...turns].sort((a, b) => a.sequence - b.sequence)) {
+    if (t.kind !== "follow_up" || t.question_position === null) continue;
+    byPosition.set(t.question_position, [...(byPosition.get(t.question_position) ?? []), t]);
+  }
+  const renumbered: FollowUpRenumbered[] = [];
+  for (const followUps of byPosition.values()) {
+    if (new Set(followUps.map((t) => t.follow_up_index)).size === followUps.length) continue;
+    for (const [i, t] of followUps.entries()) {
+      renumbered.push({
+        sequence: t.sequence,
+        provider_index: t.follow_up_index as number,
+        stored_index: i + 1,
+      });
+    }
+  }
+  return renumbered.sort((a, b) => a.sequence - b.sequence);
+}
 
 /**
  * Why a question needs a person because of the time limit (#50, 25 Nov):
@@ -367,8 +415,9 @@ export type LiveQuestionFacts = {
    */
   interruption_check: InterruptionCheck | null;
   /**
-   * More follow-ups than the session allows. Holds the question from scoring
-   * until resolved (resolve_follow_up_check). Absent before outcome v7: null.
+   * More follow-ups than the session allows, or a follow-up number used twice
+   * (v10). Holds the question from scoring until resolved
+   * (resolve_follow_up_check). Absent before outcome v7: null.
    */
   follow_up_check?: FollowUpCheck | null;
   /**
@@ -416,8 +465,16 @@ export type LiveOutcome = {
    * frozen, and of follow-ups past the session's follow-up limit.
    */
   wording_check_turns: number[];
-  /** Sequences of follow-ups past the session's limit. Absent before outcome v7. */
+  /**
+   * Sequences of follow-ups past the session's limit, and (v10) of follow-ups
+   * whose number the provider had already used. Absent before outcome v7.
+   */
   follow_up_check_turns?: number[];
+  /**
+   * The follow-ups stored under renumbered indexes, with the provider's own
+   * numbers (#56). Empty when no number was reused. Absent before v10.
+   */
+  follow_up_renumbered?: FollowUpRenumbered[];
   /** Sequences of turns placed after the limit, or near it on disagreeing clocks. Absent before v8. */
   time_limit_check_turns?: number[];
   /** Sequences of the turns that broke the frozen order (#15). Absent before v9. */
@@ -976,8 +1033,9 @@ export class LiveIngestError extends Error {
  * `followUpLimit` is the session's frozen max_follow_ups_per_base_question
  * (0 for Recruiter-Defined, 2 for AI-Guided): a follow-up past it holds its
  * question for a person (follow_up_check over_limit), never refuses the
- * interview and is never scored silently. Only more follow-ups on one question
- * than FOLLOW_UP_INDEX_MAX, or two with the same index, is broken data.
+ * interview and is never scored silently. Two follow-ups with one number on a
+ * question are kept too, renumbered and held (index_reused, #56). Only more
+ * follow-ups on one question than FOLLOW_UP_INDEX_MAX is broken data.
  */
 export function assessLiveExport(
   parsed: ParsedExport,
@@ -1152,6 +1210,10 @@ export function assessLiveExport(
     }
   }
 
+  // A follow-up number used twice on one question (#56): stored 1..n in turn order.
+  const followUpRenumbered = renumberReusedFollowUps(turns);
+  const storedIndex = new Map(followUpRenumbered.map((r) => [r.sequence, r.stored_index]));
+
   const questions: LiveQuestionFacts[] = [];
   const wordingCheckTurns: number[] = [];
   const followUpCheckTurns: number[] = [];
@@ -1182,16 +1244,24 @@ export function assessLiveExport(
     const followUps = turns.filter(
       (t) => t.kind === "follow_up" && t.question_position === q.position,
     );
-    const indexes = new Set(followUps.map((t) => t.follow_up_index));
-    // Broken data only: more than the schema keeps on one question (076), or
-    // two with the same index. More than this session allows is kept and held.
-    if (followUps.length > FOLLOW_UP_INDEX_MAX || indexes.size !== followUps.length) {
+    // Broken data only: more than the schema keeps on one question (076).
+    // More than this session allows, or a number used twice, is kept and held.
+    if (followUps.length > FOLLOW_UP_INDEX_MAX) {
       throw new LiveIngestError(
         "too_many_follow_ups",
         `position ${q.position} has ${followUps.length} follow-ups`,
       );
     }
-    const overLimit = followUps.filter((t) => (t.follow_up_index ?? 0) > followUpLimit);
+    const overLimit = followUps.filter(
+      (t) => (storedIndex.get(t.sequence) ?? t.follow_up_index ?? 0) > followUpLimit,
+    );
+    // The follow-ups whose number the provider had already used on this question.
+    const seenIndexes = new Set<number | null>();
+    const reused = followUps.filter((t) => {
+      const again = seenIndexes.has(t.follow_up_index);
+      seenIndexes.add(t.follow_up_index);
+      return again;
+    });
     // Sarah moved on without an answer (F15c): only speech after her last
     // not_answered on this question is its answer.
     const movedOnAfter =
@@ -1227,8 +1297,11 @@ export function assessLiveExport(
       wording === "unexpected_lead_in" || wording === "altered_wording" ? wording : null;
     if (wordingCheck !== null) wordingCheckTurns.push(asked[0].sequence);
     // Its own check, beside the wording one: both can hold the same question.
-    const followUpCheck: FollowUpCheck | null = overLimit.length > 0 ? "over_limit" : null;
-    for (const t of overLimit) followUpCheckTurns.push(t.sequence);
+    // Past the limit outranks a reused number when one question has both.
+    let followUpCheck: FollowUpCheck | null = null;
+    if (overLimit.length > 0) followUpCheck = "over_limit";
+    else if (reused.length > 0) followUpCheck = "index_reused";
+    for (const t of new Set([...overLimit, ...reused])) followUpCheckTurns.push(t.sequence);
     questions.push({
       position: q.position,
       source: q.source,
@@ -1279,6 +1352,7 @@ export function assessLiveExport(
     timing_suspect_turns: suspect,
     wording_check_turns: wordingCheckTurns.sort((a, b) => a - b),
     follow_up_check_turns: followUpCheckTurns.sort((a, b) => a - b),
+    follow_up_renumbered: followUpRenumbered,
     time_limit_check_turns: timeLimitTurns.sort((a, b) => a - b),
     order_check_turns: [...orderTurns].sort((a, b) => a - b),
     not_answered_turns: turns.filter((t) => t.not_answered).map((t) => t.sequence),
@@ -1508,7 +1582,13 @@ async function checkedAudio(
   };
 }
 
-function turnRow(sessionId: string, turn: LiveTurn, audio: StoredAudio) {
+/** `followUpIndex`: the number stored for a follow-up, the provider's unless it was reused (#56). */
+function turnRow(
+  sessionId: string,
+  turn: LiveTurn,
+  audio: StoredAudio,
+  followUpIndex: number | null = turn.follow_up_index,
+) {
   return {
     id: turnRowId(sessionId, turn.provider_turn_id),
     session_id: sessionId,
@@ -1518,7 +1598,7 @@ function turnRow(sessionId: string, turn: LiveTurn, audio: StoredAudio) {
     speaker: turn.speaker,
     kind: turn.kind,
     question_position: turn.question_position,
-    follow_up_index: turn.follow_up_index,
+    follow_up_index: followUpIndex,
     follow_up_reason: turn.follow_up_reason,
     responds_to_turn_id: turn.responds_to_provider_turn_id
       ? turnRowId(sessionId, turn.responds_to_provider_turn_id)
@@ -1668,7 +1748,13 @@ export async function saveLiveExport(
   // 2. Every turn's audio, fetched and checked before any upload.
   const audio: StoredAudio[] = [];
   for (const t of turns) audio.push(await checkedAudio(deps, sessionId, hash, t));
-  const rows = turns.map((t, i) => turnRow(sessionId, t, audio[i]));
+  // A reused follow-up number is stored renumbered (#56): one row per slot (021).
+  const storedIndex = new Map(
+    (facts.follow_up_renumbered ?? []).map((r) => [r.sequence, r.stored_index]),
+  );
+  const rows = turns.map((t, i) =>
+    turnRow(sessionId, t, audio[i], storedIndex.get(t.sequence) ?? t.follow_up_index),
+  );
 
   // A save of this export may already have landed its turns (and stopped
   // before the outcome). Anything else in the table is another export's.
