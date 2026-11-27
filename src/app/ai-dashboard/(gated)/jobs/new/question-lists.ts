@@ -127,10 +127,46 @@ export const LIVE_CONTINUE_BLOCKED =
  * earlier step on the rail and Save draft never do, and Publish keeps its
  * server gate.
  */
-export function interviewStepBlock(step: number, state: CompanyJobInput): string | null {
+export function interviewStepBlock(
+  step: number,
+  state: CompanyJobInput,
+  /** AI drafts not yet added by Use these questions (#60): they do not count. */
+  pending: PendingDrafts = NO_PENDING_DRAFTS,
+): string | null {
   if (step === 5 && asyncNeedsQuestions(state)) return ASYNC_CONTINUE_BLOCKED;
-  if (step === 6 && liveNeedsQuestions(state)) return LIVE_CONTINUE_BLOCKED;
+  if (step === 6 && liveNeedsQuestions(state)) return draftsWaitingLine(pending);
   return null;
+}
+
+/**
+ * The AI drafts waiting in the step 6 panel: those with question text, and
+ * how many of them the fairness check flags.
+ */
+export type PendingDrafts = { usable: number; flagged: number };
+
+export const NO_PENDING_DRAFTS: PendingDrafts = { usable: 0, flagged: 0 };
+
+const draftQuestions = (n: number) => (n === 1 ? "1 draft question" : `${n} draft questions`);
+
+/**
+ * Step 6 blocked, by what the draft panel holds (#60). Use these questions
+ * REPLACES the list, so only the drafts count toward the 4: a flagged draft
+ * first (Use waits for it), then drafts short of 4, then drafts enough to
+ * continue, and with no drafts the usual line.
+ */
+export function draftsWaitingLine(p: PendingDrafts): string {
+  if (p.flagged > 0) {
+    return p.flagged === 1
+      ? "1 draft breaks a fairness rule. Reword or remove it, then click Use these questions."
+      : `${p.flagged} drafts break a fairness rule. Reword or remove them, then click Use these questions.`;
+  }
+  if (p.usable === 0) return LIVE_CONTINUE_BLOCKED;
+  const them = p.usable === 1 ? "it" : "them";
+  if (p.usable >= MIN_JOB_QUESTIONS) {
+    return `You have ${draftQuestions(p.usable)}. Click Use these questions to add ${them}, then continue.`;
+  }
+  const more = MIN_JOB_QUESTIONS - p.usable;
+  return `You have ${draftQuestions(p.usable)}. Add ${them} with Use these questions, then add ${more} more to continue.`;
 }
 
 /**

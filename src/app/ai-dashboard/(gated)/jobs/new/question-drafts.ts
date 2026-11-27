@@ -1,5 +1,6 @@
 import { firstFairnessBlock, questionFairnessIssue } from "@/lib/interviews/question-fairness";
 import { EMPTY_QUESTION_INPUT, type InterviewQuestionInput } from "@/lib/interviews/types";
+import type { PendingDrafts } from "./question-lists";
 
 /**
  * The AI-Guided draft review panel (job wizard step 5), as a pure reducer.
@@ -22,6 +23,11 @@ export type Draft = {
 
 export type DraftsState = {
   drafts: Draft[];
+  /**
+   * Above the drafts when fewer came back than asked (#60); null otherwise.
+   * Any edit, move or removal clears it: never a stale count.
+   */
+  shortfall: string | null;
   count: number;
   busy: boolean;
   error: string | null;
@@ -34,7 +40,7 @@ export type DraftsState = {
 export type DraftsAction =
   | { t: "count"; count: number }
   | { t: "start" }
-  | { t: "result"; drafts: Omit<Draft, "id">[] }
+  | { t: "result"; drafts: Omit<Draft, "id">[]; shortfall?: string | null }
   | { t: "failed"; error: string }
   | { t: "edit"; index: number; patch: Partial<Omit<Draft, "id">> }
   | { t: "move"; index: number; delta: number }
@@ -47,6 +53,7 @@ export type DraftsAction =
 
 export const INITIAL_DRAFTS: DraftsState = {
   drafts: [],
+  shortfall: null,
   count: 5,
   busy: false,
   error: null,
@@ -81,6 +88,7 @@ export function draftsReducer(s: DraftsState, a: DraftsAction): DraftsState {
         error: null,
         confirmingReplace: false,
         drafts: a.drafts.map((d) => ({ ...d, id: draftId() })),
+        shortfall: a.shortfall ?? null,
       };
     case "failed":
       return { ...s, busy: false, error: a.error };
@@ -88,6 +96,7 @@ export function draftsReducer(s: DraftsState, a: DraftsAction): DraftsState {
       return {
         ...s,
         confirmingReplace: false,
+        shortfall: null,
         drafts: s.drafts.map((d, i) => (i === a.index ? { ...d, ...a.patch } : d)),
       };
     case "move": {
@@ -96,12 +105,13 @@ export function draftsReducer(s: DraftsState, a: DraftsAction): DraftsState {
       const drafts = [...s.drafts];
       const [item] = drafts.splice(a.index, 1);
       drafts.splice(to, 0, item);
-      return { ...s, drafts };
+      return { ...s, shortfall: null, drafts };
     }
     case "remove":
       return {
         ...s,
         confirmingReplace: false,
+        shortfall: null,
         drafts: s.drafts.filter((_, i) => i !== a.index),
       };
     case "use": {
@@ -125,6 +135,35 @@ export function draftsReducer(s: DraftsState, a: DraftsAction): DraftsState {
     case "discard":
       return { ...INITIAL_DRAFTS, count: s.count };
   }
+}
+
+/** Each missing draft by reason (DraftShortfall in lib/ai/interview-questions.ts). */
+export type ShortfallReasons = { fewer: number; unusable: number; repeated: number };
+
+const wasWere = (n: number) => (n === 1 ? "was" : "were");
+
+/**
+ * The one line above the drafts when fewer came back than asked (#60), e.g.
+ * "7 of 8 drafted - the AI wrote 1 fewer than asked." Counts and reasons only:
+ * never the text of anything left out.
+ */
+export function draftShortfallLine(asked: number, got: number, r: ShortfallReasons): string {
+  const parts = [
+    r.fewer > 0 ? `the AI wrote ${r.fewer} fewer than asked` : null,
+    r.unusable > 0 ? `${r.unusable} came back empty and ${wasWere(r.unusable)} left out` : null,
+    r.repeated > 0
+      ? `${r.repeated} repeated another draft and ${wasWere(r.repeated)} left out`
+      : null,
+  ].filter((p): p is string => p !== null);
+  // More than one reason (rare): one clause each, so no "and" is read across two.
+  const reason = parts.length > 0 ? parts.join("; ") : "fewer came back than asked";
+  return `${got} of ${asked} drafted - ${reason}.`;
+}
+
+/** Drafts with text, not yet used, and how many are flagged: the job's questions do not include them. */
+export function pendingDrafts(s: DraftsState): PendingDrafts {
+  const usable = s.drafts.filter((d) => d.question.trim());
+  return { usable: usable.length, flagged: usable.filter(draftBlocked).length };
 }
 
 /** The drafts as job questions: new rows, with the answer time of the chosen count's preset. */

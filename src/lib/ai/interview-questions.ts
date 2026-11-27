@@ -354,6 +354,23 @@ async function askModel(
 
 /** The model's reply as at most `max` usable questions, or the named failure. */
 function parseQuestions(raw: string, max: number): InterviewQuestionsOutcome {
+  const parsed = parseEntries(raw, max);
+  return parsed.questions
+    ? { questions: parsed.questions, failure: null }
+    : { questions: null, failure: parsed.failure };
+}
+
+/**
+ * parseQuestions, with what it counted: `returned` entries were considered
+ * (at most `max`), and `unusable` of them had no question text and were left
+ * out. The only place a draft is ever dropped by our own code.
+ */
+function parseEntries(
+  raw: string,
+  max: number,
+):
+  | { questions: GeneratedQuestion[]; failure: null; returned: number; unusable: number }
+  | { questions: null; failure: InterviewQuestionsFailure } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/g, "").trim());
@@ -374,7 +391,8 @@ function parseQuestions(raw: string, max: number): InterviewQuestionsOutcome {
    * generator making up questions to fill slots.
    */
   const questions: GeneratedQuestion[] = [];
-  for (const entry of list.slice(0, max)) {
+  const considered = list.slice(0, max);
+  for (const entry of considered) {
     const e = entry as { question?: unknown; competency?: unknown; rubric?: unknown };
     const question = clean(e?.question, QUESTION_TEXT_MAX);
     if (!question) continue;
@@ -390,7 +408,12 @@ function parseQuestions(raw: string, max: number): InterviewQuestionsOutcome {
     return { questions: null, failure: "bad_shape" };
   }
 
-  return { questions, failure: null };
+  return {
+    questions,
+    failure: null,
+    returned: considered.length,
+    unusable: considered.length - questions.length,
+  };
 }
 
 /* ── AI-Guided drafting (AI Video Interview, job wizard step 5) ── */
@@ -407,9 +430,27 @@ export type DraftedQuestion = GeneratedQuestion & {
   issue: { topic: FairnessTopic; part: "question" | "scoring guide" } | null;
 };
 
+/**
+ * Why a draft came back short of the count asked (#60): each missing question
+ * by its reason. `fewer`: the model wrote fewer than asked. `unusable`: an
+ * entry with no question text, left out by parseEntries. `repeated`: a top-up
+ * question that repeated a draft already made. The fairness check never
+ * removes a draft: a flagged one is returned, marked, for the recruiter.
+ */
+export type DraftShortfall = { fewer: number; unusable: number; repeated: number };
+
 export type DraftOutcome =
-  | { questions: DraftedQuestion[]; failure: null }
+  | { questions: DraftedQuestion[]; failure: null; shortfall: DraftShortfall | null }
   | { questions: null; failure: InterviewQuestionsFailure | "bad_count" };
+
+/** A question as the repeat check compares it: case, spacing and end punctuation ignored. */
+function sameQuestion(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[\s.?!]+$/, "")
+    .trim();
+}
 
 /**
  * The ONLY inputs a draft is made from. No CV, no candidate, no rubric or
@@ -442,10 +483,16 @@ export function draftJobText(input: DraftInput): string {
 }
 
 /**
- * Draft AI-Guided questions: one model call, 4 to 8 questions, each with a
- * competency and a private scoring-guide draft. Every draft is run through the
- * fairness check before it is returned, so the recruiter sees what is blocked
- * and why. Nothing is saved here. Never throws.
+ * Draft AI-Guided questions: 4 to 8 questions, each with a competency and a
+ * private scoring-guide draft. Every draft is run through the fairness check
+ * before it is returned, so the recruiter sees what is blocked and why.
+ * Nothing is saved here. Never throws.
+ *
+ * One model call, and at most ONE more (#60): when the reply is short of the
+ * count, one top-up asks for the missing number, with the same system prompt
+ * (AI_GUIDED_DRAFT_PROMPT_VERSION) and the drafts already made listed so they
+ * are not repeated. Whatever is still missing is returned as `shortfall`. A
+ * failed top-up keeps the first drafts and their shortfall.
  */
 export async function draftAiGuidedQuestions(input: DraftInput): Promise<DraftOutcome> {
   if (!DRAFT_COUNTS.includes(input.count)) return { questions: null, failure: "bad_count" };
@@ -457,10 +504,41 @@ export async function draftAiGuidedQuestions(input: DraftInput): Promise<DraftOu
     `Write exactly ${input.count} questions for this role.\n\n${draftJobText(input)}`,
   );
   if (reply.failure) return { questions: null, failure: reply.failure };
-  const parsed = parseQuestions(reply.raw, input.count);
-  if (!parsed.questions) return parsed;
+  const parsed = parseEntries(reply.raw, input.count);
+  if (!parsed.questions) return { questions: null, failure: parsed.failure };
+  let questions = parsed.questions;
+  let shortfall: DraftShortfall = {
+    fewer: input.count - parsed.returned,
+    unusable: parsed.unusable,
+    repeated: 0,
+  };
+  const missing = input.count - questions.length;
+  if (missing > 0) {
+    const already = questions.map((q) => `- ${q.question}`).join("\n");
+    const top = await askModel(
+      AI_GUIDED_DRAFT_PROMPT,
+      `Write exactly ${missing} more question${missing === 1 ? "" : "s"} for this role. These are already drafted; do not repeat them or ask the same thing in other words:\n${already}\n\n${draftJobText(input)}`,
+    );
+    const more = top.failure ? null : parseEntries(top.raw, missing);
+    if (more?.questions) {
+      const seen = new Set(questions.map((q) => sameQuestion(q.question)));
+      const added = more.questions.filter((q) => {
+        const key = sameQuestion(q.question);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      questions = [...questions, ...added];
+      shortfall = {
+        fewer: missing - more.returned,
+        unusable: more.unusable,
+        repeated: more.questions.length - added.length,
+      };
+    }
+  }
   return {
-    questions: parsed.questions.map((q) => {
+    shortfall: questions.length < input.count ? shortfall : null,
+    questions: questions.map((q) => {
       const inQuestion = questionFairnessIssue(q.question);
       const inGuide = inQuestion ? null : questionFairnessIssue(q.rubric);
       return {

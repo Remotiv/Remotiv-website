@@ -99,6 +99,7 @@ import {
   draftsAsJobQuestions,
   draftsReducer,
   INITIAL_DRAFTS,
+  pendingDrafts,
 } from "./question-drafts";
 import {
   askedCount,
@@ -1366,7 +1367,7 @@ export function WizardClient({
 
   function validate(target: number): boolean {
     // The two interview steps: an interview that is on needs its questions to move on.
-    const blocked = interviewStepBlock(target, state);
+    const blocked = interviewStepBlock(target, state, pendingDrafts(drafts));
     if (blocked) {
       showToast(blocked);
       return false;
@@ -1658,7 +1659,11 @@ export function WizardClient({
     if (drafts.busy) return;
     setDrafts((s) => draftsReducer(s, { t: "start" }));
     try {
-      const { drafts: got, error } = await draftInterviewQuestions({
+      const {
+        drafts: got,
+        error,
+        shortfall,
+      } = await draftInterviewQuestions({
         jobId: jobId ?? null,
         title: state.title,
         description: state.description,
@@ -1676,6 +1681,7 @@ export function WizardClient({
                 competency: d.competency,
                 rubric: d.rubric,
               })),
+              shortfall: shortfall ?? null,
             })
           : draftsReducer(s, { t: "failed", error: error ?? DRAFT_FAILED }),
       );
@@ -1783,6 +1789,8 @@ export function WizardClient({
   // One list, so a step added to any group is found without touching this.
   // Indexing STEPS by position would silently return Basics for anything late.
   const meta = ALL_STEPS.find((x) => x.n === step) ?? ALL_STEPS[0];
+  // Why Continue cannot leave this step, shown by the button: null when it can.
+  const stepBlocked = interviewStepBlock(step, state, pendingDrafts(drafts));
 
   return (
     <div className="flex min-h-full flex-col">
@@ -2912,9 +2920,9 @@ export function WizardClient({
                 Step <b className="text-[var(--ai-t1)]">{positionOf(step)}</b> of {SEQUENCE.length}
               </span>
               <div className="flex items-center gap-2.5">
-                {interviewStepBlock(step, state) && (
+                {stepBlocked && (
                   <p className="text-xs text-[#C4362F]" data-step-blocked>
-                    {interviewStepBlock(step, state)}
+                    {stepBlocked}
                   </p>
                 )}
                 {positionOf(step) > 1 && (

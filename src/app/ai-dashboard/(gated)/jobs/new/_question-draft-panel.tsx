@@ -111,6 +111,11 @@ export function QuestionDraftPanel({
           <p className="m-0 mb-3 text-[13px] font-bold text-[var(--ai-t1)]">
             Draft questions - review before using
           </p>
+          {state.shortfall && (
+            <p className="m-0 mb-3 text-xs text-[var(--ai-t2)]" data-draft-shortfall>
+              {state.shortfall}
+            </p>
+          )}
           {state.drafts.map((d, i) => (
             <div
               key={d.id}

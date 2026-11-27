@@ -747,7 +747,7 @@ test("#61 wiring: Continue and the rail go through the walk; validate asks the r
   );
   assert.match(
     WIZARD,
-    /function validate\(target: number\): boolean \{[\s\S]{0,200}?const blocked = interviewStepBlock\(target, state\);\s*if \(blocked\) \{\s*showToast\(blocked\);\s*return false;/,
+    /function validate\(target: number\): boolean \{[\s\S]{0,200}?const blocked = interviewStepBlock\(target, state, pendingDrafts\(drafts\)\);\s*if \(blocked\) \{\s*showToast\(blocked\);\s*return false;/,
   );
   assert.match(
     WIZARD,
@@ -756,7 +756,7 @@ test("#61 wiring: Continue and the rail go through the walk; validate asks the r
   assert.equal((WIZARD.match(/onGo=\{goTo\}/g) ?? []).length, 3, "every rail block");
   assert.match(
     WIZARD,
-    /\{interviewStepBlock\(step, state\) && \(\s*<p className="text-xs text-\[#C4362F\]" data-step-blocked>\s*\{interviewStepBlock\(step, state\)\}/,
+    /const stepBlocked = interviewStepBlock\(step, state, pendingDrafts\(drafts\)\);[\s\S]*\{stepBlocked && \(\s*<p className="text-xs text-\[#C4362F\]" data-step-blocked>\s*\{stepBlocked\}/,
   );
   // The same rules in create and edit: nothing in the rule or the walk reads isEdit.
   assert.doesNotMatch(
@@ -834,4 +834,89 @@ test("#62 wiring: the label follows the job's stored status, the button still sa
   assert.equal((WIZARD.match(/submit\("on_hold"\)/g) ?? []).length, 1);
   assert.equal((WIZARD.match(/draftButtonLabel\(/g) ?? []).length, 1);
   assert.doesNotMatch(WIZARD, /"Save as draft"|"Save draft"/, "no label typed in the wizard");
+});
+
+/* ── #60: AI drafts waiting on step 6 ── */
+
+const drafts60 = await import("./question-drafts.ts");
+
+test("#60 step 6 blocked with drafts waiting: the line counts the drafts only, since Use replaces the list", () => {
+  const short = stepState({ liveOn: true, live: 0 });
+  const P = (usable, flagged = 0) => ({ usable, flagged });
+  assert.equal(
+    lists.interviewStepBlock(6, short, P(7)),
+    "You have 7 draft questions. Click Use these questions to add them, then continue.",
+  );
+  assert.equal(
+    lists.interviewStepBlock(6, short, P(4)),
+    "You have 4 draft questions. Click Use these questions to add them, then continue.",
+  );
+  // 3 drafts + 0 questions: still short of 4 with all of them.
+  assert.equal(
+    lists.interviewStepBlock(6, short, P(3)),
+    "You have 3 draft questions. Add them with Use these questions, then add 1 more to continue.",
+  );
+  // 2 drafts + 2 questions: Use these questions REPLACES the 2, so 2 more are needed.
+  assert.equal(
+    lists.interviewStepBlock(6, stepState({ liveOn: true, live: 2 }), P(2)),
+    "You have 2 draft questions. Add them with Use these questions, then add 2 more to continue.",
+  );
+  assert.equal(
+    lists.interviewStepBlock(6, short, P(1)),
+    "You have 1 draft question. Add it with Use these questions, then add 3 more to continue.",
+  );
+  // A flagged draft wins over the others.
+  assert.equal(
+    lists.interviewStepBlock(6, short, P(5, 1)),
+    "1 draft breaks a fairness rule. Reword or remove it, then click Use these questions.",
+  );
+  assert.equal(
+    lists.interviewStepBlock(6, short, P(2, 2)),
+    "2 drafts break a fairness rule. Reword or remove them, then click Use these questions.",
+  );
+  assert.equal(lists.interviewStepBlock(6, short, P(0)), lists.LIVE_CONTINUE_BLOCKED, "no drafts");
+  assert.equal(lists.interviewStepBlock(6, short), lists.LIVE_CONTINUE_BLOCKED);
+  // Not blocked, or another step: drafts never add a line.
+  assert.equal(lists.interviewStepBlock(6, stepState({ liveOn: true, live: 4 }), P(7, 1)), null);
+  assert.equal(lists.interviewStepBlock(6, stepState({ liveOn: false }), P(7, 1)), null, "off");
+  assert.equal(
+    lists.interviewStepBlock(5, stepState({ asyncOn: true, async: 0 }), P(7, 1)),
+    lists.ASYNC_CONTINUE_BLOCKED,
+  );
+  // Drafts do not count as questions: still blocked with 7 waiting.
+  assert.equal(move(short, 6, 7), 6);
+  for (const p of [P(1), P(7), P(3), P(1, 1), P(2, 2)]) {
+    assert.doesNotMatch(lists.draftsWaitingLine(p), /[\u2012-\u2015]/);
+  }
+});
+
+test("#60 pending drafts: only drafts with text, flagged ones counted, none once used or discarded", () => {
+  const D = drafts60.draftsReducer;
+  const got = D(drafts60.INITIAL_DRAFTS, {
+    t: "result",
+    drafts: [
+      { question: "Tell me about a queue.", competency: "", rubric: "" },
+      { question: "Tell me about a launch.", competency: "", rubric: "" },
+    ],
+  });
+  const none = { usable: 0, flagged: 0 };
+  assert.deepEqual(drafts60.pendingDrafts(drafts60.INITIAL_DRAFTS), none);
+  assert.deepEqual(drafts60.pendingDrafts(got), { usable: 2, flagged: 0 });
+  assert.deepEqual(
+    drafts60.pendingDrafts(D(got, { t: "edit", index: 0, patch: { question: " " } })),
+    { usable: 1, flagged: 0 },
+  );
+  const flagged = D(got, { t: "edit", index: 1, patch: { question: "Are you married?" } });
+  assert.deepEqual(drafts60.pendingDrafts(flagged), { usable: 2, flagged: 1 });
+  assert.equal(
+    lists.interviewStepBlock(
+      6,
+      stepState({ liveOn: true, live: 0 }),
+      drafts60.pendingDrafts(flagged),
+    ),
+    "1 draft breaks a fairness rule. Reword or remove it, then click Use these questions.",
+  );
+  assert.deepEqual(drafts60.pendingDrafts(D(got, { t: "discard" })), none);
+  const used = D(got, { t: "use", existingQuestions: 0 });
+  assert.deepEqual(drafts60.pendingDrafts(D(used, { t: "applied" })), none);
 });

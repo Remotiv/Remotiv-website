@@ -78,7 +78,7 @@ const { EMPTY_QUESTION_INPUT } = await import("../../../../lib/interviews/types.
 const { DRAFT_FAILED, DRAFT_RATE_LIMITED } = await import(
   "../../../../lib/interviews/question-fairness.ts"
 );
-const { draftsReducer, draftsAsJobQuestions, INITIAL_DRAFTS } = await import(
+const { draftsReducer, draftsAsJobQuestions, INITIAL_DRAFTS, draftShortfallLine } = await import(
   "./new/question-drafts.ts"
 );
 const { LiveInterviewSettings } = await import("./new/_live-interview-settings.tsx");
@@ -560,4 +560,113 @@ test("a sent invite keeps its frozen questions through drafts, regenerates and a
   assert.equal(r.success, true, r.error);
   assert.equal(savedQuestions(db, id)[0], "Tell me about draft one.", "the job now has the drafts");
   assert.deepEqual(snapshot(), frozen, "the sent invite's questions never change");
+});
+
+/* ── #60: a short draft says so ── */
+
+test("#60 the shortfall line: counts and reasons only, hyphens only", () => {
+  assert.equal(
+    draftShortfallLine(8, 7, { fewer: 1, unusable: 0, repeated: 0 }),
+    "7 of 8 drafted - the AI wrote 1 fewer than asked.",
+  );
+  assert.equal(
+    draftShortfallLine(8, 7, { fewer: 0, unusable: 1, repeated: 0 }),
+    "7 of 8 drafted - 1 came back empty and was left out.",
+  );
+  assert.equal(
+    draftShortfallLine(8, 7, { fewer: 0, unusable: 0, repeated: 1 }),
+    "7 of 8 drafted - 1 repeated another draft and was left out.",
+  );
+  assert.equal(
+    draftShortfallLine(8, 4, { fewer: 2, unusable: 1, repeated: 1 }),
+    "4 of 8 drafted - the AI wrote 2 fewer than asked; 1 came back empty and was left out; 1 repeated another draft and was left out.",
+  );
+  assert.equal(
+    draftShortfallLine(8, 6, { fewer: 0, unusable: 2, repeated: 0 }),
+    "6 of 8 drafted - 2 came back empty and were left out.",
+  );
+});
+
+test("#60 draft: a short outcome comes back with its line; a full one with none; the panel shows it above the drafts", async () => {
+  world();
+  const seven = Array.from({ length: 7 }, (_, i) => ({
+    question: `Tell me about synthetic case ${i + 1}.`,
+    competency: "Ownership",
+    rubric: "x",
+    issue: null,
+  }));
+  globalThis.__draftAnswer = () => ({
+    questions: seven,
+    failure: null,
+    shortfall: { fewer: 1, unusable: 0, repeated: 0 },
+  });
+  const r = await drafted({ count: 8 });
+  assert.equal(r.drafts.length, 7);
+  assert.equal(r.shortfall, "7 of 8 drafted - the AI wrote 1 fewer than asked.");
+  globalThis.__draftAnswer = () => ({ questions: seven, failure: null, shortfall: null });
+  assert.equal((await drafted({ count: 7 })).shortfall, null);
+  // The panel: the line above the drafts, cleared by the next draft or discard.
+  const state = draftsReducer(INITIAL_DRAFTS, {
+    t: "result",
+    drafts: DRAFTS,
+    shortfall: r.shortfall,
+  });
+  const html = renderToStaticMarkup(
+    createElement(QuestionDraftPanel, {
+      state,
+      dispatch() {},
+      ready: true,
+      existingQuestions: 0,
+      onDraft() {},
+    }),
+  );
+  const at = html.indexOf("data-draft-shortfall");
+  assert.ok(at > 0 && at < html.indexOf("Draft 1 of"), "above the drafts");
+  assert.ok(html.includes("7 of 8 drafted - the AI wrote 1 fewer than asked."));
+  assert.equal(draftsReducer(state, { t: "result", drafts: DRAFTS }).shortfall, null);
+  assert.equal(draftsReducer(state, { t: "discard" }).shortfall, null);
+  const plain = renderToStaticMarkup(
+    createElement(QuestionDraftPanel, {
+      state: withDrafts(),
+      dispatch() {},
+      ready: true,
+      existingQuestions: 0,
+      onDraft() {},
+    }),
+  );
+  assert.ok(!plain.includes("data-draft-shortfall"));
+});
+
+test("#60 the shortfall line goes as soon as the drafts change: remove, move, edit, use, discard", () => {
+  const line = "3 of 4 drafted - the AI wrote 1 fewer than asked.";
+  const state = draftsReducer(INITIAL_DRAFTS, { t: "result", drafts: DRAFTS, shortfall: line });
+  assert.equal(state.shortfall, line);
+  assert.equal(draftsReducer(state, { t: "remove", index: 0 }).shortfall, null, "remove");
+  assert.equal(draftsReducer(state, { t: "move", index: 0, delta: 1 }).shortfall, null, "move");
+  assert.equal(
+    draftsReducer(state, { t: "edit", index: 0, patch: { question: "Tell me about a plan." } })
+      .shortfall,
+    null,
+    "edit",
+  );
+  const used = draftsReducer(state, { t: "use", existingQuestions: 0 });
+  assert.equal(draftsReducer(used, { t: "applied" }).shortfall, null, "use");
+  const replacing = draftsReducer(state, { t: "use", existingQuestions: 2 });
+  const confirmed = draftsReducer(replacing, { t: "confirm_replace" });
+  assert.equal(draftsReducer(confirmed, { t: "applied" }).shortfall, null, "use, replacing");
+  assert.equal(draftsReducer(state, { t: "discard" }).shortfall, null, "discard");
+  // Changing the count to ask for, or a move that goes nowhere, is not a change to the drafts.
+  assert.equal(draftsReducer(state, { t: "count", count: 6 }).shortfall, line);
+  assert.equal(draftsReducer(state, { t: "move", index: 0, delta: -1 }).shortfall, line);
+  // The panel no longer shows it after a removal.
+  const html = renderToStaticMarkup(
+    createElement(QuestionDraftPanel, {
+      state: draftsReducer(state, { t: "remove", index: 0 }),
+      dispatch() {},
+      ready: true,
+      existingQuestions: 0,
+      onDraft() {},
+    }),
+  );
+  assert.ok(!html.includes("data-draft-shortfall"));
 });

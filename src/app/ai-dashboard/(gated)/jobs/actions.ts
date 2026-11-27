@@ -104,6 +104,7 @@ import { slugify, uniqueSlug } from "@/lib/slug";
 import { pageAll } from "@/lib/supabase/paging";
 import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
+import { draftShortfallLine } from "./new/question-drafts";
 
 // NB: a "use server" module may only export async functions — every export is
 // compiled into a server action. Row/input types live in lib/job-types.ts.
@@ -1857,7 +1858,7 @@ export type QuestionDraft = Omit<DraftedQuestion, "issue"> & { blocked: string |
  * AI-Guided "Draft questions with AI" (job wizard step 5). The same permission
  * as editing the job: owner, admin or recruiter, and for a saved job, one the
  * caller may act on. Rate limited (job-question-draft), one model call per
- * press. Writes NOTHING: the drafts go to the review panel, and only "Use these
+ * press, plus at most one top-up when the reply is short (#60). Writes NOTHING: the drafts go to the review panel, and only "Use these
  * questions" then saving the job puts them on it.
  *
  * Inputs are exactly title, description, required skills, seniority and hiring
@@ -1871,7 +1872,12 @@ export async function draftInterviewQuestions(input: {
   seniority: string;
   hiringChallenges: string;
   count: number;
-}): Promise<{ drafts: QuestionDraft[] | null; error: string | null }> {
+}): Promise<{
+  drafts: QuestionDraft[] | null;
+  error: string | null;
+  /** Fewer came back than asked (#60): the line above the drafts. */
+  shortfall?: string | null;
+}> {
   let ctx: Awaited<ReturnType<typeof requireCompanyRole>>;
   try {
     ctx = await requireCompanyRole("owner", "admin", "recruiter");
@@ -1916,6 +1922,9 @@ export async function draftInterviewQuestions(input: {
       blocked: issue ? fairnessBlockMessage(i + 1, q.question, issue.topic, issue.part) : null,
     })),
     error: null,
+    shortfall: outcome.shortfall
+      ? draftShortfallLine(Number(input?.count), outcome.questions.length, outcome.shortfall)
+      : null,
   };
 }
 
