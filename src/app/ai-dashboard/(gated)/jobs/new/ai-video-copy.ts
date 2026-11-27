@@ -23,13 +23,6 @@ export function aiVideoQuestionsHint(minutes: LiveInterviewMinutes): string {
 /** The AI Video Interview step's (6) own description. */
 export const AI_VIDEO_STEP_LINE = `With AI Video Interview on, ${LIVE_INTERVIEWER_NAME} asks these questions live, in this order.`;
 
-export const AI_VIDEO_QUESTION_COUNT_WARNING = `AI Video Interview requires ${MIN_JOB_QUESTIONS} to ${MAX_JOB_QUESTIONS} questions. Add or remove questions on this step to continue.`;
-
-/** Whether the job's question count is outside what the send accepts. */
-export function aiVideoQuestionCountOutOfRange(questionCount: number): boolean {
-  return questionCount < MIN_JOB_QUESTIONS || questionCount > MAX_JOB_QUESTIONS;
-}
-
 /* ── AI Video Interview step (6): mode, length, hiring challenges ── */
 
 export const AI_VIDEO_MODE_HEADING = "How would you like to conduct the interview?";

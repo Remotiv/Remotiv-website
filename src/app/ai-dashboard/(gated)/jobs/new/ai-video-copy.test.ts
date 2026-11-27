@@ -18,12 +18,7 @@ const { createElement } = await import("react");
 const { renderToStaticMarkup } = await import("react-dom/server");
 const copy = await import("./ai-video-copy.ts");
 const { LiveInterviewSettings } = await import("./_live-interview-settings.tsx");
-const {
-  AI_VIDEO_OPTION_DESCRIPTION,
-  AI_VIDEO_QUESTION_COUNT_WARNING,
-  aiVideoQuestionCountOutOfRange,
-  aiVideoQuestionsHint,
-} = copy;
+const { AI_VIDEO_OPTION_DESCRIPTION, aiVideoQuestionsHint } = copy;
 
 test("the approved option strings, exactly, with the hint following the length", () => {
   assert.equal(
@@ -37,10 +32,6 @@ test("the approved option strings, exactly, with the hint following the length",
   assert.equal(
     aiVideoQuestionsHint(60),
     "4 to 8 questions. Estimated duration: 60 minutes. Candidates using the same approved question set receive identical questions in the same order.",
-  );
-  assert.equal(
-    AI_VIDEO_QUESTION_COUNT_WARNING,
-    "AI Video Interview requires 4 to 8 questions. Add or remove questions on this step to continue.",
   );
 });
 
@@ -80,11 +71,6 @@ test("the approved mode, length and challenges strings, exactly", () => {
     copy.AI_VIDEO_CHALLENGES_HELPER,
     "Describe the main problems this hire must solve, for example 'reduce customer churn'. Used only to draft interview questions. Never shown to candidates or the AI interviewer.",
   );
-});
-
-test("the warning shows below 4 and above 8, matching the send's refusal", () => {
-  for (const n of [0, 1, 3, 9, 20]) assert.equal(aiVideoQuestionCountOutOfRange(n), true, `${n}`);
-  for (const n of [4, 5, 6, 7, 8]) assert.equal(aiVideoQuestionCountOutOfRange(n), false, `${n}`);
 });
 
 /* ── the controls, rendered ────────────────────────────────────── */
@@ -277,19 +263,15 @@ test("the wizard's question list stops at 8: add, AI suggestions and the button 
   }
 });
 
-test("the option row: description, the hint on the chosen length, and the warning on the same count", () => {
+test("the option row: description and the hint on the chosen length; no red line of its own (#61: one line, by Continue)", () => {
   const row = aiVideoRow();
   assert.match(row, /desc=\{AI_VIDEO_OPTION_DESCRIPTION\}/);
   assert.match(
     row,
     /<p className=\{HINT_CLS\}>\s*\{aiVideoQuestionsHint\(\s*state\.live_interview_minutes \?\? DEFAULT_LIVE_INTERVIEW_MINUTES,?\s*\)\}\s*<\/p>/,
   );
-  assert.match(
-    row,
-    /\{aiVideoQuestionCountOutOfRange\(askedCount\(liveQs\)\) && \(\s*<p className="[^"]+">\s*\{AI_VIDEO_QUESTION_COUNT_WARNING\}\s*<\/p>\s*\)\}/,
-  );
-  // The live list only (082): the async questions never move the warning.
-  assert.match(WIZARD, /const liveQs = questionsOf\(state, "live"\);/);
+  assert.doesNotMatch(row, /C4362F|QUESTION_COUNT_WARNING|requires 4 to 8/);
+  assert.doesNotMatch(WIZARD, /AI Video Interview requires/);
 });
 
 test("no CV promise and no 'the first 4' left in the option or the wizard's AI Video copy", () => {
@@ -299,7 +281,6 @@ test("no CV promise and no 'the first 4' left in the option or the wizard's AI V
     AI_VIDEO_OPTION_DESCRIPTION,
     aiVideoQuestionsHint(30),
     aiVideoQuestionsHint(60),
-    AI_VIDEO_QUESTION_COUNT_WARNING,
     copy.AI_VIDEO_STEP_LINE,
     copy.AI_VIDEO_MODE_HEADING,
     copy.AI_VIDEO_MODE_SUB,
@@ -660,7 +641,7 @@ test("the dialog's wording, exactly; Stay is the default (first focus, Escape)",
 
 /* ── #61: the async minimum on step 5 and Review ── */
 
-test("#61 step 5 says it needs at least 3 questions while async is on with fewer", () => {
+test("#61 the Review card says it needs at least 3 questions while async is on with fewer; step 5 itself does not", () => {
   const q = (question) => ({ id: question, question, competency: "", rubric: "" });
   const state = (on, n) => ({
     async_interview_enabled: on,
@@ -670,12 +651,152 @@ test("#61 step 5 says it needs at least 3 questions while async is on with fewer
   for (const n of [0, 2]) assert.equal(lists.asyncNeedsQuestions(state(true, n)), true, `${n}`);
   for (const n of [3, 8]) assert.equal(lists.asyncNeedsQuestions(state(true, n)), false, `${n}`);
   assert.equal(lists.asyncNeedsQuestions(state(false, 0)), false, "off: no line");
-  assert.match(
+  assert.doesNotMatch(
     STEP5,
-    /\{asyncNeedsQuestions\(state\) && \(\s*<p[^>]*data-async-needs-questions>\s*\{ASYNC_NEEDS_QUESTIONS_LINE\}/,
+    /data-async-needs-questions|ASYNC_NEEDS_QUESTIONS_LINE|asyncNeedsQuestions/,
   );
   assert.match(
     STEP10,
     /\{reviewLines\.asyncWarning && \(\s*<span[^>]*data-review-warning>\s*\{reviewLines\.asyncWarning\}/,
+  );
+});
+
+/* ── #61 follow-up: Continue stops on a step whose interview needs questions ── */
+
+const SEQ = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+const stepState = ({ asyncOn = false, async = 0, liveOn = false, live = 0 } = {}) => {
+  const q = (question) => ({ id: question, question, competency: "", rubric: "" });
+  const n = (k, p) => Array.from({ length: k }, (_, i) => q(`${p}${i}`));
+  return {
+    async_interview_enabled: asyncOn,
+    interview_questions: n(async, "a"),
+    avatar_interview_enabled: liveOn,
+    live_interview_questions: n(live, "l"),
+  };
+};
+/** The wizard's move: walkForward with the interview rule as the step check. */
+const move = (state, from, target) =>
+  lists.walkForward(SEQ, from, target, (k) => lists.interviewStepBlock(k, state) === null);
+
+test("#61 Continue: the two messages, exactly, hyphens only", () => {
+  assert.equal(
+    lists.ASYNC_CONTINUE_BLOCKED,
+    "Add at least 3 questions, or turn Async Video Interview off, to continue.",
+  );
+  assert.equal(
+    lists.LIVE_CONTINUE_BLOCKED,
+    "Add 4 to 8 questions, or turn AI Video Interview off, to continue.",
+  );
+  for (const m of [lists.ASYNC_CONTINUE_BLOCKED, lists.LIVE_CONTINUE_BLOCKED]) {
+    assert.doesNotMatch(m, /[‒-―]/);
+  }
+});
+
+test("#61 Continue on step 5: blocked at 0 and 2 async questions, allowed at 3; off never blocks", () => {
+  for (const async of [0, 2]) {
+    const s = stepState({ asyncOn: true, async });
+    assert.equal(lists.interviewStepBlock(5, s), lists.ASYNC_CONTINUE_BLOCKED, `${async}`);
+    assert.equal(move(s, 5, 6), 5, `Continue stays on step 5 at ${async}`);
+  }
+  for (const async of [3, 8]) {
+    const s = stepState({ asyncOn: true, async });
+    assert.equal(lists.interviewStepBlock(5, s), null);
+    assert.equal(move(s, 5, 6), 6, `${async}`);
+  }
+  const off = stepState({ asyncOn: false, async: 0 });
+  assert.equal(lists.interviewStepBlock(5, off), null);
+  assert.equal(move(off, 5, 6), 6, "off: never blocked");
+});
+
+test("#61 Continue on step 6: blocked at 0 and 3 live questions, allowed at 4; off never blocks", () => {
+  for (const live of [0, 3]) {
+    const s = stepState({ liveOn: true, live });
+    assert.equal(lists.interviewStepBlock(6, s), lists.LIVE_CONTINUE_BLOCKED, `${live}`);
+    assert.equal(move(s, 6, 7), 6, `Continue stays on step 6 at ${live}`);
+  }
+  for (const live of [4, 8]) {
+    const s = stepState({ liveOn: true, live });
+    assert.equal(lists.interviewStepBlock(6, s), null);
+    assert.equal(move(s, 6, 7), 7);
+  }
+  const off = stepState({ liveOn: false, live: 0 });
+  assert.equal(move(off, 6, 7), 7, "off: never blocked");
+  // Each step asks only about its own interview; every other step never blocks.
+  const both = stepState({ asyncOn: true, async: 0, liveOn: true, live: 0 });
+  for (const k of [1, 2, 3, 4, 7, 8, 9, 10]) assert.equal(lists.interviewStepBlock(k, both), null);
+});
+
+test("#61 the rail: a later step from a blocked step is blocked, and nothing skips over it; earlier steps stay clickable", () => {
+  const asyncShort = stepState({ asyncOn: true, async: 2 });
+  for (const target of [6, 7, 9, 10])
+    assert.equal(move(asyncShort, 5, target), 5, `5 -> ${target}`);
+  assert.equal(move(asyncShort, 2, 9), 5, "from an earlier step, it stops on the blocked one");
+  for (const target of [1, 2, 3, 4]) assert.equal(move(asyncShort, 5, target), target, "back");
+  assert.equal(move(asyncShort, 9, 2), 2, "back from a later step");
+  const liveShort = stepState({ asyncOn: true, async: 3, liveOn: true, live: 3 });
+  assert.equal(move(liveShort, 6, 10), 6);
+  assert.equal(move(liveShort, 1, 10), 6, "step 5 passes, step 6 stops it");
+  assert.equal(move(liveShort, 6, 5), 5, "back to 5");
+  assert.equal(move(stepState({ liveOn: true, live: 4 }), 1, 10), 10, "nothing blocked: lands");
+});
+
+test("#61 wiring: Continue and the rail go through the walk; validate asks the rule first; the line sits by the button", () => {
+  assert.match(
+    WIZARD,
+    /function goTo\(target: number\) \{\s*setStep\(walkForward\(SEQUENCE, step, target, validate\)\);\s*\}/,
+  );
+  assert.match(
+    WIZARD,
+    /function validate\(target: number\): boolean \{[\s\S]{0,200}?const blocked = interviewStepBlock\(target, state\);\s*if \(blocked\) \{\s*showToast\(blocked\);\s*return false;/,
+  );
+  assert.match(
+    WIZARD,
+    /const next = stepAt\(positionOf\(step\) \+ 1\);\s*if \(next !== null\) goTo\(next\);/,
+  );
+  assert.equal((WIZARD.match(/onGo=\{goTo\}/g) ?? []).length, 3, "every rail block");
+  assert.match(
+    WIZARD,
+    /\{interviewStepBlock\(step, state\) && \(\s*<p className="text-xs text-\[#C4362F\]" data-step-blocked>\s*\{interviewStepBlock\(step, state\)\}/,
+  );
+  // The same rules in create and edit: nothing in the rule or the walk reads isEdit.
+  assert.doesNotMatch(
+    WIZARD.slice(WIZARD.indexOf("function validate("), WIZARD.indexOf("// ── Screening builder")),
+    /isEdit/,
+  );
+});
+
+test("#61 Back and Save draft are never blocked: neither goes through the walk or the step rule", () => {
+  // Back: straight to the previous step.
+  assert.match(
+    WIZARD,
+    /onClick=\{\(\) => \{\s*const prev = stepAt\(positionOf\(step\) - 1\);\s*if \(prev !== null\) setStep\(prev\);\s*\}\}/,
+  );
+  // Save draft: submit("on_hold"), whose draft branch checks the title only; the
+  // publish branch validates steps 1 to 4, never 5 or 6 (the server gates Publish).
+  const submit = WIZARD.slice(
+    WIZARD.indexOf("async function submit("),
+    WIZARD.indexOf("inFlightRef.current = true;", WIZARD.indexOf("async function submit(")),
+  );
+  assert.match(submit, /if \(status === "open"\) \{[\s\S]*?for \(let k = 1; k <= 4; k\+\+\)/);
+  assert.match(submit, /\} else if \(!state\.title\.trim\(\)\) \{/);
+  assert.doesNotMatch(submit, /interviewStepBlock|walkForward|goTo\(/);
+  // And while blocked, the walk itself never stops a move back.
+  const blocked = stepState({ asyncOn: true, async: 0, liveOn: true, live: 0 });
+  assert.equal(move(blocked, 6, 5), 5);
+  assert.equal(move(blocked, 5, 4), 4);
+});
+
+test("#61 a blocked step shows ONE red line, by Continue: none on step 5 or step 6 themselves", () => {
+  for (const [name, src] of [
+    ["step 5", STEP5],
+    ["step 6", STEP6],
+  ]) {
+    assert.doesNotMatch(src, /C4362F/, `${name}: no red line of its own`);
+  }
+  const footer = WIZARD.slice(WIZARD.indexOf("{step === 9 && <AutoshortlistStep"));
+  assert.equal(
+    (footer.match(/data-step-blocked/g) ?? []).length,
+    1,
+    "the one line, by the buttons",
   );
 });

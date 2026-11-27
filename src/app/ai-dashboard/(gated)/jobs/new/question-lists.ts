@@ -103,6 +103,56 @@ export function asyncNeedsQuestions(state: CompanyJobInput): boolean {
   );
 }
 
+/** Whether AI Video Interview is on with too few questions to publish. */
+export function liveNeedsQuestions(state: CompanyJobInput): boolean {
+  return (
+    state.avatar_interview_enabled === true &&
+    askedCount(questionsOf(state, "live")) < MIN_JOB_QUESTIONS
+  );
+}
+
+/** Near Continue on step 5 while it is blocked (#61 follow-up, 27 Nov). */
+export const ASYNC_CONTINUE_BLOCKED =
+  "Add at least 3 questions, or turn Async Video Interview off, to continue.";
+
+/** Near Continue on step 6 while it is blocked. The editor caps at 8, so only too few. */
+export const LIVE_CONTINUE_BLOCKED =
+  "Add 4 to 8 questions, or turn AI Video Interview off, to continue.";
+
+/**
+ * Why the wizard may not move on past this step, or null: step 5 with Async
+ * Video Interview on and fewer than 3 questions, step 6 with AI Video
+ * Interview on and fewer than 4. An interview that is off never blocks. The
+ * same in create and edit. Only moving FORWARD asks (walkForward): Back, an
+ * earlier step on the rail and Save draft never do, and Publish keeps its
+ * server gate.
+ */
+export function interviewStepBlock(step: number, state: CompanyJobInput): string | null {
+  if (step === 5 && asyncNeedsQuestions(state)) return ASYNC_CONTINUE_BLOCKED;
+  if (step === 6 && liveNeedsQuestions(state)) return LIVE_CONTINUE_BLOCKED;
+  return null;
+}
+
+/**
+ * Where a move from `from` to `target` lands, along the wizard's `sequence`.
+ * Forward (Continue, or a later step on the rail) checks every step it leaves
+ * or passes, in order, and stops on the first that does not pass: no step is
+ * skipped over. Back, or the same step, lands on the target without asking.
+ */
+export function walkForward(
+  sequence: readonly number[],
+  from: number,
+  target: number,
+  passes: (step: number) => boolean,
+): number {
+  const start = sequence.indexOf(from);
+  const end = sequence.indexOf(target);
+  for (let i = start; i >= 0 && i < end; i++) {
+    if (!passes(sequence[i])) return sequence[i];
+  }
+  return target;
+}
+
 /**
  * The two read-only Review cards' lines. "Off" first when an interview is off.
  * The AI Video Interview's mode and length are passed in by the wizard, which

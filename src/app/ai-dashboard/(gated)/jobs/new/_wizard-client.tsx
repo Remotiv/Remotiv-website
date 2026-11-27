@@ -89,9 +89,7 @@ import { LiveInterviewSettings } from "./_live-interview-settings";
 import { QuestionDraftPanel } from "./_question-draft-panel";
 import {
   AI_VIDEO_OPTION_DESCRIPTION,
-  AI_VIDEO_QUESTION_COUNT_WARNING,
   AI_VIDEO_STEP_LINE,
-  aiVideoQuestionCountOutOfRange,
   aiVideoQuestionsHint,
 } from "./ai-video-copy";
 import { fieldErrorId, fieldErrorProps, firstInvalidFieldId } from "./field-errors";
@@ -102,16 +100,16 @@ import {
   INITIAL_DRAFTS,
 } from "./question-drafts";
 import {
-  ASYNC_NEEDS_QUESTIONS_LINE,
   askedCount,
-  asyncNeedsQuestions,
   asyncOffLine,
   interviewReviewLines,
+  interviewStepBlock,
   liveOffLine,
   NO_OTHER_COMPETENCY,
   type OtherCompetency,
   questionsOf,
   setOtherCompetency,
+  walkForward,
 } from "./question-lists";
 import { currencySymbol, salaryRange } from "./salary-range";
 import {
@@ -1364,6 +1362,12 @@ export function WizardClient({
   }
 
   function validate(target: number): boolean {
+    // The two interview steps: an interview that is on needs its questions to move on.
+    const blocked = interviewStepBlock(target, state);
+    if (blocked) {
+      showToast(blocked);
+      return false;
+    }
     const next: Record<string, string> = {};
 
     if (target === 1) {
@@ -1409,26 +1413,14 @@ export function WizardClient({
     return true;
   }
 
-  /** Rail navigation: going forward re-validates every intervening step. */
+  /**
+   * Rail and Continue navigation: going forward re-validates every step left
+   * or passed, and stops on the first that fails (walkForward walks the
+   * SEQUENCE, so a step ever taken out of the flow is never validated on the
+   * way past). Going back never validates.
+   */
   function goTo(target: number) {
-    if (target <= step) {
-      setStep(target);
-      return;
-    }
-    /*
-     * Walk the SEQUENCE, not the raw numbers, so a step that is ever taken
-     * out of the flow is never validated on the way past.
-     */
-    const from = positionOf(step);
-    const to = positionOf(target);
-    for (let pos = from; pos < to; pos++) {
-      const k = stepAt(pos);
-      if (k !== null && !validate(k)) {
-        setStep(k);
-        return;
-      }
-    }
-    setStep(target);
+    setStep(walkForward(SEQUENCE, step, target, validate));
   }
 
   // ── Screening builder ──────────────────────────────────────
@@ -2489,12 +2481,6 @@ export function WizardClient({
                     />
                   </div>
 
-                  {asyncNeedsQuestions(state) && (
-                    <p className="mb-4 text-xs text-[#C4362F]" data-async-needs-questions>
-                      {ASYNC_NEEDS_QUESTIONS_LINE}
-                    </p>
-                  )}
-
                   {!state.async_interview_enabled && (
                     <p className={OFF_LINE_CLS} data-interview-off="async">
                       {asyncOffLine(askedCount(interviewQs))}
@@ -2546,11 +2532,6 @@ export function WizardClient({
                           state.live_interview_minutes ?? DEFAULT_LIVE_INTERVIEW_MINUTES,
                         )}
                       </p>
-                      {aiVideoQuestionCountOutOfRange(askedCount(liveQs)) && (
-                        <p className="mt-1.5 text-xs text-[#C4362F]">
-                          {AI_VIDEO_QUESTION_COUNT_WARNING}
-                        </p>
-                      )}
                     </OptionRow>
                   </div>
 
@@ -2925,7 +2906,12 @@ export function WizardClient({
               <span className="text-[12.5px] font-semibold text-[var(--ai-t3)]">
                 Step <b className="text-[var(--ai-t1)]">{positionOf(step)}</b> of {SEQUENCE.length}
               </span>
-              <div className="flex gap-2.5">
+              <div className="flex items-center gap-2.5">
+                {interviewStepBlock(step, state) && (
+                  <p className="text-xs text-[#C4362F]" data-step-blocked>
+                    {interviewStepBlock(step, state)}
+                  </p>
+                )}
                 {positionOf(step) > 1 && (
                   <button
                     type="button"
@@ -2949,7 +2935,7 @@ export function WizardClient({
                       return;
                     }
                     const next = stepAt(positionOf(step) + 1);
-                    if (next !== null && validate(step)) setStep(next);
+                    if (next !== null) goTo(next);
                   }}
                   className={`inline-flex items-center gap-2 rounded-[11px] px-5 py-2.5 text-[13.5px] font-semibold text-white transition-colors disabled:opacity-60 ${
                     step === FINAL_STEP
