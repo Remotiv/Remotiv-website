@@ -35,6 +35,7 @@ import {
 } from "@/app/ai-dashboard/lib/job-types";
 // Lives with the applicants actions, not the jobs ones — it operates on
 // application_scores and re-checks ownership through company_id_snapshot.
+import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 import { useModalFocus } from "@/hooks/use-modal-focus";
 import { rescoreJob } from "../applicants/actions";
 import { DeletedJobsPanel } from "./_deleted-jobs";
@@ -500,20 +501,18 @@ function JobDrawer({
   const posted = fmtPosted(job.created_at, job.status, hydrated);
   const publicUrl = job.slug ? `/jobs/${job.slug}` : null;
 
-  // Escape closes; body scroll locks while open — the same pattern the
-  // segment's other overlays use.
+  // Escape closes.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
     }
     document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
+    return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
+  // The page's one counted scroll lock, for as long as the drawer is open. Its
+  // own save/restore of body.overflow, re-run on every render, stranded the
+  // page locked when its confirm dialog closed (26 Nov).
+  useBodyScrollLock(true);
 
   return (
     <div className="fixed inset-0 z-40 flex">

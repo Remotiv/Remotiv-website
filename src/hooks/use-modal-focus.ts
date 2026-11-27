@@ -11,6 +11,7 @@ import {
   type StackEntry,
   topId,
 } from "@/lib/a11y/modal-stack";
+import { acquireBodyScrollLock } from "./use-body-scroll-lock";
 
 /**
  * The one modal focus primitive (Phase 6, A6-16).
@@ -80,8 +81,27 @@ let stack: StackEntry<HTMLElement>[] = [];
 const records = new Map<string, Record>();
 /** Elements made inert for the current top, with the attribute they had before. */
 let inerted: { el: Element; prev: string | null }[] = [];
-let prevBodyOverflow: string | null = null;
 let listening = false;
+
+/**
+ * The modals' share of the page's one scroll lock (use-body-scroll-lock.ts):
+ * taken once while any open modal wants it, released once when none does.
+ * Counted with every other locker, so a drawer underneath and a dialog on top
+ * can close in either order and the page scrolls again (26 Nov).
+ */
+export function createModalScrollLock(acquire: () => () => void = acquireBodyScrollLock) {
+  let release: (() => void) | null = null;
+  return {
+    update(wanted: boolean) {
+      if (wanted && !release) release = acquire();
+      else if (!wanted && release) {
+        release();
+        release = null;
+      }
+    },
+  };
+}
+const scrollLock = createModalScrollLock();
 
 function focusablesIn(container: HTMLElement): HTMLElement[] {
   return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
@@ -152,20 +172,13 @@ function sync(): void {
       document.addEventListener("keydown", onKeyDown, true);
       listening = true;
     }
-    const wantsLock = [...records.values()].some((r) => r.options().lockScroll !== false);
-    if (wantsLock && prevBodyOverflow === null) {
-      prevBodyOverflow = document.body.style.overflow;
-      document.body.style.overflow = "hidden";
-    }
+    scrollLock.update([...records.values()].some((r) => r.options().lockScroll !== false));
   } else {
     if (listening) {
       document.removeEventListener("keydown", onKeyDown, true);
       listening = false;
     }
-    if (prevBodyOverflow !== null) {
-      document.body.style.overflow = prevBodyOverflow;
-      prevBodyOverflow = null;
-    }
+    scrollLock.update(false);
   }
 }
 
