@@ -92,6 +92,7 @@ import {
   AI_VIDEO_STEP_LINE,
   aiVideoQuestionsHint,
 } from "./ai-video-copy";
+import { draftButtonLabel } from "./draft-button";
 import { fieldErrorId, fieldErrorProps, firstInvalidFieldId } from "./field-errors";
 import {
   type DraftsAction,
@@ -1032,6 +1033,8 @@ export function WizardClient({
   const isEdit = mode === "edit";
 
   const [state, setState] = useState<CompanyJobInput>(initialState ?? EMPTY_JOB_INPUT);
+  // The job's status as stored, for the draft button's label only (#62).
+  const [savedStatus, setSavedStatus] = useState(initialState?.status);
   const [step, setStep] = useState(1);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [toast, showToast] = useToast();
@@ -1722,6 +1725,8 @@ export function WizardClient({
       // Saved in full: what is on screen is what is stored, so nothing warns
       // from here. A partial save (the questions failed) stays dirty.
       if (savedEverything(result)) setSavedSnapshot(formSnapshot(payload, jdBox));
+      // A draft save stores the job On hold, even when its questions failed.
+      if (status === "on_hold") setSavedStatus("on_hold");
 
       /*
        * The role saved but its interview questions did not.
@@ -1801,7 +1806,7 @@ export function WizardClient({
             disabled={submitting}
             className="rounded-[11px] border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-4 py-[9px] text-[13.5px] font-semibold text-[var(--ai-t2)] transition-colors hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)] disabled:opacity-50"
           >
-            {isEdit ? "Save as draft" : "Save draft"}
+            {draftButtonLabel(isEdit, savedStatus)}
           </button>
           <button
             type="button"

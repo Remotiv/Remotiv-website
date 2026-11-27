@@ -526,7 +526,7 @@ test("Review: AI Video Interview on with fewer than 4 questions says it needs 4 
 test("the buttons and the status they save: Save draft / Save as draft = On hold; Publish = Published; Save changes keeps the job's status", () => {
   assert.match(
     WIZARD,
-    /onClick=\{\(\) => submit\("on_hold"\)\}[\s\S]{0,400}?\{isEdit \? "Save as draft" : "Save draft"\}/,
+    /onClick=\{\(\) => submit\("on_hold"\)\}[\s\S]{0,400}?\{draftButtonLabel\(isEdit, savedStatus\)\}/,
   );
   assert.match(WIZARD, /onClick=\{\(\) => submit\(isEdit \? state\.status : "open"\)\}/);
   assert.equal((WIZARD.match(/submit\(isEdit \? state\.status : "open"\)/g) ?? []).length, 2);
@@ -799,4 +799,39 @@ test("#61 a blocked step shows ONE red line, by Continue: none on step 5 or step
     1,
     "the one line, by the buttons",
   );
+});
+
+/* ── #62: the draft button on a Published job ── */
+
+const draft = await import("./draft-button.ts");
+
+test("#62 the draft button: a Published edit says Unpublish and save as draft; On hold, Closed and new jobs keep their label", () => {
+  assert.equal(draft.draftButtonLabel(true, "open"), "Unpublish and save as draft");
+  assert.equal(draft.draftButtonLabel(true, "on_hold"), "Save as draft");
+  assert.equal(draft.draftButtonLabel(true, "closed"), "Save as draft");
+  assert.equal(draft.draftButtonLabel(false, undefined), "Save draft");
+  assert.equal(
+    draft.draftButtonLabel(false, "open"),
+    "Save draft",
+    "a new job is never Published yet",
+  );
+  for (const label of [
+    draft.SAVE_DRAFT_LABEL,
+    draft.SAVE_AS_DRAFT_LABEL,
+    draft.UNPUBLISH_AND_SAVE_AS_DRAFT_LABEL,
+  ]) {
+    assert.doesNotMatch(label, /[\u2012-\u2015]/);
+  }
+});
+
+test("#62 wiring: the label follows the job's stored status, the button still saves On hold, and it is the only draft button", () => {
+  assert.match(
+    WIZARD,
+    /const \[savedStatus, setSavedStatus\] = useState\(initialState\?\.status\);/,
+  );
+  assert.match(WIZARD, /if \(status === "on_hold"\) setSavedStatus\("on_hold"\);/);
+  // The one draft button: submit("on_hold"), labelled by draftButtonLabel.
+  assert.equal((WIZARD.match(/submit\("on_hold"\)/g) ?? []).length, 1);
+  assert.equal((WIZARD.match(/draftButtonLabel\(/g) ?? []).length, 1);
+  assert.doesNotMatch(WIZARD, /"Save as draft"|"Save draft"/, "no label typed in the wizard");
 });
