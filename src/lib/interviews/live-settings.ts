@@ -100,9 +100,12 @@ export type BuildLiveSettingsResult =
  *      (live-availability.ts). Checked before any database read, and here
  *      rather than in the action, so no caller can pass the gate without it.
  *   2. The job's toggle is on.
- *   3. The job has 4 to 8 interview questions (#19, 23 Nov), counted here on
- *      the server, before the send writes, freezes or sends anything. Never
- *      the browser's count.
+ *   3. The job has 4 to 8 interview questions (#19, 23 Nov): `jobQuestionCount`,
+ *      which the send counts on the server from the ONE read of the questions
+ *      it then freezes (#44, invite-snapshots.ts), before anything is written,
+ *      frozen or sent. Never the browser's count, and never a second read of
+ *      the table here: a job save between two reads could make the count and
+ *      the snapshot disagree, and the start would refuse the mismatch forever.
  *   4. The job's mode and length (24 Nov) are ones the interview allows:
  *      structured or ai_guided, 30 or 60 minutes. Frozen as interview_mode,
  *      max_follow_ups_per_base_question (0 or 2) and max_session_seconds (1800
@@ -133,7 +136,12 @@ export type BuildLiveSettingsResult =
  */
 export async function gateLiveInterviewInvite(
   service: ReturnType<typeof createServiceClient>,
-  input: { jobId: string; companyId: string },
+  input: {
+    jobId: string;
+    companyId: string;
+    /** The AI Video Interview's own list (082), as the send read it once. */
+    jobQuestionCount: number;
+  },
 ): Promise<BuildLiveSettingsResult> {
   if (!liveInterviewsAvailableFor(input.companyId)) {
     return { ok: false, error: "AI Video Interviews aren't available yet." };
@@ -160,21 +168,6 @@ export async function gateLiveInterviewInvite(
     };
   }
 
-  // How many questions the job has, for the mix (23 Nov, #13): every one is
-  // asked. Read the way the invite reads its questions_snapshot. A job saved
-  // between the two reads can make them differ; the freeze compares them and
-  // refuses a mismatch (live-question-freeze.ts), so neither is trusted alone.
-  // The AI Video Interview's own list only (082): the async questions are
-  // never asked live and never counted here.
-  const { data: questions, error: questionsErr } = await service
-    .from("interview_questions")
-    .select("id")
-    .eq("job_id", input.jobId)
-    .eq("company_id", input.companyId)
-    .eq("interview_kind", "live")
-    .limit(50);
-  if (questionsErr) return { ok: false, error: "Couldn't send - please try again." };
-
   // The job's mode and length (migration 074), frozen now, from the allowed
   // set only. The columns' checks make anything else unstorable; a value that
   // is not one of them anyway is refused rather than guessed.
@@ -187,7 +180,11 @@ export async function gateLiveInterviewInvite(
   ) {
     return { ok: false, error: LIVE_SETTINGS_UNREADABLE_ERROR };
   }
-  const jobQuestionCount = (questions ?? []).length;
+  // How many questions the job has, for the mix (23 Nov, #13): every one is
+  // asked. The send's own count of the rows it freezes (#44): the mix and the
+  // snapshot cannot disagree, and the freeze's check of the two at start
+  // (live-question-freeze.ts) holds by construction.
+  const { jobQuestionCount } = input;
   if (jobQuestionCount < MIN_JOB_QUESTIONS || jobQuestionCount > MAX_JOB_QUESTIONS) {
     return { ok: false, error: LIVE_QUESTION_COUNT_ERROR };
   }

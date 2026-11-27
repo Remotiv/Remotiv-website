@@ -39,8 +39,12 @@ const { fakeService } = await import("../../test-support/fake-postgrest.mjs");
 const CO = "7aad434d-0000-4000-8000-000000000001";
 const JOB = "2d4a8cde-0000-4000-8000-000000000002";
 
-/** The gate's result for a job with `questions` questions, the toggle on and a name, the company allowlisted. */
-async function gateFor(questions = 6, questionsError = null, storedName = "Aisha", job = {}) {
+/**
+ * The gate's result for a job with `questions` questions (the count the send
+ * passes in from its one read, #44), the toggle on and a name, the company
+ * allowlisted.
+ */
+async function gateFor(questions = 6, storedName = "Aisha", job = {}) {
   const before = process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS;
   process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS = CO;
   try {
@@ -59,15 +63,15 @@ async function gateFor(questions = 6, questionsError = null, storedName = "Aisha
         };
       }
       if (table === "interview_questions") {
-        if (questionsError) return { data: null, error: questionsError };
-        return {
-          data: Array.from({ length: questions }, (_, i) => ({ id: `q-${i}` })),
-          error: null,
-        };
+        throw new Error("the gate must not read interview_questions (#44)");
       }
       return { data: null, error: null };
     });
-    const gate = await gateLiveInterviewInvite(service, { jobId: JOB, companyId: CO });
+    const gate = await gateLiveInterviewInvite(service, {
+      jobId: JOB,
+      companyId: CO,
+      jobQuestionCount: questions,
+    });
     return { gate, service };
   } finally {
     if (before === undefined) delete process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS;
@@ -76,7 +80,7 @@ async function gateFor(questions = 6, questionsError = null, storedName = "Aisha
 }
 
 async function frozenAtInvite(questions = 6, job = {}) {
-  const { gate } = await gateFor(questions, null, "Aisha", job);
+  const { gate } = await gateFor(questions, "Aisha", job);
   assert.equal(gate.ok, true, gate.error);
   return gate.settings;
 }
@@ -137,20 +141,15 @@ test("#19: fewer than 4 or more than 8 questions: the gate refuses with the appr
   }
 });
 
-test("the count is read for this job in this company, live questions only (082); a failed read refuses the send", async () => {
+test("#44: the gate reads the job row only; the count is the send's input, from its one read of the questions", async () => {
   const { service } = await gateFor(6);
-  const q = service.queries.find((x) => x.table === "interview_questions");
-  assert.ok(q, "the job's questions are counted");
   assert.deepEqual(
-    q.calls.filter((c) => c[0] === "eq"),
-    [
-      ["eq", "job_id", JOB],
-      ["eq", "company_id", CO],
-      ["eq", "interview_kind", "live"],
-    ],
+    service.queries.map((x) => x.table),
+    ["jobs"],
+    "one query, the job row; never interview_questions",
   );
-  const failed = await gateFor(6, { message: "boom" });
-  assert.deepEqual(failed.gate, { ok: false, error: "Couldn't send - please try again." });
+  const src = readFileSync(new URL("./live-settings.ts", import.meta.url), "utf8");
+  assert.ok(!src.includes('from("interview_questions")'));
 });
 
 test("the follow-up limit comes from the mode: never more than 2, and a row claiming more is refused", async () => {
@@ -279,7 +278,7 @@ test("async is untouched: its lengths and counts, and its send never freezes liv
 
 test("24 Nov: the interviewer is always Sarah, whatever name the job once stored", async () => {
   for (const storedName of ["Aisha", "", null, undefined]) {
-    const { gate, service } = await gateFor(6, null, storedName);
+    const { gate, service } = await gateFor(6, storedName);
     assert.equal(gate.ok, true, `${JSON.stringify(storedName)}: ${gate.error}`);
     assert.equal(gate.settings.interviewer_name, "Sarah");
     const jobRead = service.queries.find((q) => q.table === "jobs");
@@ -298,11 +297,14 @@ test("the switched-off refusal points at the AI Video Interview step (6), where 
   process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS = CO;
   try {
     const service = fakeService(() => ({ data: { avatar_interview_enabled: false }, error: null }));
-    assert.deepEqual(await gateLiveInterviewInvite(service, { jobId: JOB, companyId: CO }), {
-      ok: false,
-      error:
-        "AI Video Interviews are switched off for this job. Turn them on in the AI Video Interview step (step 6) of the job's settings, then send again.",
-    });
+    assert.deepEqual(
+      await gateLiveInterviewInvite(service, { jobId: JOB, companyId: CO, jobQuestionCount: 6 }),
+      {
+        ok: false,
+        error:
+          "AI Video Interviews are switched off for this job. Turn them on in the AI Video Interview step (step 6) of the job's settings, then send again.",
+      },
+    );
   } finally {
     if (before === undefined) delete process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS;
     else process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS = before;
@@ -343,7 +345,7 @@ test("v4: a mode or length outside the allowed set is refused, never guessed", a
     { live_interview_minutes: "60" },
     { live_interview_minutes: null },
   ]) {
-    const { gate } = await gateFor(6, null, "Aisha", job);
+    const { gate } = await gateFor(6, "Aisha", job);
     assert.deepEqual(
       gate,
       { ok: false, error: LIVE_SETTINGS_UNREADABLE_ERROR },

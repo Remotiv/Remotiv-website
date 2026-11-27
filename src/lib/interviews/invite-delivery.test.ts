@@ -353,9 +353,11 @@ test("b: a failed email cancels the new session exactly as before, and nothing i
       name,
     );
     const cancel = only(steps, "write").at(-1);
-    // The async send supplies its id (normalised to <SESSION>); fake-live-db gives the
-    // live insert none, so its cancel filters on that missing id, before and after the move.
-    const newId = action === sendInterviewInvite ? "<SESSION>" : null;
+    // The async send supplies its id (normalised to <SESSION>); the live insert lets the
+    // database mint one, and the cancel filters on the id the insert came back with.
+    const newId =
+      action === sendInterviewInvite ? "<SESSION>" : w.tables.interview_sessions.at(-1).id;
+    assert.ok(newId, `${name}: the new session has an id`);
     assert.deepEqual(
       [cancel.table, cancel.op, cancel.value, cancel.filters],
       ["interview_sessions", "update", { status: "cancelled" }, [["eq", "id", newId]]],

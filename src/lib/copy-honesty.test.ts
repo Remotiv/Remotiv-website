@@ -204,9 +204,10 @@ test("C7-21: the drawer does not assert WhatsApp delivery it never awaits", () =
 test("C7-28: the unbuilt round is described as unbuilt, not as generating questions", () => {
   assert.doesNotMatch(panel, /Questions are generated from this application/);
   assert.match(panel, /Still in development, so a candidate can&apos;t start this round yet/);
-  // The code fact: the send path freezes the job's fixed questions.
+  // The code fact: the send path freezes the job's fixed questions, from one read (#44).
   const actions = src("../app/ai-dashboard/(gated)/applicants/interview-actions.ts");
-  assert.match(actions, /loadQuestionsSnapshot/);
+  assert.match(actions, /loadInviteQuestionRows/);
+  assert.match(actions, /questionsSnapshotOf\(rows\.rows\)/);
 });
 
 test("C7-32: admin access does not claim billing, which is owner-only", () => {

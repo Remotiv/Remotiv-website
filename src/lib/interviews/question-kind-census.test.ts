@@ -57,15 +57,14 @@ const JOBS = "app/ai-dashboard/(gated)/jobs/actions.ts";
 
 /** [file, function, the value interview_kind is filtered by]. */
 const FILTERED = [
-  [IA, "loadQuestionsSnapshot", "kind"],
-  [IA, "loadScoringSnapshot", "kind"],
+  // The invite's ONE read (#44): count, questions_snapshot and scoring_snapshot from this array.
+  [IA, "loadInviteQuestionRows", "kind"],
   [IA, "fetchInterviewPanel", "kind"],
   // The edit page's fetch and the duplicate both read through loadQuestionList.
   [JOBS, "loadQuestionList", "kind"],
   // The one go-live gate's stored count, per kind (#59 live, #61 async): every path that makes a job live.
   ["lib/interviews/live-go-live.ts", "storedQuestionCount", "kind"],
   ["lib/ai/interview-scoring.ts", "handleAiScorecard", '"async"'],
-  ["lib/interviews/live-settings.ts", "gateLiveInterviewInvite", '"live"'],
   ["lib/interviews/review.ts", "loadInterviewSession", "kind"],
   ["lib/interviews/session.ts", "loadCandidateQuestions", '"async"'],
 ];
@@ -100,13 +99,17 @@ test("the save path writes both lists through replace_interview_questions only",
 
 test("where the filter is a variable, it is the right kind", () => {
   const ia = readFileSync(join(SRC, IA), "utf8");
-  // The snapshots take the kind as a parameter; the async invite passes async, the live invite live.
-  assert.match(ia, /loadQuestionsSnapshot\(service, jobId, ctx\.companyId, "async"\)/);
-  assert.match(ia, /loadScoringSnapshot\(service, jobId, ctx\.companyId, "async"\)/);
-  assert.match(ia, /loadQuestionsSnapshot\(service, jobId, ctx\.companyId, "live"\)/);
-  assert.match(ia, /loadScoringSnapshot\(service, jobId, ctx\.companyId, "live"\)/);
-  assert.equal((ia.match(/loadQuestionsSnapshot\(service/g) ?? []).length, 2);
-  assert.equal((ia.match(/loadScoringSnapshot\(service/g) ?? []).length, 2);
+  // The one read takes the kind as a parameter; the async invite passes async, the live invite live (#44).
+  assert.match(ia, /loadInviteQuestionRows\(service, jobId, ctx\.companyId, "async"\)/);
+  assert.match(ia, /loadInviteQuestionRows\(service, jobId, ctx\.companyId, "live"\)/);
+  assert.equal((ia.match(/loadInviteQuestionRows\(service/g) ?? []).length, 2);
+  // Both snapshots are projected from that read's rows, by kind; the gate takes its count from them.
+  assert.match(ia, /scoringSnapshotOf\(rows\.rows, "async"\)/);
+  assert.match(ia, /scoringSnapshotOf\(rows\.rows, "live"\)/);
+  assert.match(ia, /jobQuestionCount: rows\.rows\.length,/);
+  // The gate itself reads no questions (#44): the count is its input.
+  const gate = readFileSync(join(SRC, "lib/interviews/live-settings.ts"), "utf8");
+  assert.ok(!gate.includes(FROM), "the gate no longer reads interview_questions");
   // The panel counts by the kind it read the session with.
   const panel = ia.slice(ia.indexOf("export async function fetchInterviewPanel("));
   assert.match(panel.slice(0, panel.indexOf(FROM)), /\.eq\("kind", kind\)/);

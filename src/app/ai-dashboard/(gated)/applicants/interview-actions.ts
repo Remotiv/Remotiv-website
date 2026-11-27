@@ -25,6 +25,11 @@ import {
 import { liveInterviewsAvailableFor } from "@/lib/interviews/live-availability";
 import { type LiveCallFields, liveCallBegan } from "@/lib/interviews/live-call";
 import { restartEligibility } from "@/lib/interviews/live-restart";
+import {
+  type InviteQuestionRow,
+  questionsSnapshotOf,
+  scoringSnapshotOf,
+} from "@/lib/interviews/invite-snapshots";
 import { gateLiveInterviewInvite } from "@/lib/interviews/live-settings";
 import { mintSessionToken, RETENTION_MONTHS, SESSION_EXPIRY_DAYS } from "@/lib/interviews/tokens";
 import { type InterviewKind, readInterviewKind } from "@/lib/interviews/types";
@@ -102,13 +107,19 @@ export async function sendInterviewInvite(
     };
   }
 
-  const questionsSnapshot = await loadQuestionsSnapshot(service, jobId, ctx.companyId, "async");
-  const scoringSnapshot = await loadScoringSnapshot(service, jobId, ctx.companyId, "async");
+  // ONE read of the questions (#44): the count, the candidate's copy and the
+  // marking scheme all come from this array, so a job save landing during the
+  // send can never split them.
+  const rows = await loadInviteQuestionRows(service, jobId, ctx.companyId, "async");
+  if (!rows.ok) return { success: false, error: SEND_FAILED };
   // No questions, no interview. Sending a link to an empty interview wastes
-  // the candidate's time and looks broken from their side.
-  if (questionsSnapshot.length === 0) {
+  // the candidate's time and looks broken from their side. At least one at
+  // send; the 3-to-8 rule is Publish's (#61).
+  if (rows.rows.length === 0) {
     return { success: false, error: NO_QUESTIONS };
   }
+  const questionsSnapshot = questionsSnapshotOf(rows.rows);
+  const scoringSnapshot = scoringSnapshotOf(rows.rows, "async");
 
   /*
    * ── The monthly allowance, reserved before anything is created or sent ──
@@ -329,12 +340,24 @@ export async function sendLiveInterviewInvite(
   if (!target.ok) return { success: false, error: target.error };
   const { app, jobId } = target;
 
+  // ONE read of the AI Video Interview's questions (#44). The gate's count,
+  // the candidate's copy and the marking scheme all come from this array: a
+  // job save landing during the send cannot leave the mix saying 4 while the
+  // snapshot holds 5, or pair one version's questions with another's rubrics.
+  const rows = await loadInviteQuestionRows(service, jobId, ctx.companyId, "live");
+  if (!rows.ok) return { success: false, error: SEND_FAILED };
+
   /*
-   * THE gate, and never around it: the allowlist, the job's toggle and the
-   * interviewer name, all re-read server-side. Its output is the only source
-   * of live settings — buildLiveSettings is private to that module.
+   * THE gate, and never around it: the allowlist, the job's toggle, its mode
+   * and length, all re-read server-side, and the count of the rows above
+   * (4 to 8). Its output is the only source of live settings —
+   * buildLiveSettings is private to that module.
    */
-  const gate = await gateLiveInterviewInvite(service, { jobId, companyId: ctx.companyId });
+  const gate = await gateLiveInterviewInvite(service, {
+    jobId,
+    companyId: ctx.companyId,
+    jobQuestionCount: rows.rows.length,
+  });
   if (!gate.ok) return { success: false, error: gate.error };
 
   /*
@@ -348,11 +371,8 @@ export async function sendLiveInterviewInvite(
     return { ...LIVE_RESTARTED, error: restart.restarted ? RESTARTED_TEXT : DECIDED_TEXT };
   }
 
-  const questionsSnapshot = await loadQuestionsSnapshot(service, jobId, ctx.companyId, "live");
-  const scoringSnapshot = await loadScoringSnapshot(service, jobId, ctx.companyId, "live");
-  if (questionsSnapshot.length === 0) {
-    return { success: false, error: NO_LIVE_QUESTIONS };
-  }
+  const questionsSnapshot = questionsSnapshotOf(rows.rows);
+  const scoringSnapshot = scoringSnapshotOf(rows.rows, "live");
 
   // Live sessions only. An async interview this candidate was already sent is
   // never read, never cancelled.
@@ -469,12 +489,6 @@ type Service = ReturnType<typeof createServiceClient>;
 type CompanyCtx = Awaited<ReturnType<typeof getCompanyContext>>;
 
 const NO_QUESTIONS = "Add interview questions to this job first - there's nothing to ask yet.";
-/**
- * The live invite's version. The gate (gateLiveInterviewInvite) already
- * refuses fewer than 4 live questions with its own message, so this is seen
- * only if the list is emptied between the gate's count and this read.
- */
-const NO_LIVE_QUESTIONS = "Add AI Video Interview questions to this job first.";
 
 /**
  * The application, re-fetched and checked: company, then hiring team, then an
@@ -519,98 +533,52 @@ async function loadInviteTarget(
 }
 
 /**
- * Read the questions ONCE and return them for freezing onto the session.
+ * The job's questions of one kind, read ONCE for the whole send (#44).
  *
  * This read stays on the LIVE table — it is the pre-send guard, and it runs
  * before any snapshot exists. Everything after the invite reads the frozen
  * copy instead, which is what stops a later job edit from reaching a
  * candidate who is already mid-interview.
  *
- * rubric, competency and weight are NOT selected. That is the marking
- * scheme, and this array becomes the candidate payload — see the
- * SnapshotQuestion comment in lib/interviews/session.ts. Do not add them.
+ * One statement, so one instant: a job save (replace_interview_questions,
+ * 082) is one transaction that deletes and re-inserts the list with new ids,
+ * and this read sees all of the old list or all of the new, never half, and
+ * never one version in one read and the next in another. The count the gate
+ * checks, the candidate's questions_snapshot and the reviewer's
+ * scoring_snapshot are all projected from this one array by the pure mappers
+ * in lib/interviews/invite-snapshots.ts, which also keep the marking fields
+ * out of the candidate payload.
  *
  * `kind` picks the list (082): the async invite freezes the async questions
- * only, the live invite the AI Video Interview's own list only.
+ * only, the live invite the AI Video Interview's own list only. A failed read
+ * refuses the send; it is never read as an empty list.
  */
-async function loadQuestionsSnapshot(
-  service: Service,
-  jobId: string,
-  companyId: string,
-  kind: InterviewKind,
-) {
-  const { data: questionRows } = await service
-    .from("interview_questions")
-    .select("id, position, question, prep_seconds, answer_seconds, required")
-    .eq("job_id", jobId)
-    .eq("company_id", companyId)
-    .eq("interview_kind", kind)
-    .order("position", { ascending: true })
-    .limit(50);
-
-  return (questionRows ?? []) as {
-    id: string;
-    position: number;
-    question: string | null;
-    prep_seconds: number | null;
-    answer_seconds: number | null;
-    required: boolean | null;
-  }[];
-}
-
 /**
- * The marking scheme, frozen at invite - the half loadQuestionsSnapshot
- * deliberately leaves out.
- *
- * Written to interview_sessions.scoring_snapshot (migration 028), which no
- * candidate-facing read selects. The scorer marks every answer against this
- * and never against the live interview_questions rows, which a job save
- * deletes and reinserts; before this existed a reorder between invite and
- * scoring could grade an answer with a different question's rubric and weight
- * (Phase 4, AI-6). Positions match questions_snapshot's, which is how the
- * scorer joins the two halves.
- *
- * `kind` picks the list, as loadQuestionsSnapshot's does. Live questions all
- * count equally in v1: every one is frozen with weight 1, the live scorer's
- * own unit (live-scoring.ts reads `weight ?? 1` as the multiplier), whatever
- * the row holds. Async weights are frozen as stored, as before.
+ * The one read's columns: an InviteQuestionRow (lib/interviews/invite-snapshots.ts),
+ * spelled here as a same-file constant so the tenant scan reads the projection.
  */
-async function loadScoringSnapshot(
+const INVITE_QUESTION_COLUMNS =
+  "id, position, question, prep_seconds, answer_seconds, required, competency, rubric, weight";
+
+async function loadInviteQuestionRows(
   service: Service,
   jobId: string,
   companyId: string,
   kind: InterviewKind,
-) {
-  const { data } = await service
+): Promise<{ ok: true; rows: InviteQuestionRow[] } | { ok: false }> {
+  const { data, error } = await service
     .from("interview_questions")
-    .select("id, position, competency, rubric, weight")
+    .select(INVITE_QUESTION_COLUMNS)
     .eq("job_id", jobId)
     .eq("company_id", companyId)
     .eq("interview_kind", kind)
     .order("position", { ascending: true })
     .limit(50);
-
-  return ((data ?? []) as {
-    id: string;
-    position: number;
-    competency: string | null;
-    rubric: string | null;
-    weight: number | null;
-  }[]).map((q) => ({
-    position: q.position,
-    question_id: q.id,
-    competency: (q.competency ?? "").trim() || null,
-    rubric: (q.rubric ?? "").trim() || null,
-    weight: kind === "live" ? LIVE_QUESTION_WEIGHT : storedWeight(q.weight),
-  }));
-}
-
-/** Every live question's frozen weight in v1: the live scorer's Normal (multiplier 1). */
-const LIVE_QUESTION_WEIGHT = 1;
-
-/** An async question's stored weight, or null (Normal) when it holds none. */
-function storedWeight(weight: number | null): number | null {
-  return typeof weight === "number" && weight > 0 ? weight : null;
+  if (error) {
+    console.error(`[interview] ${kind} send: questions read failed (${dbCode(error)})`);
+    return { ok: false };
+  }
+  return { ok: true, rows: (data ?? []) as InviteQuestionRow[] };
 }
 
 /**

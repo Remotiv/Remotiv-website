@@ -740,7 +740,16 @@ export function fakeLiveDb(initial = {}, options = {}) {
     outcomeWrites: 0,
     scoreWrites: 0,
     guideInserts: 0,
+    /** Selects answered, per table: how many times a path read a table. */
+    selects: {},
   };
+  /**
+   * `afterSelect(table, n, fn)`: once the n-th select of `table` has produced
+   * its answer, run fn(tables). The answer already taken is the state before
+   * fn; the next select sees the state after it, which is how a save that
+   * commits between two of a caller's reads looks to that caller in Postgres.
+   */
+  const afterSelect = [];
   let actionClock = Date.parse("2026-10-20T09:00:00.000Z");
 
   const takeFault = (table, op) => {
@@ -765,7 +774,8 @@ export function fakeLiveDb(initial = {}, options = {}) {
         if (c[0] === "neq") return get(row, c[1]) !== c[2];
         if (c[0] === "gt") return get(row, c[1]) !== null && get(row, c[1]) > c[2];
         if (c[0] === "in") return c[2].includes(get(row, c[1]));
-        if (c[0] === "is") return get(row, c[1]) === c[2];
+        // A column never written is NULL to Postgres: `.is(col, null)` matches it.
+        if (c[0] === "is") return (get(row, c[1]) ?? null) === c[2];
         if (c[0] === "lte") return get(row, c[1]) !== null && get(row, c[1]) <= c[2];
         if (c[0] === "not" && c[2] === "is") return get(row, c[1]) !== c[3];
         if (c[0] === "or") return orMatches(row, c[1]);
@@ -806,7 +816,15 @@ export function fakeLiveDb(initial = {}, options = {}) {
             row.id = row.id ?? crypto.randomUUID();
             row.reserved_at = row.reserved_at ?? new Date().toISOString();
           }
-          if (table === "interview_sessions") stampLiveEnded(row, null, clock(), endRule);
+          if (table === "interview_sessions") {
+            // The database's defaults: a live send lets Postgres mint the id, and a
+            // column the insert leaves out reads back as NULL, not as missing.
+            row.id = row.id ?? crypto.randomUUID();
+            for (const col of ["started_at", "provider_session_id", "live_ended_at"]) {
+              row[col] = row[col] ?? null;
+            }
+            stampLiveEnded(row, null, clock(), endRule);
+          }
           return row;
         });
         const ignore = upsert[0] === "upsert" && upsert[2]?.ignoreDuplicates;
@@ -828,6 +846,10 @@ export function fakeLiveDb(initial = {}, options = {}) {
         if (table === "interview_turns") counts.turnInserts += 1;
         if (table === "live_interview_scores") counts.scoreWrites += fresh.length;
         if (table === "job_question_scoring_guides") counts.guideInserts += fresh.length;
+        // `.select().single()` after an insert answers the one row, as PostgREST does.
+        if (calls.some((c) => c[0] === "single" || c[0] === "maybeSingle")) {
+          return { data: fresh[0] ? pick(fresh[0]) : null, error: null };
+        }
         return { data: fresh.map(pick), error: null };
       }
       if (remove) {
@@ -870,16 +892,24 @@ export function fakeLiveDb(initial = {}, options = {}) {
           counts.outcomeWrites += hit.length;
         return { data: hit.map(pick), error: null };
       }
+      counts.selects[table] = (counts.selects[table] ?? 0) + 1;
+      const answered = (result) => {
+        const n = counts.selects[table];
+        for (const h of afterSelect.filter((x) => x.table === table && x.n === n)) h.fn(tables);
+        return result;
+      };
       if (takeFault(table, "select"))
-        return { data: null, error: { code: "XX000", message: "fault" } };
+        return answered({ data: null, error: { code: "XX000", message: "fault" } });
       // The Interviews list's SQL reads (#41 part 2) use operators this fake
       // never modelled; interview-list-fake.mjs applies them. Only those reads
       // go there: everything this fake already answered is answered as before.
       if (isJobsWithCounts(table, calls)) {
-        return answerJobsWithCounts(tables.jobs ?? [], tables.interview_sessions ?? [], calls);
+        return answered(
+          answerJobsWithCounts(tables.jobs ?? [], tables.interview_sessions ?? [], calls),
+        );
       }
       if (table === "interview_sessions" && usesListOperators(calls)) {
-        return answerSessions(rows, calls);
+        return answered(answerSessions(rows, calls));
       }
       const hit = rows.filter(match);
       // select(cols, { count: "exact", head }), order(col, { ascending }) and limit(n), as PostgREST.
@@ -904,10 +934,13 @@ export function fakeLiveDb(initial = {}, options = {}) {
       const windowed = range ? hit.slice(range[1], range[2] + 1) : hit;
       const limit = calls.find((c) => c[0] === "limit");
       const page = limit ? windowed.slice(0, limit[1]) : windowed;
-      if (counted) return { data: head ? null : page.map(pick), count: hit.length, error: null };
-      if (calls.some((c) => c[0] === "maybeSingle"))
-        return { data: page[0] ? pick(page[0]) : null, error: null };
-      return { data: page.map(pick), error: null };
+      if (counted) {
+        return answered({ data: head ? null : page.map(pick), count: hit.length, error: null });
+      }
+      if (calls.some((c) => c[0] === "maybeSingle")) {
+        return answered({ data: page[0] ? pick(page[0]) : null, error: null });
+      }
+      return answered({ data: page.map(pick), error: null });
     } catch (err) {
       return { data: null, error: { code: err.code ?? "23514", message: err.message } };
     }
@@ -1014,6 +1047,10 @@ export function fakeLiveDb(initial = {}, options = {}) {
     },
     failNext(table, op) {
       faults.push({ table, op });
+    },
+    /** After the n-th select of `table` is answered, run fn(tables): a commit between two reads. */
+    afterSelect(table, n, fn) {
+      afterSelect.push({ table, n, fn });
     },
     /** Let `n` uploads through, then fail the next one, once. */
     failUploadAfter(n) {
