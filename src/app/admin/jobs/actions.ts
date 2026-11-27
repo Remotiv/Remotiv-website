@@ -2,12 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
-import {
-  ADMIN_GO_LIVE_REFUSED,
-  ADMIN_RESTORED_ON_HOLD,
-  GO_LIVE_UNREADABLE,
-  goLiveCheck,
-} from "@/lib/interviews/live-go-live";
+import { goLiveCheck, goLiveMessage } from "@/lib/interviews/live-go-live";
 import type { ScreeningQuestion } from "@/lib/jobs";
 import { createServiceClient } from "@/lib/supabase/server";
 import { trimRequired, trimToNull } from "@/lib/validators";
@@ -269,7 +264,7 @@ async function adminGoLiveRefusal(
   if (status !== "open") return null;
   const gate = await goLiveCheck(supabase, id, null);
   if (gate.ok) return null;
-  return gate.unreadable ? GO_LIVE_UNREADABLE : ADMIN_GO_LIVE_REFUSED;
+  return goLiveMessage("admin", gate.failing, gate.unreadable);
 }
 
 export async function updateJobStatus(
@@ -367,7 +362,10 @@ export async function restoreJob(id: string): Promise<MutationResult<undefined>>
   // Never refused: a Published job that fails the go-live gate (#59) comes
   // back On hold, by its own company's questions (the admin has no company).
   const gate = await goLiveCheck(supabase, id, null);
-  const onHold = gate.status === "open" && !gate.ok;
+  const onHold =
+    gate.status === "open" && !gate.ok
+      ? goLiveMessage("adminRestore", gate.failing, gate.unreadable)
+      : null;
   const { error } = await supabase
     .from("jobs")
     .update({ deleted_at: null, ...(onHold ? { status: "on_hold" } : {}) })
@@ -378,5 +376,5 @@ export async function restoreJob(id: string): Promise<MutationResult<undefined>>
   revalidatePath("/admin/jobs");
   revalidatePath("/admin/applications");
   revalidatePath("/jobs");
-  return { success: true, data: undefined, ...(onHold ? { warning: ADMIN_RESTORED_ON_HOLD } : {}) };
+  return { success: true, data: undefined, ...(onHold ? { warning: onHold } : {}) };
 }

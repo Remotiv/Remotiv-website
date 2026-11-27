@@ -185,7 +185,7 @@ const jobInput = (over = {}) => ({
  */
 async function job(
   db,
-  { status = "on_hold", avatar = true, live = 3, async = 2, extra = {} } = {},
+  { status = "on_hold", avatar = true, asyncOn = false, live = 3, async = 2, extra = {} } = {},
 ) {
   const made = await quiet(() =>
     createCompanyJob(
@@ -202,6 +202,7 @@ async function job(
     {
       status,
       avatar_interview_enabled: avatar,
+      async_interview_enabled: asyncOn,
       ...extra,
     },
   );
@@ -488,4 +489,490 @@ test("every new message: hyphens only", () => {
     assert.doesNotMatch(m, /[–—]/);
   }
   assert.equal(SHIPPED.LIVE_QUESTION_LIST_SAVE_ENABLED, true);
+});
+
+/* ── #61: Async Video Interview on needs at least 3 async questions ── */
+
+const M = GATE.GO_LIVE_MESSAGES;
+const deleted = { deleted_at: "2026-11-20T10:00:00.000Z" };
+const archivedAt = { archived_at: "2026-11-20T10:00:00.000Z" };
+
+test("#61 the async rule: on needs at least 3; off, any count", () => {
+  assert.equal(GATE.MIN_ASYNC_QUESTIONS, 3);
+  for (const [on, n, ok] of [
+    [true, 0, false],
+    [true, 2, false],
+    [true, 3, true],
+    [true, 8, true],
+    [true, 9, false],
+    [false, 0, true],
+    [false, 2, true],
+    [false, 9, true],
+  ]) {
+    assert.equal(GATE.asyncQuestionCountOk(on, n), ok, `${on} ${n}`);
+  }
+});
+
+test("#61 wizard Publish and Save changes: async on with 0 or 2 refused, 3 and 8 publish; sent list, else stored", async () => {
+  const db = world();
+  for (const n of [0, 2]) {
+    const r = await quiet(() =>
+      createCompanyJob(
+        jobInput({
+          status: "open",
+          async_interview_enabled: true,
+          interview_questions: qs("Async", n),
+        }),
+      ),
+    );
+    assert.deepEqual(r, { success: false, error: M.save.async }, `${n}`);
+  }
+  assert.equal(db.tables.jobs.length, 0);
+  for (const n of [3, 8]) {
+    const r = await quiet(() =>
+      createCompanyJob(
+        jobInput({
+          status: "open",
+          async_interview_enabled: true,
+          interview_questions: qs("Async", n),
+        }),
+      ),
+    );
+    assert.equal(r.success, true, `${n}: ${r.error}`);
+  }
+  // An edit that sends no async list: the stored count decides (2 stored: refused; 3: publishes).
+  for (const [storedN, ok] of [
+    [2, false],
+    [3, true],
+  ]) {
+    const id = await job(db, { avatar: false, live: 0, async: storedN });
+    const { interview_questions: _none, ...noAsync } = jobInput({
+      status: "open",
+      async_interview_enabled: true,
+      avatar_interview_enabled: false,
+    });
+    const r = await quiet(() => updateCompanyJob(id, noAsync));
+    assert.equal(r.success, ok, `${storedN} stored: ${r.error}`);
+    if (!ok) assert.equal(r.error, M.save.async);
+  }
+  // Submitted beats stored: 2 stored, 3 sent, publishes.
+  const id = await job(db, { avatar: false, live: 0, async: 2 });
+  const sent = await quiet(() =>
+    updateCompanyJob(
+      id,
+      jobInput({
+        status: "open",
+        async_interview_enabled: true,
+        interview_questions: qs("New", 3),
+      }),
+    ),
+  );
+  assert.equal(sent.success, true, sent.error);
+});
+
+test("#61 drafts always save: async on with 0 questions saves On hold and Closed", async () => {
+  world();
+  for (const status of ["on_hold", "closed"]) {
+    const r = await quiet(() =>
+      createCompanyJob(
+        jobInput({ status, async_interview_enabled: true, interview_questions: [] }),
+      ),
+    );
+    assert.equal(r.success, true, `${status}: ${r.error}`);
+  }
+});
+
+test("#61 async off: any count publishes; live questions never count toward async", async () => {
+  const db = world();
+  const off = await job(db, { avatar: false, asyncOn: false, live: 0, async: 0 });
+  assert.equal((await quiet(() => updateCompanyJobStatus(off, "open"))).success, true);
+  // 8 live questions (AI Video Interview off) + 2 async with async on: still refused.
+  const mixed = await job(db, { avatar: false, asyncOn: true, live: 8, async: 2 });
+  assert.deepEqual(await quiet(() => updateCompanyJobStatus(mixed, "open")), {
+    success: false,
+    error: M.status.async,
+  });
+});
+
+test("#61 both rules failing: one message naming both, on every path", async () => {
+  const db = world();
+  const both = { avatar: true, asyncOn: true, live: 3, async: 2 };
+  const id = await job(db, both);
+  assert.deepEqual(await quiet(() => updateCompanyJobStatus(id, "open")), {
+    success: false,
+    error: M.status.both,
+  });
+  assert.deepEqual(await quiet(() => admin.updateJobStatus(id, "open")), {
+    success: false,
+    error: M.admin.both,
+  });
+  const save = await quiet(() =>
+    createCompanyJob(
+      jobInput({
+        status: "open",
+        avatar_interview_enabled: true,
+        async_interview_enabled: true,
+        live_interview_questions: qs("Live", 3),
+        interview_questions: qs("Async", 2),
+      }),
+    ),
+  );
+  assert.deepEqual(save, { success: false, error: M.save.both });
+  const r = await job(db, { ...both, status: "open", extra: deleted });
+  assert.equal((await quiet(() => restoreCompanyJob(r))).warning, M.restore.both);
+  const u = await job(db, { ...both, status: "open", extra: archivedAt });
+  assert.equal((await quiet(() => setCompanyJobArchived(u, false))).warning, M.unarchive.both);
+  const a = await job(db, { ...both, status: "open", extra: deleted });
+  assert.equal((await quiet(() => admin.restoreJob(a))).warning, M.adminRestore.both);
+});
+
+test("#61 status menu, restore, unarchive: async on with 2 refused / back On hold; 3 allowed", async () => {
+  const db = world();
+  const two = { avatar: false, asyncOn: true, live: 0, async: 2 };
+  const three = { avatar: false, asyncOn: true, live: 0, async: 3 };
+  const s2 = await job(db, two);
+  assert.deepEqual(await quiet(() => updateCompanyJobStatus(s2, "open")), {
+    success: false,
+    error: M.status.async,
+  });
+  const s3 = await job(db, three);
+  assert.equal((await quiet(() => updateCompanyJobStatus(s3, "open"))).success, true);
+  const r2 = await job(db, { ...two, status: "open", extra: deleted });
+  assert.deepEqual(await quiet(() => restoreCompanyJob(r2)), {
+    success: true,
+    data: undefined,
+    warning: M.restore.async,
+  });
+  assert.equal(stored(db, r2).status, "on_hold");
+  const r3 = await job(db, { ...three, status: "open", extra: deleted });
+  assert.deepEqual(await quiet(() => restoreCompanyJob(r3)), { success: true, data: undefined });
+  assert.equal(stored(db, r3).status, "open");
+  const u2 = await job(db, { ...two, status: "open", extra: archivedAt });
+  assert.deepEqual(await quiet(() => setCompanyJobArchived(u2, false)), {
+    success: true,
+    data: undefined,
+    warning: M.unarchive.async,
+  });
+  assert.equal(stored(db, u2).status, "on_hold");
+});
+
+test("#61 admin status, edit, restore: async on with 0 refused / back On hold; 8 allowed", async () => {
+  const db = world();
+  const zero = { avatar: false, asyncOn: true, live: 0, async: 0 };
+  const eight = { avatar: false, asyncOn: true, live: 0, async: 8 };
+  const z = await job(db, zero);
+  assert.deepEqual(await quiet(() => admin.updateJobStatus(z, "open")), {
+    success: false,
+    error: M.admin.async,
+  });
+  assert.deepEqual(await quiet(() => admin.updateJob(z, ADMIN_INPUT)), {
+    success: false,
+    error: M.admin.async,
+  });
+  const e1 = await job(db, eight);
+  assert.equal((await quiet(() => admin.updateJobStatus(e1, "open"))).success, true);
+  const e2 = await job(db, eight);
+  assert.equal((await quiet(() => admin.updateJob(e2, ADMIN_INPUT))).success, true);
+  const r = await job(db, { ...zero, status: "open", extra: deleted });
+  assert.deepEqual(await quiet(() => admin.restoreJob(r)), {
+    success: true,
+    data: undefined,
+    warning: M.adminRestore.async,
+  });
+  assert.equal(stored(db, r).status, "on_hold");
+});
+
+test("#61 a failed read fails closed with the generic message; every message is hyphens only", async () => {
+  const db = world();
+  const id = await job(db, { avatar: false, asyncOn: true, live: 0, async: 8 });
+  db.failNext("interview_questions", "select");
+  assert.deepEqual(await quiet(() => updateCompanyJobStatus(id, "open")), {
+    success: false,
+    error: "Couldn't check this job's interview questions - please try again.",
+  });
+  for (const path of Object.values(M)) {
+    for (const m of Object.values(path)) assert.doesNotMatch(m, /[–—]/);
+  }
+});
+
+/* ── #61 fixes: a half-failed Publish goes On hold; max 8 at go-live ── */
+
+const LIST = await import("../../../../lib/interviews/live-question-list.ts");
+
+/** Extra rows of one kind straight into the table: stored before the 8 limit existed. */
+function addRows(db, jobId, kind, n) {
+  const at = db.tables.interview_questions.filter(
+    (x) => x.job_id === jobId && x.interview_kind === kind,
+  ).length;
+  for (let i = 1; i <= n; i += 1) {
+    db.tables.interview_questions.push({
+      id: crypto.randomUUID(),
+      job_id: jobId,
+      company_id: CO,
+      interview_kind: kind,
+      position: at + i,
+      question: `Extra ${kind} question ${i}?`,
+    });
+  }
+}
+
+/**
+ * Every write to jobs, in order: insert or update, the status it writes, and
+ * how many questions were stored at that moment. With `failOnHold`, the edit
+ * fallback's own write (status On hold, nothing else) fails.
+ */
+function recordJobWrites(db, { failOnHold = false } = {}) {
+  const writes = [];
+  const from = db.service.from;
+  db.service.from = (table) => {
+    const q = from(table);
+    if (table !== "jobs") return q;
+    return new Proxy(q, {
+      get(target, prop) {
+        if (prop === "insert" || prop === "update") {
+          return (...args) => {
+            for (const row of Array.isArray(args[0]) ? args[0] : [args[0]]) {
+              writes.push({
+                op: prop,
+                status: row.status,
+                questions: db.tables.interview_questions.length,
+              });
+              const onlyOnHold = Object.keys(row).join() === "status" && row.status === "on_hold";
+              if (failOnHold && prop === "update" && onlyOnHold) db.failNext("jobs", "update");
+            }
+            return target[prop](...args);
+          };
+        }
+        const v = target[prop];
+        return typeof v === "function" ? v.bind(target) : v;
+      },
+    });
+  };
+  return writes;
+}
+
+/** Log lines, captured. */
+async function logged(fn) {
+  const lines = [];
+  const saved = { error: console.error, warn: console.warn, log: console.log };
+  console.error = console.warn = console.log = (...a) => lines.push(a.join(" "));
+  try {
+    return { result: await fn(), lines };
+  } finally {
+    Object.assign(console, saved);
+  }
+}
+
+test("publish last: a new Publish whose questions fail stays On hold, never Published at any point", async () => {
+  const db = world();
+  const writes = recordJobWrites(db);
+  db.failNext("replace_interview_questions", "rpc");
+  const r = await quiet(() => createCompanyJob(jobInput({ status: "open" })));
+  assert.equal(r.success, true, "the role saved");
+  assert.equal(
+    r.warning,
+    "The role saved as On hold, but its interview questions were not saved. Open the job to add them, then publish.",
+  );
+  assert.equal(r.warning, LIST.PUBLISHED_QUESTIONS_NOT_SAVED);
+  assert.deepEqual(
+    writes,
+    [{ op: "insert", status: "on_hold", questions: 0 }],
+    "one write, On hold",
+  );
+  assert.equal(stored(db, r.data.id).status, "on_hold");
+  assert.equal(db.tables.interview_questions.length, 0);
+});
+
+test("publish last: the final Published update fails - On hold with its questions, the message, one log line", async () => {
+  const db = world();
+  const writes = recordJobWrites(db);
+  db.failNext("jobs", "update");
+  const { result: r, lines } = await logged(() => createCompanyJob(jobInput({ status: "open" })));
+  assert.equal(r.success, true);
+  assert.equal(
+    r.warning,
+    "The role saved as On hold with its interview questions, but it could not be published. Open the job and publish it again.",
+  );
+  assert.equal(r.warning, LIST.NEW_JOB_NOT_PUBLISHED);
+  assert.equal(stored(db, r.data.id).status, "on_hold");
+  assert.equal(db.tables.interview_questions.length, 4, "its questions are saved");
+  assert.deepEqual(
+    writes.map((w) => w.status),
+    ["on_hold", "open"],
+  );
+  assert.ok(
+    lines.includes(`[jobs] new job not published: job ${r.data.id} (XX000)`),
+    lines.join("\n"),
+  );
+  assert.ok(!lines.join("\n").includes("synthetic question"), "no question text logged");
+});
+
+test("publish last: success - created On hold, questions saved, then ONE update to Published", async () => {
+  for (const over of [
+    {},
+    { avatar_interview_enabled: true, live_interview_questions: qs("Live", 4) },
+    { async_interview_enabled: true, interview_questions: qs("Async", 3) },
+  ]) {
+    const db = world();
+    const writes = recordJobWrites(db);
+    const r = await quiet(() => createCompanyJob(jobInput({ status: "open", ...over })));
+    assert.equal(r.success, true, r.error);
+    assert.equal(r.warning, undefined);
+    assert.equal(stored(db, r.data.id).status, "open");
+    const n = db.tables.interview_questions.length;
+    assert.ok(n >= 3);
+    assert.deepEqual(writes, [
+      { op: "insert", status: "on_hold", questions: 0 },
+      { op: "update", status: "open", questions: n },
+    ]);
+  }
+  // Drafts are written once, as saved: no publish step.
+  for (const status of ["on_hold", "closed"]) {
+    const db = world();
+    const writes = recordJobWrites(db);
+    const r = await quiet(() => createCompanyJob(jobInput({ status })));
+    assert.deepEqual(writes, [{ op: "insert", status, questions: 0 }]);
+    assert.equal(stored(db, r.data.id).status, status);
+  }
+});
+
+test("Save changes on a Published job whose questions fail: now On hold, previous questions kept", async () => {
+  const db = world();
+  const id = await job(db, { status: "open", avatar: false, live: 0, async: 2 });
+  const before = structuredClone(db.tables.interview_questions);
+  db.failNext("replace_interview_questions", "rpc");
+  const r = await quiet(() =>
+    updateCompanyJob(id, jobInput({ status: "open", interview_questions: qs("New", 4) })),
+  );
+  assert.equal(r.success, true);
+  assert.equal(
+    r.warning,
+    "The role saved, but its interview questions were not updated. Your previous questions are kept, and the job is now On hold.",
+  );
+  assert.equal(stored(db, id).status, "on_hold");
+  assert.deepEqual(db.tables.interview_questions, before, "previous questions kept");
+});
+
+test("drafts whose questions fail: unchanged messages, status as saved", async () => {
+  const db = world();
+  db.failNext("replace_interview_questions", "rpc");
+  const made = await quiet(() => createCompanyJob(jobInput({ status: "on_hold" })));
+  assert.equal(made.warning, LIST.QUESTIONS_NOT_SAVED);
+  assert.equal(stored(db, made.data.id).status, "on_hold");
+  const closed = await job(db, { status: "closed", avatar: false, live: 0 });
+  db.failNext("replace_interview_questions", "rpc");
+  const edit = await quiet(() => updateCompanyJob(closed, jobInput({ status: "closed" })));
+  assert.equal(edit.warning, LIST.QUESTIONS_NOT_UPDATED);
+  assert.equal(stored(db, closed).status, "closed");
+});
+
+test("Save changes on a Published job: questions fail AND going On hold fails - one log line with the job id and both codes", async () => {
+  const db = world();
+  const id = await job(db, { status: "open", avatar: false, live: 0, async: 2 });
+  recordJobWrites(db, { failOnHold: true });
+  db.failNext("replace_interview_questions", "rpc");
+  const { result: r, lines } = await logged(() =>
+    updateCompanyJob(id, jobInput({ status: "open" })),
+  );
+  assert.equal(r.warning, LIST.QUESTIONS_NOT_UPDATED, "the plain failure, not 'now On hold'");
+  assert.equal(stored(db, id).status, "open", "still Published: the update failed");
+  assert.ok(
+    lines.includes(
+      `[jobs] published job left without its questions: job ${id} (questions XX000, on hold XX000)`,
+    ),
+    lines.join("\n"),
+  );
+  assert.ok(!lines.join("\n").includes("synthetic question"), "no question text logged");
+});
+
+test("max 8 at go-live: 9 stored async questions (async on) refused / back On hold on every path", async () => {
+  const db = world();
+  const nine = async (extra = {}) => {
+    const id = await job(db, { avatar: false, asyncOn: true, live: 0, async: 8, ...extra });
+    addRows(db, id, "async", 1);
+    return id;
+  };
+  assert.deepEqual(await quiet(async () => updateCompanyJobStatus(await nine(), "open")), {
+    success: false,
+    error: M.status.async,
+  });
+  assert.deepEqual(await quiet(async () => admin.updateJobStatus(await nine(), "open")), {
+    success: false,
+    error: M.admin.async,
+  });
+  assert.deepEqual(await quiet(async () => admin.updateJob(await nine(), ADMIN_INPUT)), {
+    success: false,
+    error: M.admin.async,
+  });
+  const r = await nine({ status: "open", extra: deleted });
+  assert.equal((await quiet(() => restoreCompanyJob(r))).warning, M.restore.async);
+  assert.equal(stored(db, r).status, "on_hold");
+  const u = await nine({ status: "open", extra: archivedAt });
+  assert.equal((await quiet(() => setCompanyJobArchived(u, false))).warning, M.unarchive.async);
+  const a = await nine({ status: "open", extra: deleted });
+  assert.equal((await quiet(() => admin.restoreJob(a))).warning, M.adminRestore.async);
+  // 8 stored passes.
+  const eight = await job(db, { avatar: false, asyncOn: true, live: 0, async: 8 });
+  assert.equal((await quiet(() => updateCompanyJobStatus(eight, "open"))).success, true);
+});
+
+test("max 8 at go-live: 9 stored live questions (AI Video Interview on) refused / back On hold on every path", async () => {
+  const db = world();
+  const nine = async (extra = {}) => {
+    const id = await job(db, { avatar: true, live: 8, async: 0, ...extra });
+    addRows(db, id, "live", 1);
+    return id;
+  };
+  assert.deepEqual(await quiet(async () => updateCompanyJobStatus(await nine(), "open")), {
+    success: false,
+    error: M.status.live,
+  });
+  assert.deepEqual(await quiet(async () => admin.updateJobStatus(await nine(), "open")), {
+    success: false,
+    error: M.admin.live,
+  });
+  assert.deepEqual(await quiet(async () => admin.updateJob(await nine(), ADMIN_INPUT)), {
+    success: false,
+    error: M.admin.live,
+  });
+  const r = await nine({ status: "open", extra: deleted });
+  assert.equal((await quiet(() => restoreCompanyJob(r))).warning, M.restore.live);
+  const u = await nine({ status: "open", extra: archivedAt });
+  assert.equal((await quiet(() => setCompanyJobArchived(u, false))).warning, M.unarchive.live);
+  const a = await nine({ status: "open", extra: deleted });
+  assert.equal((await quiet(() => admin.restoreJob(a))).warning, M.adminRestore.live);
+  // An interview that is off is never sent: 9 stored with it off does not block.
+  const off = await job(db, { avatar: false, asyncOn: false, live: 8, async: 0 });
+  addRows(db, off, "live", 1);
+  assert.equal((await quiet(() => updateCompanyJobStatus(off, "open"))).success, true);
+});
+
+test("Published, questions fail, and the caller may not act on the job: left as it was, logged with the job id", async () => {
+  const db = world();
+  const id = await job(db, { status: "open", avatar: false, live: 0, async: 2 });
+  db.failNext("replace_interview_questions", "rpc");
+  // Allowed for the edit's own checks, then not for the On hold write (the scope check).
+  let calls = 0;
+  Object.defineProperty(globalThis, "__jobsAllowed", {
+    configurable: true,
+    get: () => {
+      calls += 1;
+      return calls === 1;
+    },
+  });
+  const lines = [];
+  const saved = { error: console.error, warn: console.warn, log: console.log };
+  console.error = console.warn = console.log = (...a) => lines.push(a.join(" "));
+  const r = await updateCompanyJob(id, jobInput({ status: "open" })).finally(() => {
+    Object.assign(console, saved);
+    delete globalThis.__jobsAllowed;
+    globalThis.__jobsAllowed = true;
+  });
+  assert.equal(r.warning, LIST.QUESTIONS_NOT_UPDATED);
+  assert.ok(
+    lines.includes(
+      `[jobs] published job left without its questions: job ${id} (questions XX000, on hold not_allowed)`,
+    ),
+    lines.join("\n"),
+  );
 });

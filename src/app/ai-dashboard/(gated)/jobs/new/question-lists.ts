@@ -3,6 +3,7 @@ import type {
   LiveInterviewMinutes,
   LiveInterviewMode,
 } from "@/app/ai-dashboard/lib/job-types";
+import { MIN_ASYNC_QUESTIONS } from "@/lib/interviews/live-go-live";
 import { MIN_JOB_QUESTIONS } from "@/lib/interviews/question-mix";
 import type { InterviewKind, InterviewQuestionInput } from "@/lib/interviews/types";
 import { AI_VIDEO_MODE_CARDS } from "./ai-video-copy";
@@ -88,6 +89,21 @@ export const LIVE_EQUAL_WEIGHT_LINE =
 export const LIVE_NEEDS_QUESTIONS_LINE = "Needs 4 to 8 questions before publishing.";
 
 /**
+ * On step 5 and the Async Video Interview Review card while it is on with
+ * fewer than 3 questions: a draft saves like that, but it cannot be
+ * published (#61).
+ */
+export const ASYNC_NEEDS_QUESTIONS_LINE = "Needs at least 3 questions before publishing.";
+
+/** Whether the async interview is on with too few questions to publish. */
+export function asyncNeedsQuestions(state: CompanyJobInput): boolean {
+  return (
+    state.async_interview_enabled === true &&
+    askedCount(questionsOf(state, "async")) < MIN_ASYNC_QUESTIONS
+  );
+}
+
+/**
  * The two read-only Review cards' lines. "Off" first when an interview is off.
  * The AI Video Interview's mode and length are passed in by the wizard, which
  * owns those fields (the 074 column census keeps them to the wizard's files).
@@ -95,9 +111,10 @@ export const LIVE_NEEDS_QUESTIONS_LINE = "Needs 4 to 8 questions before publishi
 export function interviewReviewLines(
   state: CompanyJobInput,
   live: { mode: LiveInterviewMode; minutes: LiveInterviewMinutes },
-): { async: string[]; live: string[]; liveWarning: string | null } {
+): { async: string[]; live: string[]; liveWarning: string | null; asyncWarning: string | null } {
   const liveCount = askedCount(questionsOf(state, "live"));
   return {
+    asyncWarning: asyncNeedsQuestions(state) ? ASYNC_NEEDS_QUESTIONS_LINE : null,
     liveWarning:
       state.avatar_interview_enabled && liveCount < MIN_JOB_QUESTIONS
         ? LIVE_NEEDS_QUESTIONS_LINE

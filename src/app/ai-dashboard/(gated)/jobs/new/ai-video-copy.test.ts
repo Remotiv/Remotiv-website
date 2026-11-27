@@ -448,6 +448,8 @@ test("the Review cards: the right values, both Off when neither is on, each with
     async: ["On", "Re-recording allowed", "2 questions"],
     live: ["On", "AI-Guided", "60 minutes", "5 questions"],
     liveWarning: null,
+    // Async on with 2 questions: the #61 line.
+    asyncWarning: "Needs at least 3 questions before publishing.",
   });
   assert.deepEqual(
     lists.interviewReviewLines(
@@ -463,6 +465,7 @@ test("the Review cards: the right values, both Off when neither is on, each with
       async: ["Off", "No re-recording", "2 questions"],
       live: ["Off", "Recruiter-Defined", "30 minutes", "5 questions"],
       liveWarning: null,
+      asyncWarning: null,
     },
   );
   assert.match(
@@ -653,4 +656,26 @@ test("the dialog's wording, exactly; Stay is the default (first focus, Escape)",
     /const leaveGuard = useUnsavedChangesGuard\(\s*dirty,\s*\(href\) => router\.push\(href\),\s*\(href\) => router\.replace\(href\),\s*\);/,
   );
   for (const s of [unsaved.LEAVE_TITLE, unsaved.LEAVE_BODY]) assert.doesNotMatch(s, /[–—]/);
+});
+
+/* ── #61: the async minimum on step 5 and Review ── */
+
+test("#61 step 5 says it needs at least 3 questions while async is on with fewer", () => {
+  const q = (question) => ({ id: question, question, competency: "", rubric: "" });
+  const state = (on, n) => ({
+    async_interview_enabled: on,
+    interview_questions: Array.from({ length: n }, (_, i) => q(`a${i}`)),
+  });
+  assert.equal(lists.ASYNC_NEEDS_QUESTIONS_LINE, "Needs at least 3 questions before publishing.");
+  for (const n of [0, 2]) assert.equal(lists.asyncNeedsQuestions(state(true, n)), true, `${n}`);
+  for (const n of [3, 8]) assert.equal(lists.asyncNeedsQuestions(state(true, n)), false, `${n}`);
+  assert.equal(lists.asyncNeedsQuestions(state(false, 0)), false, "off: no line");
+  assert.match(
+    STEP5,
+    /\{asyncNeedsQuestions\(state\) && \(\s*<p[^>]*data-async-needs-questions>\s*\{ASYNC_NEEDS_QUESTIONS_LINE\}/,
+  );
+  assert.match(
+    STEP10,
+    /\{reviewLines\.asyncWarning && \(\s*<span[^>]*data-review-warning>\s*\{reviewLines\.asyncWarning\}/,
+  );
 });

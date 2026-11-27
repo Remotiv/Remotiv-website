@@ -102,7 +102,9 @@ import {
   INITIAL_DRAFTS,
 } from "./question-drafts";
 import {
+  ASYNC_NEEDS_QUESTIONS_LINE,
   askedCount,
+  asyncNeedsQuestions,
   asyncOffLine,
   interviewReviewLines,
   liveOffLine,
@@ -2487,6 +2489,12 @@ export function WizardClient({
                     />
                   </div>
 
+                  {asyncNeedsQuestions(state) && (
+                    <p className="mb-4 text-xs text-[#C4362F]" data-async-needs-questions>
+                      {ASYNC_NEEDS_QUESTIONS_LINE}
+                    </p>
+                  )}
+
                   {!state.async_interview_enabled && (
                     <p className={OFF_LINE_CLS} data-interview-off="async">
                       {asyncOffLine(askedCount(interviewQs))}
@@ -2675,6 +2683,11 @@ export function WizardClient({
                   <div className="mt-3 grid grid-cols-1 gap-3 min-[525px]:grid-cols-2">
                     <ReviewCard label="Async Video Interview" onEdit={() => setStep(5)}>
                       <span data-review-interview="async">{reviewLines.async.join(" · ")}</span>
+                      {reviewLines.asyncWarning && (
+                        <span className="mt-1.5 block text-xs text-[#C4362F]" data-review-warning>
+                          {reviewLines.asyncWarning}
+                        </span>
+                      )}
                     </ReviewCard>
                     <ReviewCard label="AI Video Interview" onEdit={() => setStep(6)}>
                       <span data-review-interview="live">{reviewLines.live.join(" · ")}</span>

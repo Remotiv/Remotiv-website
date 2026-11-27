@@ -59,18 +59,19 @@ import { generateScoringCriteria } from "@/lib/ai/scoring-criteria";
 import { generateScreeningQuestions } from "@/lib/ai/screening-questions";
 import { parseRules } from "@/lib/calendar/availability";
 import {
-  GO_LIVE_REFUSED,
-  GO_LIVE_UNREADABLE,
+  asyncQuestionCountOk,
+  type GoLivePath,
   goLiveCheck,
+  goLiveMessage,
   liveQuestionCountOk,
-  RESTORED_ON_HOLD,
-  storedLiveQuestionCount,
-  UNARCHIVED_ON_HOLD,
+  storedQuestionCount,
 } from "@/lib/interviews/live-go-live";
 import {
-  LIVE_QUESTION_COUNT_REFUSAL,
   LIVE_QUESTION_LIST_NOT_YET,
   LIVE_QUESTION_LIST_SAVE_ENABLED,
+  NEW_JOB_NOT_PUBLISHED,
+  PUBLISHED_QUESTIONS_NOT_SAVED,
+  PUBLISHED_QUESTIONS_NOT_UPDATED,
   QUESTIONS_NOT_SAVED,
   QUESTIONS_NOT_UPDATED,
 } from "@/lib/interviews/live-question-list";
@@ -181,41 +182,71 @@ function askedIn(list: readonly InterviewQuestionInput[]): number {
 }
 
 /**
- * Whether a job coming back (restore, unarchive) must come back On hold: it
- * is stored as Published and fails the go-live gate, or could not be checked
- * (the gate fails closed). Never a reason to refuse the action itself.
+ * Whether a job coming back (restore, unarchive) must come back On hold, and
+ * why: it is stored as Published and fails the go-live gate, or could not be
+ * checked (the gate fails closed). Null: it comes back as it was. Never a
+ * reason to refuse the action itself.
  */
 async function backOnHold(
   supabase: ReturnType<typeof createServiceClient>,
   jobId: string,
   companyId: string,
-): Promise<boolean> {
+  path: GoLivePath,
+): Promise<string | null> {
   const gate = await goLiveCheck(supabase, jobId, companyId);
-  return gate.status === "open" && !gate.ok;
+  if (gate.status !== "open" || gate.ok) return null;
+  return goLiveMessage(path, gate.failing, gate.unreadable);
 }
 
 /**
- * AI Video Interview on and no live list sent (a client from before step 6):
- * the job's STORED live questions must already be 4 to 8. Read for a job the
- * caller's company owns and may act on (updateCompanyJob checks both first).
+ * The go-live gate for a Published save (Publish, Save changes): AI Video
+ * Interview on needs 4 to 8 live questions, Async Video Interview on at least
+ * 3 async ones. A draft (On hold, Closed) is never gated. Null when allowed;
+ * one message when either or both fail. Pure: the caller supplies the counts.
  */
-async function liveCountRefusal(
+function publishedSaveRefusal(
+  input: CompanyJobInput,
+  counts: { live: number | null; async: number | null },
+): string | null {
+  if (!isPublished(input)) return null;
+  if (counts.live === null || counts.async === null) {
+    return goLiveMessage("save", { live: false, async: false }, true);
+  }
+  const failing = {
+    live: !liveQuestionCountOk(input.avatar_interview_enabled === true, counts.live),
+    async: !asyncQuestionCountOk(input.async_interview_enabled === true, counts.async),
+  };
+  return failing.live || failing.async ? goLiveMessage("save", failing) : null;
+}
+
+/** The questions a save sends for one list, or undefined when it sends none. */
+function sentCount(list: InterviewQuestionInput[] | undefined): number | undefined {
+  return Array.isArray(list) ? askedIn(list) : undefined;
+}
+
+/**
+ * An edit's counts: each list as SENT when the save sends it, else as stored
+ * (read for a job the caller's company owns and may act on: updateCompanyJob
+ * checks both first). Only read when that interview is on and the save is
+ * Published.
+ */
+async function editCounts(
   supabase: ReturnType<typeof createServiceClient>,
   jobId: string,
   companyId: string,
   input: CompanyJobInput,
-): Promise<string | null> {
-  if (
-    !isPublished(input) ||
-    input.avatar_interview_enabled !== true ||
-    input.live_interview_questions !== undefined
-  ) {
-    return null;
-  }
-  // The one gate's own read and rule (live-go-live.ts).
-  const n = await storedLiveQuestionCount(supabase, jobId, companyId);
-  if (n === null) return GO_LIVE_UNREADABLE;
-  return liveQuestionCountOk(true, n) ? null : LIVE_QUESTION_COUNT_REFUSAL;
+): Promise<{ live: number | null; async: number | null }> {
+  const published = isPublished(input);
+  const one = (on: boolean, list: InterviewQuestionInput[] | undefined, kind: InterviewKind) => {
+    const sent = sentCount(list);
+    if (sent !== undefined || !on || !published) return sent ?? 0;
+    return storedQuestionCount(supabase, jobId, companyId, kind);
+  };
+  const [live, asyncCount] = await Promise.all([
+    one(input.avatar_interview_enabled === true, input.live_interview_questions, "live"),
+    one(input.async_interview_enabled === true, input.interview_questions, "async"),
+  ]);
+  return { live, async: asyncCount };
 }
 
 function buildPatch(
@@ -299,18 +330,9 @@ function buildPatch(
     const refused = checkQuestionList(list, noun, label);
     if (refused) return { ok: false, error: refused };
   }
-  // Published saves only (#59): AI Video Interview on needs 4 to 8 live
-  // questions, the range the live invite accepts. A draft (On hold) or a
-  // Closed job always saves; the 8 limit and the fairness check above still
-  // apply to every save. A Published save that sends no live list is checked
-  // against what is stored (liveCountRefusal).
-  if (
-    status === "open" &&
-    Array.isArray(input.live_interview_questions) &&
-    !liveQuestionCountOk(avatarOn, askedIn(input.live_interview_questions))
-  ) {
-    return { ok: false, error: LIVE_QUESTION_COUNT_REFUSAL };
-  }
+  // The go-live gate (4 to 8 live, 3 to 8 async, Published saves only)
+  // runs in create and update (publishedSaveRefusal), where an edit's stored
+  // lists can be read.
 
   // AI Video Interview mode, length and hiring challenges (074). Checked here,
   // whatever the browser sent; a field it left out is not in the patch.
@@ -812,17 +834,85 @@ async function seedHiringTeam(
  */
 async function syncInterviewQuestions(
   supabase: ReturnType<typeof createServiceClient>,
+  ctx: Awaited<ReturnType<typeof requireCompanyRole>>,
   jobId: string,
-  companyId: string,
-  input: Pick<CompanyJobInput, "interview_questions" | "live_interview_questions">,
-  /** The warning if it fails: a new job's (none kept) or an edit's (previous kept). */
-  failure: string,
+  input: CompanyJobInput,
+  /** A new job (none kept) or an edit (previous kept): which warning a failure gets. */
+  mode: "create" | "edit",
 ): Promise<string | null> {
+  const companyId = ctx.companyId;
   const code = await replaceQuestionLists(supabase, jobId, companyId, input);
   if (code === null) return null;
   // The code only: the database's text names the job and the rule.
   console.error(`[jobs] interview questions not saved (${code})`);
-  return failure;
+  // A new job is created On hold and published only after its questions save
+  // (publish last, createCompanyJob): a failure here leaves it On hold already.
+  if (mode === "create") {
+    return isPublished(input) ? PUBLISHED_QUESTIONS_NOT_SAVED : QUESTIONS_NOT_SAVED;
+  }
+  const failure = QUESTIONS_NOT_UPDATED;
+  if (!isPublished(input)) return failure;
+  // An edit of a Published job whose questions failed must not leave it live
+  // with missing or old questions (#61): back to On hold, in the same request.
+  // Only for a job the caller may act on: updateCompanyJob checked it first.
+  const allowed = await roleAllowsJobAction(ctx, jobId);
+  const { error } = allowed
+    ? await supabase
+        .from("jobs")
+        .update({ status: "on_hold" })
+        .eq("id", jobId)
+        .eq("company_id", companyId)
+    : { error: { code: "not_allowed" } };
+  if (error) {
+    // Both failed: the job is still Published without its questions. Its id
+    // and the two codes, so it can be found; no candidate data, no question text.
+    console.error(
+      `[jobs] published job left without its questions: job ${jobId} (questions ${code}, on hold ${error.code ?? "unknown"})`,
+    );
+    return failure;
+  }
+  return PUBLISHED_QUESTIONS_NOT_UPDATED;
+}
+
+/**
+ * Publish last (#61): the final step of a new job's Publish, after it was
+ * created On hold and its questions saved. The go-live gate runs on what is
+ * now stored, then ONE update sets it Published. Any failure leaves it On
+ * hold, so a new job is never Published without its questions. Null when
+ * published; else the warning (and a log line with the job id and the code).
+ */
+async function publishNewJob(
+  supabase: ReturnType<typeof createServiceClient>,
+  ctx: Awaited<ReturnType<typeof requireCompanyRole>>,
+  jobId: string,
+): Promise<string | null> {
+  // The creator was just added to the hiring team (or is an owner or admin).
+  if (!(await roleAllowsJobAction(ctx, jobId))) {
+    console.error(`[jobs] new job not published: job ${jobId} (not_allowed)`);
+    return NEW_JOB_NOT_PUBLISHED;
+  }
+  const gate = await goLiveCheck(supabase, jobId, ctx.companyId);
+  if (!gate.ok) {
+    console.error(
+      `[jobs] new job not published: job ${jobId} (${gate.unreadable ? "unreadable" : "gate"})`,
+    );
+    return NEW_JOB_NOT_PUBLISHED;
+  }
+  // Only from On hold: a job someone changed meanwhile is left as it is.
+  const { data, error } = await supabase
+    .from("jobs")
+    .update({ status: "open" })
+    .eq("id", jobId)
+    .eq("company_id", ctx.companyId)
+    .eq("status", "on_hold")
+    .select("id");
+  if (error || (data ?? []).length === 0) {
+    console.error(
+      `[jobs] new job not published: job ${jobId} (${error ? (error.code ?? "unknown") : "no_row"})`,
+    );
+    return NEW_JOB_NOT_PUBLISHED;
+  }
+  return null;
 }
 
 /**
@@ -946,19 +1036,19 @@ export async function createCompanyJob(
 
   const built = buildPatch(await splitIfNeeded(input));
   if (!built.ok) return { success: false, error: built.error };
-  // A new job stores no live questions, so AI Video Interview on with none
-  // sent is 0: refused, as buildPatch refuses a sent list outside 4 to 8.
-  if (
-    isPublished(input) &&
-    input.live_interview_questions === undefined &&
-    !liveQuestionCountOk(input.avatar_interview_enabled === true, 0)
-  ) {
-    return { success: false, error: LIVE_QUESTION_COUNT_REFUSAL };
-  }
+  // A new job stores no questions: a list it does not send counts 0.
+  const goLiveRefused = publishedSaveRefusal(input, {
+    live: sentCount(input.live_interview_questions) ?? 0,
+    async: sentCount(input.interview_questions) ?? 0,
+  });
+  if (goLiveRefused) return { success: false, error: goLiveRefused };
 
   const supabase = createServiceClient();
   const slug = await buildSlug(supabase, ctx.company.name, built.patch.title as string);
 
+  // Publish last (#61): a job meant to be Published is created On hold, and
+  // set Published only once its questions are saved (publishNewJob).
+  const publishing = built.patch.status === "open";
   const { data, error } = await supabase
     .from("jobs")
     // Identity + ownership are stamped here, never taken from `input`:
@@ -966,6 +1056,7 @@ export async function createCompanyJob(
     // company / company_rating / company_id / created_by / slug is impossible.
     .insert({
       ...built.patch,
+      status: publishing ? "on_hold" : built.patch.status,
       company: ctx.company.name,
       company_rating: COMPANY_JOB_RATING,
       company_id: ctx.companyId,
@@ -991,13 +1082,9 @@ export async function createCompanyJob(
 
   const row = data as { id: string; slug: string | null };
   await seedHiringTeam(supabase, ctx, row.id);
-  const questionWarning = await syncInterviewQuestions(
-    supabase,
-    row.id,
-    ctx.companyId,
-    input,
-    QUESTIONS_NOT_SAVED,
-  );
+  const questionWarning =
+    (await syncInterviewQuestions(supabase, ctx, row.id, input, "create")) ??
+    (publishing ? await publishNewJob(supabase, ctx, row.id) : null);
 
   revalidateJobSurfaces();
   return {
@@ -1057,8 +1144,11 @@ export async function updateCompanyJob(
   if (!(await roleAllowsJobAction(ctx, jobId))) {
     return { success: false, error: "That job isn't in your workspace." };
   }
-  const liveRefused = await liveCountRefusal(supabase, jobId, ctx.companyId, input);
-  if (liveRefused) return { success: false, error: liveRefused };
+  const goLiveRefused = publishedSaveRefusal(
+    input,
+    await editCounts(supabase, jobId, ctx.companyId, input),
+  );
+  if (goLiveRefused) return { success: false, error: goLiveRefused };
 
   // Bump criteria_version when anything the SCORER reads changed.
   //
@@ -1120,13 +1210,7 @@ export async function updateCompanyJob(
     }
   }
 
-  const questionWarning = await syncInterviewQuestions(
-    supabase,
-    jobId,
-    ctx.companyId,
-    input,
-    QUESTIONS_NOT_UPDATED,
-  );
+  const questionWarning = await syncInterviewQuestions(supabase, ctx, jobId, input, "edit");
 
   revalidateJobSurfaces();
   return {
@@ -1374,7 +1458,7 @@ export async function updateCompanyJobStatus(
     // The one go-live gate (#59): AI Video Interview on needs 4 to 8 live questions.
     const gate = await goLiveCheck(supabase, jobId, ctx.companyId);
     if (!gate.ok) {
-      return { success: false, error: gate.unreadable ? GO_LIVE_UNREADABLE : GO_LIVE_REFUSED };
+      return { success: false, error: goLiveMessage("status", gate.failing, gate.unreadable) };
     }
   }
 
@@ -1445,7 +1529,7 @@ export async function setCompanyJobArchived(
 
   // Unarchiving a Published job makes it public again: one that fails the
   // go-live gate (#59) comes back On hold instead, and the recruiter is told.
-  const onHold = !archived && (await backOnHold(supabase, jobId, ctx.companyId));
+  const onHold = archived ? null : await backOnHold(supabase, jobId, ctx.companyId, "unarchive");
   const { error } = await supabase
     .from("jobs")
     .update({
@@ -1474,7 +1558,7 @@ export async function setCompanyJobArchived(
   // Same revalidation as a status change: the public list, the detail page and
   // the company careers view all have to drop (or regain) the job at once.
   revalidateJobSurfaces();
-  return { success: true, data: undefined, ...(onHold ? { warning: UNARCHIVED_ON_HOLD } : {}) };
+  return { success: true, data: undefined, ...(onHold ? { warning: onHold } : {}) };
 }
 
 export async function deleteCompanyJob(jobId: string): Promise<MutationResult<undefined>> {
@@ -1551,7 +1635,7 @@ export async function restoreCompanyJob(jobId: string): Promise<MutationResult<u
 
   // Never refused: a Published job that fails the go-live gate (#59) comes
   // back On hold instead, and the recruiter is told why.
-  const onHold = await backOnHold(supabase, jobId, ctx.companyId);
+  const onHold = await backOnHold(supabase, jobId, ctx.companyId, "restore");
   const { error } = await supabase
     .from("jobs")
     .update(onHold ? { deleted_at: null, status: "on_hold" } : { deleted_at: null })
@@ -1561,7 +1645,7 @@ export async function restoreCompanyJob(jobId: string): Promise<MutationResult<u
   if (error) return { success: false, error: actionIncomplete("restore that job", error) };
 
   revalidateJobSurfaces();
-  return { success: true, data: undefined, ...(onHold ? { warning: RESTORED_ON_HOLD } : {}) };
+  return { success: true, data: undefined, ...(onHold ? { warning: onHold } : {}) };
 }
 
 /** Copy an existing job into a fresh Draft. Ownership-checked like the rest. */

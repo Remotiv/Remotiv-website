@@ -25,6 +25,22 @@ export const QUESTIONS_NOT_SAVED =
   "The role saved, but its interview questions were not saved. Open the job to add them.";
 
 /**
+ * The same failure on a save that would have left the job Published (#61): a
+ * job never stays live with missing or old questions, so it is set back to
+ * On hold in the same request, and the message says so.
+ */
+export const PUBLISHED_QUESTIONS_NOT_SAVED =
+  "The role saved as On hold, but its interview questions were not saved. Open the job to add them, then publish.";
+/**
+ * A new job meant to be Published: saved On hold with its questions, but the
+ * final step that publishes it failed (#61, publish last). It stays On hold.
+ */
+export const NEW_JOB_NOT_PUBLISHED =
+  "The role saved as On hold with its interview questions, but it could not be published. Open the job and publish it again.";
+export const PUBLISHED_QUESTIONS_NOT_UPDATED =
+  "The role saved, but its interview questions were not updated. Your previous questions are kept, and the job is now On hold.";
+
+/**
  * With AI Video Interview on, the job must hold 4 to 8 live questions
  * (MIN_JOB_QUESTIONS..MAX_JOB_QUESTIONS, the range the live invite accepts).
  * Off, any number is kept, none included.
