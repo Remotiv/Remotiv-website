@@ -12,6 +12,12 @@ import {
   normaliseInterviewDuration,
 } from "@/app/ai-dashboard/lib/job-types";
 import { parseRules } from "@/lib/calendar/availability";
+import {
+  INVITE_COUNT_READ_LIMIT,
+  type InviteCountRow,
+  inviteCountsOf,
+  NO_INVITE_COUNTS,
+} from "@/lib/interviews/job-invite-counts";
 import type { ScreeningQuestion } from "@/lib/jobs";
 import { createServiceClient } from "@/lib/supabase/server";
 import { fetchInterviewQuestions } from "../../actions";
@@ -141,6 +147,28 @@ export default async function EditJobPage({ params }: { params: Promise<{ id: st
     }
   }
 
+  /*
+   * Who already holds each interview for this job (#20): the wizard's line
+   * when its questions are edited says how many candidates keep the questions
+   * they were sent. One read, both kinds, company-scoped like every other
+   * session query; counted per candidate in inviteCountsOf. Failure is
+   * non-fatal: no counts means no line, never a blocked edit.
+   */
+  const { data: sessionRows, error: sessionsError } = await service
+    .from("interview_sessions")
+    .select("application_id, kind, status, expires_at")
+    .eq("job_id", job.id)
+    .eq("company_id", ctx.companyId)
+    .in("kind", ["async", "live"])
+    .in("status", ["invited", "started", "submitted"])
+    .limit(INVITE_COUNT_READ_LIMIT);
+  if (sessionsError) {
+    console.error(`[jobs] edit: invite counts read failed (${sessionsError.code ?? "unknown"})`);
+  }
+  const inviteCounts = sessionsError
+    ? NO_INVITE_COUNTS
+    : inviteCountsOf((sessionRows ?? []) as InviteCountRow[], Date.now());
+
   // Both lists (082): step 5 edits the async one, step 6 the AI Video
   // Interview's, and a save sends both back.
   const [interviewQuestions, liveInterviewQuestions] = await Promise.all([
@@ -242,6 +270,7 @@ export default async function EditJobPage({ params }: { params: Promise<{ id: st
       jobId={job.id}
       initialState={initialState}
       answeredCounts={answeredCounts}
+      inviteCounts={inviteCounts}
     />
   );
 }

@@ -563,9 +563,10 @@ test("dirty: a change is dirty; the saved form is clean; the description box cou
   );
   // The wizard resets its baseline on a successful save, and on "Post another".
   // Only a FULL save moves it: a partial one (questions failed) stays dirty.
+  // The same branch moves #20's question baseline.
   assert.match(
     WIZARD,
-    /if \(savedEverything\(result\)\) setSavedSnapshot\(formSnapshot\(payload, jdBox\)\);/,
+    /if \(savedEverything\(result\)\) \{\s*setSavedSnapshot\(formSnapshot\(payload, jdBox\)\);/,
   );
   // After a save the wizard navigates through the guard, never past it.
   assert.equal((WIZARD.match(/leaveGuard\.go\(/g) ?? []).length, 3);

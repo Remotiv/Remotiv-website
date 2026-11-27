@@ -24,7 +24,6 @@ import {
   AUTOSHORTLIST_SOURCES,
   type CompanyJobInput,
   type CompanyJobRow,
-  CV_WEIGHT_DEFAULT,
   CV_WEIGHT_DIMENSIONS,
   CV_WEIGHT_MAX,
   CV_WEIGHT_MIN,
@@ -81,18 +80,12 @@ import {
   fairnessBlockMessage,
   firstFairnessBlock,
 } from "@/lib/interviews/question-fairness";
+import { storedQuestionRows } from "@/lib/interviews/question-rows";
 import {
-  ANSWER_SECONDS_MAX,
-  ANSWER_SECONDS_MIN,
-  COMPETENCY_MAX,
   type InterviewKind,
   type InterviewLengthId,
   type InterviewQuestionInput,
   MAX_QUESTIONS,
-  PREP_SECONDS_MAX,
-  PREP_SECONDS_MIN,
-  QUESTION_TEXT_MAX,
-  RUBRIC_MAX,
 } from "@/lib/interviews/types";
 import { applyGroups, mergeJobText, needsModelSplit, parseJobDescription } from "@/lib/jd/parse";
 import type { JdGroup } from "@/lib/jd/partition";
@@ -946,26 +939,7 @@ async function replaceQuestionLists(
 /** One list in the function's shape, or null (left out: untouched). */
 function rpcQuestions(inputs: InterviewQuestionInput[] | undefined, kind: InterviewKind) {
   if (!Array.isArray(inputs)) return null;
-  return inputs
-    .map((q) => ({
-      question: (q.question ?? "").trim().slice(0, QUESTION_TEXT_MAX),
-      competency: (q.competency ?? "").trim().slice(0, COMPETENCY_MAX) || null,
-      rubric: (q.rubric ?? "").trim().slice(0, RUBRIC_MAX) || null,
-      prep_seconds: clampInt(q.prepSeconds, PREP_SECONDS_MIN, PREP_SECONDS_MAX, 30),
-      answer_seconds: clampInt(q.answerSeconds, ANSWER_SECONDS_MIN, ANSWER_SECONDS_MAX, 120),
-      // Async: snapped to a stop (snapWeight), never clamped to a range. Live:
-      // Normal, every question equal in v1.
-      weight: kind === "live" ? CV_WEIGHT_DEFAULT : snapWeight(q.weight),
-      required: q.required !== false,
-    }))
-    .filter((q) => q.question.length > 0)
-    .slice(0, MAX_QUESTIONS);
-}
-
-function clampInt(raw: string, min: number, max: number, fallback: number): number {
-  const n = Number.parseInt(raw ?? "", 10);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.min(max, Math.max(min, n));
+  return storedQuestionRows(inputs, kind);
 }
 
 /**

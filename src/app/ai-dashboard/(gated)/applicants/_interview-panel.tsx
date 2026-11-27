@@ -482,9 +482,9 @@ function AsyncSection({
               <p className="m-0 mt-[3px] max-w-[430px] text-[12.5px] leading-[1.6] text-[var(--ai-t3)]">
                 {session
                   ? session.status === "expired"
-                    ? `The link expired on ${fmt(session.expiresAt)}. Send a new one to reopen it.`
+                    ? `The link expired on ${fmt(session.expiresAt)}. Send a new one to reopen it. It uses the job's current questions.`
                     : session.status === "cancelled"
-                      ? "This interview was replaced by a newer one."
+                      ? "This interview was replaced by a newer one. A new link uses the job's current questions."
                       : `Sent ${fmt(session.sentAt)}${session.invitedByName ? ` by ${session.invitedByName}` : ""} · nothing recorded yet · link works until ${fmt(session.expiresAt)}.`
                   : "The candidate records answers to the job's questions in their own time. Remotiv scores the transcript and you watch whichever answers matter."}
               </p>
@@ -526,14 +526,14 @@ function AsyncSection({
                   They&apos;ve answered {session.answered} of {session.total}. A new link starts the
                   interview again from the first question, and the link they&apos;re using stops
                   working. What they&apos;ve recorded stays on this record, but they can&apos;t
-                  carry on from it.
+                  carry on from it. It uses the job&apos;s current questions.
                 </>
               ) : (
                 <>
                   {state?.whatsAppOptIn
                     ? "Sends a fresh invitation by email, and queues a WhatsApp message as well."
                     : "Sends a fresh invitation by email."}{" "}
-                  The link
+                  It uses the job&apos;s current questions. The link
                   {fmt(session.sentAt) ? ` from ${fmt(session.sentAt)}` : " they already have"}{" "}
                   stops working straight away - they haven&apos;t started, so nothing is lost.
                 </>
@@ -891,6 +891,7 @@ function LiveInterviewSection({
                   what is true instead of what was designed. */}
               <p className="m-0 mt-[3px] max-w-[430px] text-[12.5px] leading-[1.6] text-[var(--ai-t3)]">
                 Still in development, so a candidate can&apos;t start this round yet.
+                {session && canSend ? " A new link uses the job's current questions." : ""}
               </p>
             </div>
             {canSend && (
@@ -955,7 +956,7 @@ function LiveInterviewSection({
             <p className="m-0 text-[12.5px] leading-relaxed text-[var(--ai-t2)]">
               {/* One string, so the space before "stops" cannot be lost to
                   JSX whitespace rules — it was, in the first build. */}
-              {`Sends a fresh AI Video Interview invitation by email. The link${
+              {`Sends a fresh AI Video Interview invitation by email. It uses the job's current questions. The link${
                 fmt(session.sentAt) ? ` from ${fmt(session.sentAt)}` : " they already have"
               } stops working straight away. Their async video interview isn't affected.`}
             </p>

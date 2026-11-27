@@ -55,6 +55,7 @@ import {
   weightsAreEqual,
 } from "@/app/ai-dashboard/lib/job-types";
 import { useModalFocus } from "@/hooks/use-modal-focus";
+import type { JobInviteCounts } from "@/lib/interviews/job-invite-counts";
 import { DRAFT_FAILED } from "@/lib/interviews/question-fairness";
 import { MAX_JOB_QUESTIONS } from "@/lib/interviews/question-mix";
 import {
@@ -101,6 +102,7 @@ import {
   INITIAL_DRAFTS,
   pendingDrafts,
 } from "./question-drafts";
+import { questionEditWarning } from "./question-edit-warning";
 import {
   askedCount,
   asyncOffLine,
@@ -1016,6 +1018,7 @@ export function WizardClient({
   jobId,
   initialState,
   answeredCounts,
+  inviteCounts,
 }: {
   companyName: string;
   mode?: "create" | "edit";
@@ -1029,6 +1032,11 @@ export function WizardClient({
    * have any either.
    */
   answeredCounts?: Record<string, number>;
+  /**
+   * Candidates who already hold each interview for this job (#20). Edit mode
+   * only; undefined on a new job, which has none.
+   */
+  inviteCounts?: JobInviteCounts;
 }) {
   const router = useRouter();
   const isEdit = mode === "edit";
@@ -1531,6 +1539,22 @@ export function WizardClient({
   const interviewQs = questionsOf(state, "async");
   /** The AI Video Interview's own list (082), edited on step 6 only. */
   const liveQs = questionsOf(state, "live");
+
+  /*
+   * The two lists as loaded or last saved in full (#20): an edit shows the
+   * "they keep their questions" line until a save stores it.
+   */
+  const [questionBaseline, setQuestionBaseline] = useState(() => ({
+    async: questionsOf(initialState ?? EMPTY_JOB_INPUT, "async"),
+    live: questionsOf(initialState ?? EMPTY_JOB_INPUT, "live"),
+  }));
+  const asyncEditWarning = questionEditWarning(
+    "async",
+    questionBaseline.async,
+    interviewQs,
+    inviteCounts,
+  );
+  const liveEditWarning = questionEditWarning("live", questionBaseline.live, liveQs, inviteCounts);
   const reviewLines = interviewReviewLines(state, {
     mode: state.live_interview_mode ?? DEFAULT_LIVE_INTERVIEW_MODE,
     minutes: state.live_interview_minutes ?? DEFAULT_LIVE_INTERVIEW_MINUTES,
@@ -1730,7 +1754,13 @@ export function WizardClient({
       }
       // Saved in full: what is on screen is what is stored, so nothing warns
       // from here. A partial save (the questions failed) stays dirty.
-      if (savedEverything(result)) setSavedSnapshot(formSnapshot(payload, jdBox));
+      if (savedEverything(result)) {
+        setSavedSnapshot(formSnapshot(payload, jdBox));
+        setQuestionBaseline({
+          async: questionsOf(payload, "async"),
+          live: questionsOf(payload, "live"),
+        });
+      }
       // A draft save stores the job On hold, even when its questions failed.
       if (status === "on_hold") setSavedStatus("on_hold");
 
@@ -2514,6 +2544,8 @@ export function WizardClient({
                     />
                   )}
 
+                  <QuestionEditNote kind="async" line={asyncEditWarning} />
+
                   <InterviewQuestionEditor
                     questions={interviewQs}
                     onChange={(next) => set("interview_questions", next)}
@@ -2574,6 +2606,8 @@ export function WizardClient({
                       />
                     }
                   />
+
+                  <QuestionEditNote kind="live" line={liveEditWarning} />
 
                   <InterviewQuestionEditor
                     variant="live"
@@ -2882,6 +2916,7 @@ export function WizardClient({
               {step === 8 && (
                 <WeightingStep
                   state={state}
+                  questionEditLine={asyncEditWarning}
                   onCvWeight={(key, stored) => setState((prev) => ({ ...prev, [key]: stored }))}
                   onQuestionWeight={(id, stored) =>
                     set(
@@ -3275,14 +3310,34 @@ function ShareBar({ shares, labels }: { shares: number[]; labels: string[] }) {
   );
 }
 
+/**
+ * The line when a job's questions are edited after invitations went out
+ * (#20). Advisory, like the answer-type warning: nothing is blocked.
+ */
+function QuestionEditNote({ kind, line }: { kind: InterviewKind; line: string | null }) {
+  if (!line) return null;
+  return (
+    <p
+      data-question-edit-warning={kind}
+      className="mb-4 flex gap-2 rounded-[10px] bg-[var(--ai-amber-tint)] px-3 py-2.5 text-xs leading-relaxed text-[var(--ai-amber-ink)]"
+    >
+      <TriangleAlert className="mt-px size-3.5 shrink-0" strokeWidth={2} />
+      <span>{line}</span>
+    </p>
+  );
+}
+
 function WeightingStep({
   state,
   onCvWeight,
   onQuestionWeight,
   onResetCv,
   onResetQuestions,
+  questionEditLine,
 }: {
   state: CompanyJobInput;
+  /** The async line (#20): a weight is part of what an invite freezes. */
+  questionEditLine: string | null;
   onCvWeight: (key: CvWeightKey, stored: number) => void;
   onQuestionWeight: (id: string, stored: number) => void;
   onResetCv: () => void;
@@ -3366,6 +3421,8 @@ function WeightingStep({
           <b>Less</b> counts half. Questions are edited in step 5 - this only changes what they are
           worth.
         </p>
+
+        <QuestionEditNote kind="async" line={questionEditLine} />
 
         {questions.length === 0 ? (
           <p className="rounded-[13px] border border-dashed border-[var(--ai-line-strong)] px-3.5 py-5 text-center text-[12.5px] text-[var(--ai-t3)]">
